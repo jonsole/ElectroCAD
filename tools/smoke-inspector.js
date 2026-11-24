@@ -13,6 +13,22 @@ ed.selection = new Set(); ed.refresh();
 check('hidden-when-empty', insp().childElementCount === 0);
 ed.selection = new Set([a.sym.id]); ed.refresh();
 check('shown-on-select', /R1/.test(insp().querySelector('.insp-title').textContent));
+check('header-icons', ['Rotate (R)', 'Mirror (X)', 'Duplicate (Ctrl+D)', 'Delete (Del)'].every((t) => insp().querySelector(`.insp-head button[title="${t}"]`)));
+{ // drag the card by its header, then resize it from the grip; both are remembered
+  const stack = document.querySelector('.float-stack');
+  const head = insp().querySelector('.insp-title').getBoundingClientRect();
+  const ev = (type, x, y, target) => target.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, button: 0, buttons: 1, bubbles: true, pointerId: 7 }));
+  const before = stack.getBoundingClientRect();
+  ev('pointerdown', head.left + 5, head.top + 5, insp().querySelector('.insp-title')); ev('pointermove', head.left - 195, head.top + 45, stack); ev('pointerup', head.left - 195, head.top + 45, stack);
+  const after = stack.getBoundingClientRect();
+  check('card-moved', Math.abs(after.left - (before.left - 200)) < 2 && Math.abs(after.top - (before.top + 40)) < 2, [before.left, after.left]);
+  const grip = document.querySelector('.card-grip').getBoundingClientRect();
+  ev('pointerdown', grip.left + 8, grip.top + 8, document.querySelector('.card-grip')); ev('pointermove', grip.left + 68, grip.top + 8, stack); ev('pointerup', grip.left + 68, grip.top + 8, stack);
+  check('card-resized', Math.abs(stack.getBoundingClientRect().width - (after.width + 60)) < 2, stack.getBoundingClientRect().width);
+  check('card-remembered', !!localStorage.getItem('electrocad.card.schematic-cards'));
+  stack.querySelector('.insp-head').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  check('card-reset', !stack.style.left && !localStorage.getItem('electrocad.card.schematic-cards'));
+}
 const set = (label, v) => { const i = insp().querySelector(`input[aria-label="${label}"]`); i.value = v; i.dispatchEvent(new Event('change')); return i; };
 const depth = () => app.history.undoStack.length;
 let d = depth();

@@ -14,6 +14,7 @@ import { snapPt, SCH_GRID, mm } from '../core/units.js';
 const mm127 = mm(1.27);
 import { drawSheet, symbolThumbnail, measureText } from './render.js';
 import { SchematicInspector } from './inspector.js';
+import { makeDraggable } from '../ui/draggable.js';
 import { placeFields, fieldWarnings, setDefaultFieldStyle, setComponentFieldStyle, hitField, styleFor } from '../core/fields.js';
 import { validateRef, updateComponent } from '../core/components.js';
 import { hitLabel, labelBounds, labelShape, labelFrame, validateLabelName, POWER_NAMES, isPower } from '../core/labels.js';
@@ -128,7 +129,8 @@ export class SchematicEditor {
   }
 
   _tile(part, C) {
-    const img = h('img', { alt: '', draggable: false, src: symbolThumbnail(part, C) });
+    // drawn on the schematic's paper colour, so the tile looks like the part on the sheet
+    const img = h('img', { alt: '', draggable: false, src: symbolThumbnail(part, C), style: { background: C.paper || C.background } });
     const tile = h('div', { class: 'shape-tile part-tile', role: 'listitem', tabindex: '0', dataset: { part: part.id }, 'aria-label': part.name,
       title: `${part.name}: drag onto the sheet, or click then click to place (R rotates, X mirrors, Esc stops)` }, img, h('span', {}, part.name));
     tile.addEventListener('pointerdown', (e) => this._tilePointerDown(e, part));
@@ -206,6 +208,7 @@ export class SchematicEditor {
     this.renderStyleFoot();
     this.ws?.renderBar();
     this.inspector?.render();
+    this.stack?.classList.toggle('empty', !this.inspector.el.childElementCount && !this.netlistOpen && !this.sheetsOpen);
     this._hint();
     this.ws?.view.invalidate();
   }
@@ -320,7 +323,12 @@ export class SchematicEditor {
     this.inspector = new SchematicInspector(this);
     this.netlistEl = h('div', { class: 'float-panel netlist-panel', role: 'region', 'aria-label': 'Netlist' });
     this.sheetsEl = h('div', { class: 'float-panel sheets-panel', role: 'region', 'aria-label': 'Sheets' });
-    ws.view.el.append(h('div', { class: 'float-stack' }, this.inspector.el, this.sheetsEl, this.netlistEl));
+    // the cards move together by any header and resize from the corner grip (like DabbleCAD's inspector)
+    this.stack = h('div', { class: 'float-stack' }, this.inspector.el, this.sheetsEl, this.netlistEl,
+      h('div', { class: 'card-grip', title: 'Drag to resize', 'aria-hidden': 'true' }));
+    ws.view.el.append(this.stack);
+    makeDraggable(this.stack, { key: 'schematic-cards', handle: '.insp-head, .fp-head', resize: { minW: 250, maxW: 480, minH: 160 } });
+    this.stack.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
     this.renderNetlist();
     this.renderSheets();
     c.addEventListener('pointerleave', () => { if (this.placing && !this.placing.drag) { this.placing.at = null; ws.view.invalidate(); } });

@@ -48,10 +48,18 @@ export class SchematicInspector {
     }
   }
 
-  _head(title, sub) {
-    return h('div', { class: 'insp-head' },
+  /**
+   * The card header, as in DabbleCAD: the title (drag it to move the card) and icon buttons for
+   * the commands that apply to the selection.
+   */
+  _head(title, sub, { rotate = true, mirror = false } = {}) {
+    const ed = this.ed;
+    return h('div', { class: 'insp-head', title: 'Drag to move · double-click here to put the card back' },
       h('div', { class: 'insp-title', title }, title, sub ? h('span', { class: 'insp-sub' }, ' · ' + sub) : null),
-      button({ icon: 'close', title: 'Deselect (Esc)', cls: 'btn-ghost', onClick: () => { this.ed.selection.clear(); this.ed.refresh(); } }));
+      rotate ? button({ icon: 'rotate', title: 'Rotate (R)', onClick: () => ed.rotate() }) : null,
+      mirror ? button({ icon: 'mirror', title: 'Mirror (X)', onClick: () => ed.mirror() }) : null,
+      button({ icon: 'duplicate', title: 'Duplicate (Ctrl+D)', onClick: () => ed.duplicate() }),
+      button({ icon: 'trash', title: 'Delete (Del)', onClick: () => ed.deleteSelection() }));
   }
 
   _edit(label, fn) {
@@ -148,7 +156,7 @@ export class SchematicInspector {
       h('details', { class: 'insp-section', open: Object.keys(comp.fields || {}).length > 0 }, h('summary', {}, 'Custom fields'), ...fieldRows, newKey),
     ];
     const note = extraWires ? h('div', { class: 'insp-note' }, `and ${extraWires} wire${extraWires === 1 ? '' : 's'}`) : null;
-    this.el.replaceChildren(this._head(comp.ref + unitTag, part.name), h('div', { class: 'insp-body' }, note, ...rows), ...sections);
+    this.el.replaceChildren(this._head(comp.ref + unitTag, part.name, { mirror: true }), h('div', { class: 'insp-body' }, note, ...rows), ...sections);
   }
 
   _fieldStyle(compIds) {
@@ -199,9 +207,6 @@ export class SchematicInspector {
     rot.addEventListener('change', () => this._edit(`Rotate ${l.net}`, (p) => { this._find(p, l.id).rot = Number(rot.value); }));
     rows.push(h('div', { class: 'param' }, h('label', {}, 'Rotation'), rot));
     if (extraWires) rows.push(h('div', { class: 'insp-note' }, `and ${extraWires} wire${extraWires === 1 ? '' : 's'}`));
-    rows.push(h('div', { class: 'insp-btns' },
-      button({ icon: 'rotate', label: 'Rotate', cls: 'btn-outline', onClick: () => this.ed.rotate() }),
-      button({ icon: 'trash', label: 'Delete', cls: 'btn-outline', onClick: () => this.ed.deleteSelection() })));
     this.el.replaceChildren(this._head(l.net, kind), h('div', { class: 'insp-body' }, ...rows));
   }
 
@@ -216,11 +221,8 @@ export class SchematicInspector {
       rows.push(h('div', { class: 'insp-note' }, refs.slice(0, 12).join(', ') + (refs.length > 12 ? '…' : '')));
       rows.push(this._fieldStyle(compIds));
     }
-    rows.push(h('div', { class: 'insp-btns' },
-      syms.length || labels.length ? button({ icon: 'rotate', label: 'Rotate', cls: 'btn-outline', onClick: () => this.ed.rotate() }) : null,
-      syms.length ? button({ icon: 'mirror', label: 'Mirror', cls: 'btn-outline', onClick: () => this.ed.mirror() }) : null,
-      button({ icon: 'trash', label: 'Delete', cls: 'btn-outline', onClick: () => this.ed.deleteSelection() })));
-    this.el.replaceChildren(this._head(parts + ' selected'), h('div', { class: 'insp-body' }, ...rows));
+    if (!rows.length) rows.push(h('div', { class: 'insp-note' }, 'Drag to move them; the wires follow.'));
+    this.el.replaceChildren(this._head(parts + ' selected', null, { rotate: !!(syms.length || labels.length), mirror: !!syms.length }), h('div', { class: 'insp-body' }, ...rows));
   }
 }
 
