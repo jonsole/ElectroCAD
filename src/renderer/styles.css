@@ -600,3 +600,22 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .workspace-bar .ws-split.active { background: var(--accent-soft); color: var(--accent); }
 .ws-host.split .toolbar > * { flex-shrink: 0; }
 .inspector.card { transition: transform .14s ease-out; }
+
+/* Library tab: Symbol | Footprint editors (#19) */
+.lib-mode-bar { display: contents; }
+.lib-mode-bar[hidden] { display: none; }
+.tool-col .lib-mode { display: flex; flex-direction: column; align-items: center; gap: inherit; }
+.tool-col .lib-mode[hidden] { display: none; }
+.lib-sides { display: flex; flex: none; }
+.lib-sides > [hidden] { display: none; }
+.lib-warnings { margin: 6px 0; padding: 6px 8px; border-radius: 6px; font-size: 12px; border: 1px solid rgba(229, 160, 72, .5); background: rgba(229, 160, 72, .08); }
+.lib-warnings > div + div { margin-top: 4px; }
+.gen-grid { display: grid; grid-template-columns: 1fr 290px; gap: 14px; }
+.gen-side { display: flex; flex-direction: column; gap: 6px; }
+.gen-preview { border-radius: 8px; border: 1px solid var(--border); }
+.gen-name { font-size: 12px; font-family: ui-monospace, monospace; word-break: break-all; }
+.gen-problems { font-size: 12px; color: #e5484d; }
+.gen-modal .le-row { grid-template-columns: 120px 1fr 28px; }
+.pinmap-rows { max-height: 50vh; overflow-y: auto; }
+.pinmap-rows .le-row { grid-template-columns: 1fr 140px 0; }
+.menu-item .menu-hint { margin-left: auto; font-size: 11px; color: var(--muted); }

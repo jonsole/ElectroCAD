@@ -7,6 +7,7 @@ import { SCH_GRID, mm } from '../core/units.js';
 import { BoardEditor } from '../board/editor.js';
 import { SchematicEditor } from '../schematic/editor.js';
 import { LibraryEditor } from '../libedit/editor.js';
+import { FootprintEditor } from '../libedit/fpeditor.js';
 import { openPrintDialog } from '../print/dialog.js';
 
 
@@ -81,23 +82,48 @@ function gerber(app) {
 }
 
 function library(app) {
-  // the editor lives on the app, so an unsaved Part survives switching Projects
-  const editor = (app.libEditor ||= new LibraryEditor(app));
-  const ws = new Workspace({
-    colors: () => app.canvasColors('schematic'), // the Symbol editor; the Footprint editor (#19) switches to the Board theme
-    draw: (ctx, view, C) => editor.draw(ctx, view, C),
-    onRefresh: () => editor.refresh(),
+  // the editors live on the app, so an unsaved Part or Footprint survives switching Projects
+  const sym = (app.libEditor ||= new LibraryEditor(app));
+  const fpe = (app.fpEditor ||= new FootprintEditor(app));
+  app.libMode ||= 'symbol';
+  const cur = () => (app.libMode === 'footprint' ? fpe : sym);
+  // both editors' toolbars, palettes and side panels are built; the Symbol | Footprint switch shows one
+  const part = (cls, kids) => h('div', { class: `lib-mode ${cls}` }, ...kids.map((k) => k || h('span', { class: 'sep-h' })));
+  const symBar = h('div', { class: 'lib-mode-bar' }, ...sym.toolbar()), fpBar = h('div', { class: 'lib-mode-bar' }, ...fpe.toolbar());
+  const symTools = part('tool-set', sym.tools()), fpTools = part('tool-set', fpe.tools());
+  const symSide = sym.buildSide(), fpSide = fpe.buildSide();
+  const side = h('div', { class: 'lib-sides' }, symSide, fpSide);
+  let ws;
+  const seg = segmented([['symbol', 'Symbol', 'schematic', 'Edit Symbols (Parts)'], ['footprint', 'Footprint', 'pad', 'Edit Footprints: pads, silk, courtyard, fab; Generator…']], app.libMode, (id) => setMode(id));
+  function setMode(id) {
+    app.libMode = id;
+    for (const b of seg.querySelectorAll('button')) b.classList.toggle('active', b.dataset.id === id);
+    const f = id === 'footprint';
+    symBar.hidden = f; symTools.hidden = f; symSide.hidden = f;
+    fpBar.hidden = !f; fpTools.hidden = !f; fpSide.hidden = !f;
+    if (ws) {
+      ws.editor = cur();
+      ws.view.canvas.style.cursor = '';
+      ws.refresh(); ws.recolor();
+      if (f && !fpe.draft) ws.view.fitHome();
+    }
+  }
+  ws = new Workspace({
+    colors: () => app.canvasColors(app.libMode === 'footprint' ? 'board' : 'schematic'), // the Footprint editor uses the Board theme
+    draw: (ctx, view, C) => cur().draw(ctx, view, C),
+    onRefresh: () => cur().refresh(),
     id: 'library', label: 'Library', icon: 'library', title: 'Library: your Libraries, and the Symbol and Footprint editors',
     grid: SCH_GRID, home: { x0: -20e6, y0: -15e6, x1: 20e6, y1: 15e6 },
-    toolbar: [segmented([['symbol', 'Symbol', 'schematic', 'Edit the Symbol'], ['footprint', 'Footprint', 'pad', 'Edit the Footprint', 19]], 'symbol'), sep(), ...editor.toolbar()],
+    toolbar: [seg, sep(), symBar, fpBar],
     hint: '',
-    tools: editor.tools(),
-    side: editor.buildSide(),
-    chips: () => editor.chips(),
-    status: () => editor.status(),
+    tools: [symTools, fpTools],
+    side,
+    chips: () => cur().chips(),
+    status: () => cur().status(),
   });
-  ws.editor = editor;
-  editor.attach(ws);
+  sym.attach(ws);
+  fpe.attach(ws);
+  setMode(app.libMode);
   return ws;
 }
 

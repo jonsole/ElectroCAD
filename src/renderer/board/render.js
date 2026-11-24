@@ -131,14 +131,10 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
     const T = fpTransform(bf);
     const S = (p) => view.toScreen(T(p));
     const partial = padsOnly?.has(bf.id);
-    // courtyard and other graphics
-    for (const g of partial ? [] : fp.graphics || []) {
-      const layer = flipLayer(g.layer || 'F.SilkS', bf.side);
-      if (!visible(layer) || g.type !== 'rect') continue;
-      const pts = [g.a, [g.b[0], g.a[1]], g.b, [g.a[0], g.b[1]]].map(S);
-      ctx.save(); ctx.strokeStyle = C[layer] || '#888'; ctx.lineWidth = 1; if (/CrtYd/.test(layer)) ctx.setLineDash([4, 3]);
-      ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.stroke(); ctx.restore();
-    }
+    const ref = ann[bf.componentId]?.ref ?? comp?.ref ?? '';
+    const value = ann[bf.componentId]?.value ?? comp?.value ?? '';
+    // silk, courtyard and fab graphics (and its own ${REF} / ${VALUE} text)
+    const own = partial ? { ref: true, value: true } : drawFootprintGraphics(ctx, view, C, fp, T, { side: bf.side, visible, ref, value });
     // pads
     for (const pad of placedPads(project, bf, nets)) {
       if (partial && !padKeys?.has(`${bf.componentId}:${pad.number}`)) continue;
@@ -175,10 +171,9 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
     }
     if (partial) continue;
     // Reference on silk above the courtyard, Value on fab below it
+    // a Footprint without its own Reference / Value text gets them above and below its courtyard
     const crt = (fp.graphics || []).find((g) => /CrtYd$/.test(g.layer || '') && g.type === 'rect');
     const top = crt ? Math.min(crt.a[1], crt.b[1]) : -mm(1);
-    const ref = ann[bf.componentId]?.ref ?? comp?.ref ?? '';
-    const value = ann[bf.componentId]?.value ?? comp?.value ?? '';
     const text = (layer, str, local, size) => {
       if (!str || !visible(layer)) return;
       const px = size * view.scale;
@@ -188,9 +183,9 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
       if (bf.side === 'B') { ctx.translate(x, y); ctx.scale(-1, 1); ctx.fillText(str, 0, 0); } else ctx.fillText(str, x, y);
       ctx.restore();
     };
-    text(flipLayer('F.SilkS', bf.side), ref, [0, top - mm(0.8)], mm(1));
+    if (!own.ref) text(flipLayer('F.SilkS', bf.side), ref, [0, top - mm(0.8)], mm(1));
     const bottom = crt ? Math.max(crt.a[1], crt.b[1]) : mm(1);
-    text(flipLayer('F.Fab', bf.side), value, [0, bottom + mm(0.6)], mm(0.7));
+    if (!own.value) text(flipLayer('F.Fab', bf.side), value, [0, bottom + mm(0.6)], mm(0.7));
   }
 }
 
@@ -199,4 +194,68 @@ function shortNet(net, ctx, maxPx) {
   let s = /^Net-\((.+)-Pad(.+)\)$/.test(net) ? net.replace(/^Net-\((.+)-Pad(.+)\)$/, '$1-$2') : net;
   while (s.length > 3 && ctx.measureText(s).width > maxPx) s = s.slice(0, -2) + '…';
   return s;
+}
+
+/**
+ * A Footprint's graphics (lines, rectangles, polygons, circles, arcs and text) through local ->
+ * board transform T, each in its layer's colour (flipped for the back side). `${REF}` and
+ * `${VALUE}` in text are filled in with `ref` / `value`. Returns { ref, value }: whether it drew
+ * its own Reference / Value text. Shared by the Board and the Footprint editor.
+ */
+export function drawFootprintGraphics(ctx, view, C, fp, T, { side = 'F', visible = () => true, ref = 'REF**', value = 'VALUE', only = null } = {}) {
+  const S = (p) => view.toScreen(T(p));
+  const own = { ref: false, value: false };
+  const lw = (layer) => Math.max(1, mm(/SilkS/.test(layer) ? 0.12 : 0.1) * view.scale);
+  (fp.graphics || []).forEach((g, i) => {
+    if (only && !only.has(i)) return;
+    const layer = flipLayer(g.layer || 'F.SilkS', side);
+    if (g.type === 'text') { if (g.text.includes('${REF}')) own.ref = true; if (g.text.includes('${VALUE}')) own.value = true; }
+    if (!visible(layer)) return;
+    const col = C[layer] || '#888';
+    ctx.save(); ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = lw(layer); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    if (/CrtYd/.test(layer)) { ctx.setLineDash([4, 3]); ctx.lineWidth = 1; }
+    ctx.beginPath();
+    if (g.type === 'rect') { [g.a, [g.b[0], g.a[1]], g.b, [g.a[0], g.b[1]]].map(S).forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.stroke(); }
+    else if (g.type === 'line' || g.type === 'poly') { g.pts.map(S).forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); if (g.type === 'poly') ctx.closePath(); ctx.stroke(); }
+    else if (g.type === 'circle') {
+      const [cx, cy] = S(g.c); ctx.arc(cx, cy, g.r * view.scale, 0, TAU);
+      if (g.fill === 'outline') ctx.fill(); else ctx.stroke();
+    } else if (g.type === 'arc') {
+      const pts = [g.start, g.mid, g.end].map(T);
+      shapePath(ctx, view, { type: 'arc', start: pts[0], mid: pts[1], end: pts[2] }); ctx.stroke();
+    } else if (g.type === 'text') {
+      const px = g.size * view.scale;
+      if (px >= 4) {
+        const str = String(g.text).replace(/\$\{REF\}/g, ref).replace(/\$\{VALUE\}/g, value);
+        const [x, y] = S(g.at);
+        ctx.font = `600 ${px}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        if (side === 'B') { ctx.translate(x, y); ctx.scale(-1, 1); ctx.fillText(str, 0, 0); } else ctx.fillText(str, x, y);
+      }
+    }
+    ctx.restore();
+  });
+  return own;
+}
+
+/** One pad, at its board position (shape, colour by layer, drill hole). */
+export function drawPad(ctx, view, C, pad, cu) {
+  const tht = pad.layers.includes('*.Cu');
+  const [cx, cy] = view.toScreen(pad.at);
+  const w = pad.size[0] * view.scale, hgt = pad.size[1] * view.scale;
+  ctx.save();
+  ctx.translate(cx, cy); ctx.rotate((-(pad.rot || 0) * Math.PI) / 180);
+  ctx.fillStyle = tht ? (C.padThroughHole || C[cu]) : C[cu] || '#c33';
+  ctx.beginPath();
+  if (pad.shape === 'circle' || pad.shape === 'oval') ctx.ellipse(0, 0, w / 2, hgt / 2, 0, 0, TAU);
+  else if (pad.shape === 'roundrect' && ctx.roundRect) ctx.roundRect(-w / 2, -hgt / 2, w, hgt, Math.min(w, hgt) * 0.25);
+  else ctx.rect(-w / 2, -hgt / 2, w, hgt);
+  ctx.fill();
+  if (pad.drill) { ctx.fillStyle = C.drill || '#000'; ctx.beginPath(); ctx.arc(0, 0, (pad.drill * view.scale) / 2, 0, TAU); ctx.fill(); }
+  const small = Math.min(w, hgt);
+  if (small >= 12) {
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0,0,0,.8)'; ctx.shadowBlur = 2;
+    ctx.font = `600 ${Math.min(13, small * 0.4)}px system-ui, sans-serif`; ctx.fillText(pad.number, 0, 0);
+  }
+  ctx.restore();
 }

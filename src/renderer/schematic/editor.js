@@ -296,7 +296,8 @@ export class SchematicEditor {
   }
 
   /** Every generated Footprint (for "Other…" here and in the inspector), made once. */
-  allFootprints() { return (this._allFp ||= allFootprints()); }
+  /** Every Footprint to choose from: the user's Library footprints first, then the built-in ones. */
+  allFootprints() { return [...this.app.libraries.flatMap((l) => Object.values(l.footprints || {})), ...(this._allFp ||= allFootprints())]; }
 
   _tile(part, C) {
     // drawn on the schematic's paper colour, so the tile looks like the part on the sheet

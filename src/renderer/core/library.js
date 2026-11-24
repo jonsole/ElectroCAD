@@ -2,7 +2,8 @@
 // IndexedDB in the browser, through the platform bridge). DOM-free.
 //
 // A Library file (.ecadlib) is JSON:
-//   { format: 'electrocad-library', version: 1, id, name, parts: { [partId]: Part } }
+//   { format: 'electrocad-library', version: 2, id, name, parts: { [partId]: Part },
+//     footprints: { [footprintId]: Footprint } }
 // A Part is the Native format's Part (core/ecad-schema.js) plus the Library-only keys `category`
 // and `manufacturer`. Its origin is { library: <Library id>, partId, version }; the version goes
 // up each time the Part is saved with changes, so a Project records which edition it used.
@@ -11,7 +12,7 @@ import { ECAD_SCHEMA } from './ecad-schema.js';
 import { checkSchema } from './schema-check.js';
 
 export const LIBRARY_FORMAT = 'electrocad-library';
-export const LIBRARY_VERSION = 1;
+export const LIBRARY_VERSION = 2; // 2: Footprints (#19)
 export const LIBRARY_EXTENSION = 'ecadlib';
 export const PIN_TYPES = ['passive', 'input', 'output', 'bidirectional', 'tri_state', 'power_in', 'power_out', 'open_collector', 'open_emitter', 'unspecified', 'no_connect'];
 export const PART_CATEGORIES = ['Passives', 'Semiconductors', 'Connectors', 'ICs', 'Power', 'Other'];
@@ -31,7 +32,7 @@ export function slugId(name, taken = []) {
 
 export function newLibrary(name, takenIds = []) {
   const n = String(name || '').trim() || 'My parts';
-  return { format: LIBRARY_FORMAT, version: LIBRARY_VERSION, id: slugId(n, takenIds), name: n, parts: {} };
+  return { format: LIBRARY_FORMAT, version: LIBRARY_VERSION, id: slugId(n, takenIds), name: n, parts: {}, footprints: {} };
 }
 
 /** A new Part in `library`: one Unit with a body rectangle and no Pins yet. */
@@ -156,11 +157,78 @@ export function parseLibrary(text) {
   let j;
   try { j = JSON.parse(text); } catch { throw new LibraryError('This file is not an ElectroCAD library (it is not valid JSON).'); }
   if (!j || j.format !== LIBRARY_FORMAT) throw new LibraryError('This file is not an ElectroCAD library.');
+  // version 1 had no Footprints; it reads as a version 2 Library with none (nothing is lost)
+  if (j.version === 1 && !j.footprints) { j.footprints = {}; j.version = LIBRARY_VERSION; }
   if (j.version !== LIBRARY_VERSION) throw new LibraryError(`This library was saved by a different version of ElectroCAD (library version ${j.version}; this app reads ${LIBRARY_VERSION}).`);
-  if (typeof j.id !== 'string' || !/^[a-z0-9][a-z0-9-]{0,40}$/.test(j.id) || typeof j.name !== 'string' || !j.parts || typeof j.parts !== 'object') throw new LibraryError('This library file is damaged.');
+  if (typeof j.id !== 'string' || !/^[a-z0-9][a-z0-9-]{0,40}$/.test(j.id) || typeof j.name !== 'string' || !j.parts || typeof j.parts !== 'object' || !j.footprints || typeof j.footprints !== 'object') throw new LibraryError('This library file is damaged.');
+  for (const [id, fp] of Object.entries(j.footprints)) {
+    const bad = footprintSchemaErrors(fp);
+    if (bad.length) throw new LibraryError(`This library file is damaged: footprint ${fp?.name || id} (${bad[0]}).`);
+  }
   for (const [id, p] of Object.entries(j.parts)) {
     const problems = partProblems(p).filter((x) => x.startsWith('Damaged'));
     if (p.id !== id || problems.length) throw new LibraryError(`This library file is damaged: part ${p.name || id}${problems.length ? ` (${problems[0]})` : ''}.`);
   }
   return j;
 }
+
+// ---------------------------------------------------------------- Footprints (#19)
+
+/** Layers a Pad can be on: SMD pads on the top; through-hole pads on every copper and mask layer. */
+export const SMD_LAYERS = ['F.Cu', 'F.Paste', 'F.Mask'];
+export const THT_LAYERS = ['*.Cu', '*.Mask'];
+/** Layers a Footprint's graphics can be drawn on (its own side; flipping puts them on B.*). */
+export const FOOTPRINT_LAYERS = ['F.SilkS', 'F.CrtYd', 'F.Fab'];
+export const PAD_SHAPES = ['rect', 'roundrect', 'circle', 'oval'];
+
+export function newFootprint(name = 'New footprint') {
+  return { name, pads: [], graphics: [] };
+}
+
+const footprintSchemaErrors = (fp) => checkSchema({ ...ECAD_SCHEMA, ...ECAD_SCHEMA.$defs.footprint, $defs: ECAD_SCHEMA.$defs }, fp).map((e) => e.replace(/^\$\.?/, ''));
+
+/**
+ * What is wrong with a Footprint: `errors` stop it being saved, `warnings` don't.
+ *  errors: no name, no pads, a pad without a number, sizes not above zero, a through-hole pad
+ *          without a drill or with a drill as big as the pad, damage (the schema)
+ *  warnings: pad numbers used twice (they are joined: one Net), no courtyard
+ */
+export function footprintProblems(fp) {
+  const errors = [], warnings = [];
+  if (!fp || typeof fp !== 'object') return { errors: ['This is not a footprint.'], warnings };
+  if (!String(fp.name || '').trim()) errors.push('The footprint needs a name.');
+  for (const e of footprintSchemaErrors(fp).slice(0, 3)) errors.push(`Damaged: ${e}`);
+  const pads = Array.isArray(fp.pads) ? fp.pads : [];
+  if (!pads.length) errors.push('The footprint has no pads.');
+  const count = new Map();
+  for (const p of pads) {
+    const n = String(p.number ?? '').trim();
+    if (!n) { errors.push('A pad has no number.'); continue; }
+    count.set(n, (count.get(n) || 0) + 1);
+    if (!(p.size?.[0] > 0 && p.size?.[1] > 0)) errors.push(`Pad ${n} needs a width and height above zero.`);
+    const tht = (p.layers || []).includes('*.Cu');
+    if (tht && !(p.drill > 0)) errors.push(`Through-hole pad ${n} needs a drill.`);
+    if (p.drill > 0 && p.size && p.drill >= Math.min(p.size[0], p.size[1])) errors.push(`Pad ${n}'s drill is as big as the pad: no copper is left around it.`);
+    if (!tht && p.drill > 0) errors.push(`Pad ${n} has a drill but is SMD: make it through-hole.`);
+  }
+  const twice = [...count].filter(([, c]) => c > 1).map(([n]) => n);
+  if (twice.length) warnings.push(`Pad number${twice.length === 1 ? '' : 's'} ${twice.join(', ')} ${twice.length === 1 ? 'is' : 'are'} used more than once: those pads are joined (one net), as for a tab.`);
+  if (!(fp.graphics || []).some((g) => /CrtYd$/.test(g.layer || ''))) warnings.push('There is no courtyard (F.CrtYd): DRC can\'t check that parts keep apart.');
+  return { errors, warnings };
+}
+
+/**
+ * Save a Footprint into a Library under `id` (a new id from its name when null). Refused with a
+ * LibraryError when it has errors. Returns the id.
+ */
+export function saveFootprint(library, fp, id = null) {
+  const { errors } = footprintProblems(fp);
+  if (errors.length) throw new LibraryError(`This footprint can't be saved yet:\n• ${errors.join('\n• ')}`);
+  library.footprints ||= {};
+  const key = id || slugId(fp.name, Object.keys(library.footprints));
+  library.footprints[key] = structuredClone({ name: fp.name, pads: fp.pads, graphics: fp.graphics || [] });
+  return key;
+}
+
+/** Every Footprint in these Libraries: [{ library, id, footprint }]. */
+export const libraryFootprints = (libraries) => libraries.flatMap((l) => Object.entries(l.footprints || {}).map(([id, footprint]) => ({ library: l, id, footprint })));

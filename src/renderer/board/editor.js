@@ -235,7 +235,7 @@ export class BoardEditor {
         return null;
       } catch (e) { return e.message; }
     };
-    const ch = footprintChoices(this.project, comp, [...STARTER_LIBRARY, ...this.app.userParts()], (this._allFp ||= allFootprints()));
+    const ch = footprintChoices(this.project, comp, [...STARTER_LIBRARY, ...this.app.userParts()], [...this.app.libraries.flatMap((l) => Object.values(l.footprints || {})), ...(this._allFp ||= allFootprints())]);
     const fpSel = stop(h('select', { class: 'select', 'aria-label': 'Footprint', title: 'Swapping keeps the position, rotation and side; the Schematic sees it at once' },
       ch.preferred.length ? h('optgroup', { label: 'Preferred' }, ...ch.preferred.map((c) => h('option', { value: c.key }, c.label))) : null,
       ch.other.length ? h('optgroup', { label: 'Other footprints (pins map by number)' }, ...ch.other.map((c) => h('option', { value: c.key }, c.label))) : null));

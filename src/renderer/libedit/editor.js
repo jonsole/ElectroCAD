@@ -5,7 +5,7 @@
 //
 // The editor lives on the app and survives Project switches (the workspaces are rebuilt around
 // each Project); attach() hooks it to the new canvas.
-import { h, icon, button, popupMenu, toast, confirmDialog, promptDialog } from '../ui/dom.js';
+import { h, icon, button, popupMenu, toast, confirmDialog, promptDialog, modal } from '../ui/dom.js';
 import { section } from '../workspaces/workspace.js';
 import { History } from '../core/history.js';
 import { SCH_GRID as G, mm } from '../core/units.js';
@@ -67,8 +67,11 @@ export class LibraryEditor {
   /** The grid in use: the Alt grid while Alt is held. Pins snap to it, graphics to half of it. */
   get gridStep() { return this.alt ? this.grid.alt : this.grid.main; }
 
+  /** The Library tab shows the Symbol editor (not the Footprint editor, #19). */
+  get active() { return this.app.libMode !== 'footprint'; }
+
   setAlt(on) {
-    if (!!on === !!this.alt) return;
+    if (!this.active || !!on === !!this.alt) return;
     this.alt = !!on;
     if (this.ws) { this.ws.view.grid = this.gridStep; this.ws.renderBar(); this.ws.view.invalidate(); }
   }
@@ -228,6 +231,7 @@ export class LibraryEditor {
           d.units.length > 1 ? button({ icon: 'trash', title: `Delete Unit ${unitName(this.unit)}`, cls: 'btn-ghost btn-xs', onClick: () => this.removeUnit() }) : null)),
       h('div', { class: 'param param-wide' }, h('label', {}, 'Preferred footprints'),
         h('div', { class: 'lib-fps' }, ...fps.map(([fpId, fp]) => h('span', { class: 'fp-chip lib-fp', title: fp.name }, fp.name.split('_')[0] === fp.name ? fp.name : fp.name.replace(/_\d+(\.\d+)?x.*$/, ''),
+          h('button', { class: 'lib-fp-x', type: 'button', title: `Pin map: which pad each Pin goes to on ${fp.name}`, 'aria-label': `Pin map for ${fp.name}`, onClick: () => this.pinMapDialog(fpId) }, '⇄'),
           h('button', { class: 'lib-fp-x', type: 'button', title: `Remove ${fp.name}`, onClick: () => this.edit('Remove footprint', (p) => { delete p.footprints[fpId]; delete p.pinMap?.[fpId]; }) }, '×'))),
         button({ icon: 'plus', label: 'Add', cls: 'btn-outline btn-xs', title: 'Add a Preferred footprint (Pin n goes to Pad n)', onClick: (e) => this.addFootprintMenu(e.currentTarget) }))),
       problems.length
@@ -238,7 +242,9 @@ export class LibraryEditor {
   /** Search every generated Footprint and add one as Preferred. */
   addFootprintMenu(anchor) {
     document.querySelectorAll('.fp-search-pop').forEach((x) => x.remove());
-    const all = this.app.workspace('schematic')?.editor?.allFootprints?.() || [];
+    // the user's own Library footprints first (tagged with their Library), then every built-in one
+    const mine = this.libraries.flatMap((l) => Object.values(l.footprints || {}).map((f) => ({ ...f, _lib: l.name })));
+    const all = [...mine, ...(this.app.workspace('schematic')?.editor?.allFootprints?.() || [])];
     const input = h('input', { class: 'input', type: 'search', placeholder: 'Search footprints, e.g. SOIC-8', 'aria-label': 'Search footprints', spellcheck: false });
     const list = h('div', { class: 'fp-search-list' });
     const pop = h('div', { class: 'fp-search-pop menu' }, input, list);
@@ -247,10 +253,11 @@ export class LibraryEditor {
     const render = () => {
       const words = input.value.toLowerCase().split(/\s+/).filter(Boolean);
       list.replaceChildren(...all.filter((f) => words.every((w) => f.name.toLowerCase().includes(w))).slice(0, 80).map((f) => {
-        const b = h('button', { class: 'menu-item', type: 'button' }, h('span', { class: 'menu-label' }, f.name));
+        const b = h('button', { class: 'menu-item', type: 'button' }, h('span', { class: 'menu-label' }, f.name), f._lib ? h('span', { class: 'menu-hint' }, f._lib) : null);
         b.addEventListener('click', () => {
           const fpId = f.name.replace(/[^A-Za-z0-9]+/g, '_').slice(0, 40);
-          this.edit(`Add ${f.name}`, (p) => { p.footprints ||= {}; p.footprints[fpId] = structuredClone(f); });
+          const { _lib, ...fp } = f; void _lib;
+          this.edit(`Add ${f.name}`, (p) => { p.footprints ||= {}; p.footprints[fpId] = structuredClone(fp); });
           close();
         });
         return b;
@@ -263,6 +270,35 @@ export class LibraryEditor {
     Object.assign(pop.style, { left: `${Math.max(8, Math.min(r.left - 200, window.innerWidth - 340))}px`, top: `${Math.max(8, r.top - 330)}px` });
     render(); input.focus();
     setTimeout(() => document.addEventListener('pointerdown', outside, true));
+  }
+
+  /**
+   * The Pin map of a Preferred footprint: for each Pin, the pad it goes to (default: the pad with
+   * its number). Pads no Pin uses are listed, so a missing one shows.
+   */
+  pinMapDialog(fpId) {
+    const d = this.draft, fp = d?.footprints?.[fpId];
+    if (!fp) return;
+    const m = modal({ title: `Pin map: ${fp.name}`, width: 460 });
+    const pins = d.units.flatMap((u, ui) => u.pins.map((p) => ({ ...p, unit: ui })));
+    const pads = [...new Set(fp.pads.map((p) => p.number))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const map = { ...(d.pinMap?.[fpId] || {}) };
+    const rows = pins.map((p) => {
+      const sel = h('select', { class: 'select', 'aria-label': `Pad for pin ${p.number}` }, h('option', { value: '' }, '(none)'), ...pads.map((n) => h('option', { value: n }, `Pad ${n}`)));
+      sel.value = map[p.number] ?? (pads.includes(p.number) ? p.number : '');
+      sel.addEventListener('change', () => { if (sel.value === p.number) delete map[p.number]; else map[p.number] = sel.value; note(); });
+      return h('label', { class: 'le-row' }, h('span', {}, `Pin ${p.number}${p.name && p.name !== '~' ? ` (${p.name})` : ''}${d.units.length > 1 ? ` · ${unitName(p.unit)}` : ''}`), sel, h('em', {}, ''));
+    });
+    const unusedEl = h('p', { class: 'side-note' });
+    const note = () => {
+      const used = new Set(pins.map((p) => map[p.number] ?? p.number));
+      const unused = pads.filter((n) => !used.has(n));
+      unusedEl.textContent = unused.length ? `Pads no pin goes to: ${unused.join(', ')} (they get no net).` : 'Every pad has a pin.';
+    };
+    note();
+    m.body.append(h('div', { class: 'pinmap-rows' }, ...rows), unusedEl,
+      h('div', { class: 'modal-actions' }, button({ label: 'Cancel', cls: 'btn-outline', onClick: () => m.close() }),
+        button({ label: 'Apply', cls: 'btn-primary', onClick: () => { this.edit(`Pin map ${fp.name}`, (p) => { p.pinMap ||= {}; const clean = Object.fromEntries(Object.entries(map).filter(([k, v]) => v && v !== k)); if (Object.keys(clean).length) p.pinMap[fpId] = clean; else delete p.pinMap[fpId]; }); m.close(); } })));
   }
 
   /** PROPERTIES: the selected Pin(s) or graphic. */
@@ -336,8 +372,9 @@ export class LibraryEditor {
     this.renderLibraries();
     this.renderPart();
     this.renderProps();
-    if (this.ws) this.ws.view.grid = this.gridStep;
     this.gridCard?.render();
+    if (!this.active) return;
+    if (this.ws) { this.ws.view.grid = this.gridStep; this.ws.view.origin = [0, 0]; }
     this.ws?.renderBar();
     this._hint();
     this.ws?.view.invalidate();
@@ -368,7 +405,7 @@ export class LibraryEditor {
     watchAlt(ws, (on) => this.setAlt(on));
     this.gridCard.mount(ws);
     c.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 || !this.draft) return;
+      if (!this.active || e.button !== 0 || !this.draft) return;
       const w = world(e);
       this.setAlt(e.altKey);
       if (this.tool === 'origin') { this.placeOrigin(w); return; }
@@ -393,6 +430,7 @@ export class LibraryEditor {
       this.toolClick(w, e.detail >= 2);
     });
     c.addEventListener('pointermove', (e) => {
+      if (!this.active) return;
       const w = world(e);
       this.setAlt(e.altKey);
       this.cursor = w;
@@ -427,6 +465,7 @@ export class LibraryEditor {
       } else if (this.tool !== 'select') ws.view.invalidate();
     });
     c.addEventListener('pointerup', () => {
+      if (!this.active) return;
       if (this.handleDrag) {
         const d = this.handleDrag; this.handleDrag = null;
         const g = this.draft.units[this.unit].graphics[d.index];

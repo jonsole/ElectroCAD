@@ -413,6 +413,32 @@ There are four workspace tabs: **Schematic · Board · Gerber · Library**. Each
     - **Saving:** **Save** (Ctrl+S) writes the Part to its Library and raises its version when it changed. Saved Parts appear in the Schematic picker straight away; each Library is also an entry in the picker's category select. Placing one records its Library origin (`library/part@version`).
     - **Undo:** Ctrl+Z in the Library tab undoes Part edits only, not the Project.
     - **The picker's New part** opens the Library tab with a new Part, in "My parts" (made for you if you have no Library yet).
+  - **Footprint editor (#19):** the toolbar's **Symbol | Footprint** switch set to Footprint. The canvas draws in the Board's colours.
+    - **FOOTPRINTS** lists your Libraries' footprints and the built-in ones (read-only: they open as a copy to save in your Library), with search.
+    - **FOOTPRINT** has the name, the Library it saves to, and the problems:
+      - errors stop a save: no name, no pads, a pad without a number, a size not above zero, a through-hole pad without a drill or with a drill as big as the pad;
+      - warnings don't: a pad number used twice (those pads are joined, as for a tab), no courtyard.
+    - **PROPERTIES**:
+      - the selected pad: number, shape (rectangle, rounded rectangle, circle, oval), width and height, SMD (F.Cu, F.Paste, F.Mask) or through-hole (every copper layer, mask) with a drill, X and Y;
+      - the selected graphic: its layer, and the text and size for text;
+      - nothing selected: what the Pad tool makes next.
+    - **Tools:**
+      - Select (V);
+      - Pad (P): the next number;
+      - Line (L), Rectangle (B), Circle (C), Arc (A) and Text (T), on the active layer. Text can hold `${REF}` and `${VALUE}`, which the Board fills in with the part's Reference and Value, where the footprint puts them.
+    - **Editing:** drag to move, drag a graphic's handles to resize, R turns pads 90° (their width and height swap), arrow keys nudge, Del deletes.
+    - **Grid:** 0.05 mm, Alt 0.01 mm by default, in the Grid card. Snapping goes onto pad centres and handles.
+    - **Bottom chips:** Pads, Silk, Courtyard and Fab. Click one to make it the active layer for new graphics.
+    - **Generator…** makes a standard package from parameters, with a live preview and its name. It is a complete footprint: pads, fab body, silk outline clear of the pads, a pin-1 mark, courtyard, and `${REF}` / `${VALUE}` text. **Create** opens it to edit and save. The packages:
+      - chip R / C / L / LED / D (size, pad size, pad centres);
+      - SOIC / SOP (pins, pitch, row spacing, pad size, body width);
+      - pin header (1 or 2 rows, pins, pitch, pad, drill);
+      - DIP (pins, pitch, row spacing, pad, drill).
+    - **Save** (Ctrl+S) writes it to its Library ("My parts" is made if you have none). It has its own undo history.
+  - **Using footprints on a Part:**
+    - In the Symbol editor, PART → Preferred footprints → **Add** lists your Library footprints first (with their Library), then the built-in ones.
+    - Each Preferred footprint has a **⇄ Pin map** button: choose the pad for each Pin. It lists the pads no Pin goes to.
+    - Your footprints are also offered as "Other footprints" in the Schematic and Board inspectors and the picker's Other….
     - **Footprint** editing is #19.
 
 ## Agents (MCP)
