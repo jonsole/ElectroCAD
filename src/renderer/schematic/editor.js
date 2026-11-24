@@ -7,7 +7,7 @@ import { later } from '../workspaces/workspace.js';
 import { MINI_LIBRARY, searchParts } from '../library/mini.js';
 import { toggleNoConnect, hitNoConnect, placedUnits, unitSuggestion, nextUnplacedUnit, unitLetter, placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, addLabel, addSheet, renameSheet, moveSheet, deleteSheet, validateSheetName, hitWire, preferredAxis, routeWire, moveSelection, copySelection, pasteClip, itemsInRect, itemsBounds, cleanupWires } from '../core/schematic.js';
 import { buildNetlist } from '../core/netlist.js';
-import { runErc } from '../core/erc.js';
+import { runErc, filterViolations } from '../core/erc.js';
 import { pinPositions, nextRef, partOf } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
 import { snapPt, SCH_GRID, mm } from '../core/units.js';
@@ -44,6 +44,7 @@ export class SchematicEditor {
     this.netlistOpen = false;
     this.ercOpen = false;
     this.ercFocus = null; // the violation last jumped to (ringed on the canvas)
+    this.ercFilter = { error: true, warning: true, info: true, query: '' }; // the ERC card's filter
     this.drag = null;    // moving the selection: { start, ids, snapshot, delta, moved }
     this.marquee = null; // box select: { a, b } in world
     this.preview = null; // a copy of the Project showing a move in progress
@@ -466,7 +467,7 @@ export class SchematicEditor {
     const sheet = this._S(proj);
     this.placement = placeFields(proj, sheet, { measure: measureText });
     drawSheet(ctx, view, C, proj, sheet, { selection: this.selection, ghost, bounds: (s) => symbolBounds(proj, s), wiring, target, placement: this.placement, display: this.app.schematicDisplay(), ghostLabel,
-      erc: this.ercOpen ? (this.ercList || []).filter((x) => x.sheetId === sheet.id) : null, ercFocus: this.ercFocus });
+      erc: this.ercOpen ? (this.ercShown || []).filter((x) => x.sheetId === sheet.id && x.severity !== 'info') : null, ercFocus: this.ercFocus });
     if (this.marquee && (this.marquee.a[0] !== this.marquee.b[0] || this.marquee.a[1] !== this.marquee.b[1])) {
       const m = this.marquee;
       const [x0, y0] = view.toScreen(m.a), [x1, y1] = view.toScreen(m.b);
@@ -651,30 +652,64 @@ export class SchematicEditor {
     this.ws?.view.invalidate();
   }
 
-  /** The ERC card: live while open (rerun after every change), errors first, click to go there. */
+  /**
+   * The ERC card: live while open (rerun after every change), errors first, click to go there.
+   * A filter bar shows or hides Errors, Warnings and Info (with counts) and searches the parts and
+   * nets each problem involves. The header and filter bar are built once so typing in the search
+   * box isn't interrupted by the live updates; only the counts and the list are redrawn.
+   */
   renderErc() {
     const el = this.ercEl;
     if (!el) return;
     el.style.display = this.ercOpen ? '' : 'none';
-    if (this.ercBtn) this.ercBtn.title = 'Electrical rule check (ERC)';
-    if (!this.ercOpen) { this.ercList = null; return; }
+    if (!this.ercOpen) { this.ercList = null; this.ercShown = null; return; }
+    if (!this.ercUi) this._buildErcCard();
+    const ui = this.ercUi, f = this.ercFilter;
     const list = runErc(this.project, { measure: measureText });
     this.ercList = list;
-    const errors = list.filter((v) => v.severity === 'error').length, warnings = list.length - errors;
-    const sheetName = (id) => this.project.schematic.sheets.find((s) => s.id === id)?.name;
+    const count = (sev) => list.filter((v) => v.severity === sev).length;
+    const errors = count('error'), warnings = count('warning');
+    ui.count.textContent = errors || warnings ? [errors ? `${errors} error${errors === 1 ? '' : 's'}` : null, warnings ? `${warnings} warning${warnings === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ') : 'No problems';
+    for (const sev of ['error', 'warning', 'info']) {
+      const b = ui.chips[sev];
+      b.classList.toggle('on', f[sev]);
+      b.setAttribute('aria-pressed', String(f[sev]));
+      b.querySelector('.erc-n').textContent = String(count(sev));
+    }
+    const shown = filterViolations(list, { severities: ['error', 'warning', 'info'].filter((x) => f[x]), query: f.query });
+    this.ercShown = shown;
+    const sheetName = (id) => this.project.schematic.sheets.find((x) => x.id === id)?.name;
     const many = this.project.schematic.sheets.length > 1;
     const row = (v) => h('div', { class: `erc-row erc-${v.severity}` + (v.id === this.ercFocus ? ' on' : ''), role: 'button', tabindex: '0', dataset: { rule: v.rule }, title: 'Show it on the sheet',
       onClick: () => this.gotoViolation(v), onKeydown: (e) => { if (e.key === 'Enter') this.gotoViolation(v); } },
       h('span', { class: 'erc-dot', 'aria-label': v.severity }),
       h('span', { class: 'erc-msg' }, v.message, many ? h('span', { class: 'erc-sheet' }, ` · ${sheetName(v.sheetId)}`) : null),
       v.fix ? button({ label: v.fix.label, cls: 'btn-outline btn-xs erc-fix', onClick: (e) => { e.stopPropagation(); this.app.edit(v.fix.label, (p) => v.fix.apply(p)); this.refresh(); } }) : null);
-    el.replaceChildren(
-      h('div', { class: 'fp-head' }, h('b', {}, 'ERC'),
-        h('span', { class: 'fp-count' }, list.length ? [errors ? `${errors} error${errors === 1 ? '' : 's'}` : null, warnings ? `${warnings} warning${warnings === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ') : 'No problems'),
-        button({ icon: 'close', title: 'Close', cls: 'btn-ghost', onClick: () => this.toggleErc(false) })),
-      h('div', { class: 'fp-body' },
-        list.length ? null : h('p', { class: 'side-note erc-clean' }, 'Every pin is connected or marked no-connect, and no rule is broken.'),
-        ...list.map(row)));
+    const empty = !list.length ? 'Every pin is connected or marked no-connect, and no rule is broken.'
+      : !shown.length ? (f.query ? `Nothing for "${f.query}" with these filters.` : 'Everything is filtered out.') : null;
+    ui.body.replaceChildren(empty ? h('p', { class: 'side-note erc-clean' }, empty) : '', ...shown.map(row));
+  }
+
+  _buildErcCard() {
+    const f = this.ercFilter;
+    const chip = (sev, label) => {
+      const b = h('button', { class: `erc-chip erc-chip-${sev}`, type: 'button', title: `Show ${label.toLowerCase()}`, dataset: { severity: sev } },
+        h('span', { class: 'erc-dot' }), label, h('span', { class: 'erc-n' }, '0'));
+      b.addEventListener('click', () => { f[sev] = !f[sev]; this.renderErc(); this.ws?.view.invalidate(); });
+      return b;
+    };
+    const chips = { error: chip('error', 'Errors'), warning: chip('warning', 'Warnings'), info: chip('info', 'Info') };
+    const search = h('input', { class: 'input erc-search', type: 'search', placeholder: 'Part or net, e.g. U1 or VCC', 'aria-label': 'Filter by part or net', spellcheck: false });
+    search.addEventListener('input', () => { f.query = search.value; this.renderErc(); this.ws?.view.invalidate(); });
+    search.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') { search.value = ''; f.query = ''; this.renderErc(); this.ws?.view.invalidate(); } });
+    const count = h('span', { class: 'fp-count' });
+    const body = h('div', { class: 'fp-body' });
+    this.ercEl.replaceChildren(
+      h('div', { class: 'fp-head' }, h('b', {}, 'ERC'), count, button({ icon: 'close', title: 'Close', cls: 'btn-ghost', onClick: () => this.toggleErc(false) })),
+      h('div', { class: 'erc-filter' }, h('div', { class: 'erc-chips', role: 'group', 'aria-label': 'Show' }, chips.error, chips.warning, chips.info),
+        h('div', { class: 'side-search erc-search-row' }, icon('search', 15), search)),
+      body);
+    this.ercUi = { count, chips, search, body };
   }
 
   /** Switch to a violation's Sheet, zoom to it and ring it. */

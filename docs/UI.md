@@ -106,7 +106,8 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 
 - **No-connect (Q)** in the tool palette: click a Pin tip to mark it as left open on purpose (a cross in the theme's No-connect colour); click a marker to remove it. Markers move, copy and delete with their part, and can be selected and deleted on their own.
 - **ERC** (the check icon in the toolbar's card group) opens a floating card that is **live**: it reruns after every change while open. The header counts errors and warnings ("2 errors · 1 warning", or "No problems").
-- **Rows** come errors first (a red dot), then warnings (an amber diamond), with the Sheet's name when there are several Sheets. Clicking a row switches to its Sheet, zooms to it and rings it on the canvas. While the card is open every problem on the Sheet has a small marker.
+- **Filter bar** under the header: **Errors**, **Warnings** and **Info** chips, each with its count, show or hide that kind (all on by default); a search box (`Part or net, e.g. U1 or VCC`) keeps the rows that involve a part or net whose name starts with what is typed, regardless of case (`r1` finds R1 and R10, `u1a` finds U1A, `vc` finds VCC). Esc in the box clears it. The canvas markers follow the filter.
+- **Rows** come errors first (a red dot), then warnings (an amber diamond), then Info (a blue ring: pins marked no-connect, for review), with the Sheet's name when there are several Sheets. Clicking a row switches to its Sheet, zooms to it and rings it on the canvas. While the card is open every problem on the Sheet has a small marker.
 - **Fixes:** a row with a fix has a button, e.g. **Rename to GND** for mixed spellings. It applies the fix as one undo step.
 - **Rules** (`core/erc.js`, a pure function of the Project):
 
@@ -123,6 +124,7 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 | A no-connect marker on a connected Pin, or on no Pin | warning |
 | A Component has no Footprint | warning |
 | Fields that couldn't find a free spot | warning |
+| A Pin marked no-connect | info |
 
 ## Selecting and moving
 

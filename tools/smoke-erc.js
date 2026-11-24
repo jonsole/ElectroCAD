@@ -20,14 +20,16 @@ const click = (at) => {
 const r1 = put(40, 40);
 document.querySelector('button[title^="Electrical rule check"]').click();
 const card = () => document.querySelector('.erc-panel');
-const rows = () => [...card().querySelectorAll('.erc-row')].map((x) => x.dataset.rule);
+// problems listed (Info rows, e.g. pins marked no-connect, aren't problems)
+const rows = () => [...card().querySelectorAll('.erc-row:not(.erc-info)')].map((x) => x.dataset.rule);
+const infos = () => card().querySelectorAll('.erc-row.erc-info').length;
 check('card-open', card().style.display !== 'none' && rows().join() === 'unconnected-pin,unconnected-pin', rows());
 check('count', /2 errors/.test(card().querySelector('.fp-count').textContent));
 // Q, click both Pin tips: no problems left
 key('q');
 check('tool', ed.tool === 'noConnect');
 click(pin(r1, '1')); click(pin(r1, '2'));
-check('marked', app.project.schematic.sheets[0].noConnects.length === 2 && rows().length === 0, rows());
+check('marked', app.project.schematic.sheets[0].noConnects.length === 2 && rows().length === 0 && infos() === 2, rows());
 check('clean-note', /No problems/.test(card().querySelector('.fp-count').textContent));
 click(pin(r1, '2')); // again: unmarked
 check('unmarked', app.project.schematic.sheets[0].noConnects.length === 1 && rows().join() === 'unconnected-pin');
@@ -50,6 +52,23 @@ card().querySelector('.erc-row[data-rule="mixed-spelling"] .erc-fix').click();
 check('fixed', app.project.schematic.sheets[1].labels.every((l) => l.net === 'VCC') && app.history.undoStack.length === depth + 1 && !rows().includes('mixed-spelling'));
 key('z', { ctrlKey: true });
 check('fix-undone', rows().includes('mixed-spelling'));
+// the filter: severity chips and a part/net search
+const chip = (sev) => card().querySelector(`.erc-chip[data-severity="${sev}"]`);
+check('chip-counts', chip('error').querySelector('.erc-n').textContent === '1' && chip('warning').querySelector('.erc-n').textContent === '1' && chip('info').querySelector('.erc-n').textContent === '1',
+  ['error', 'warning', 'info'].map((x) => chip(x).querySelector('.erc-n').textContent));
+chip('error').click();
+check('errors-hidden', !rows().includes('unconnected-pin') && rows().includes('mixed-spelling') && chip('error').getAttribute('aria-pressed') === 'false');
+chip('error').click();
+const search = card().querySelector('.erc-search');
+search.value = 'vc'; search.dispatchEvent(new Event('input'));
+check('search-net', rows().join() === 'mixed-spelling' && infos() === 0, rows());
+search.value = 'R1'; search.dispatchEvent(new Event('input'));
+check('search-part', rows().join() === 'unconnected-pin' && infos() === 1, rows());
+check('search-keeps-focus-element', card().querySelector('.erc-search') === search);
+search.value = 'zzz'; search.dispatchEvent(new Event('input'));
+check('no-match', /Nothing for "zzz"/.test(card().textContent));
+search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+check('esc-clears', search.value === '' && rows().length === 2);
 document.querySelector('button[title^="Electrical rule check"]').click();
 check('closed', card().style.display === 'none');
 return { fails };

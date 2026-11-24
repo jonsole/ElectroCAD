@@ -1,5 +1,7 @@
 // Electrical rule check (#11): a pure function Project -> [violation]. Each violation has
-//   { id, rule, severity: 'error' | 'warning', message, sheetId, at: [x, y], items: [ids], fix? }
+//   { id, rule, severity: 'error' | 'warning' | 'info', message, sheetId, at: [x, y], items: [ids],
+//     refs: [Reference designators, with and without the Unit letter], nets: [Net names], fix? }
+// `refs` and `nets` are what the ERC card's search matches.
 // where `at` is where to look on `sheetId` and `fix` (when there is one) is
 //   { label, apply(project) } — an edit the panel offers as a button (one undo step).
 // Rules and their wording: docs/UI.md "ERC". Connectivity comes from buildNetlist.
@@ -17,7 +19,8 @@ const DRIVERS = new Set(['output', 'power_out', 'bidirectional', 'tri_state', 'o
  */
 export function runErc(project, { measure = null } = {}) {
   const out = [];
-  const add = (v) => out.push({ id: `${v.rule}:${v.items.join(',')}`, ...v });
+  const add = (v) => out.push({ id: `${v.rule}:${v.items.join(',')}`, refs: [], nets: [], ...v, refs: [...new Set(v.refs || [])], nets: [...new Set(v.nets || [])] });
+  const rf = (m) => [m.comp.ref, m.comp.ref + unitLetter(m.part, m.sym.unit)];
   const nl = buildNetlist(project);
 
   // every placed Pin: where it is, what it is
@@ -42,9 +45,13 @@ export function runErc(project, { measure = null } = {}) {
     const p = pins.get(`${u.componentId}:${u.pin}`);
     if (!p) continue;
     const nc = pinAt(p);
-    if (nc) { usedMarkers.add(nc.id); continue; }
+    if (nc) {
+      usedMarkers.add(nc.id);
+      add({ rule: 'no-connect', severity: 'info', message: `${p.label} is marked no-connect.`, sheetId: p.sheet.id, at: p.at, items: [nc.id], refs: rf(p) });
+      continue;
+    }
     if (p.pin.type === 'no_connect') continue;
-    add({ rule: 'unconnected-pin', severity: 'error', message: `${p.label} isn't connected. Wire it, or mark it no-connect (Q).`, sheetId: p.sheet.id, at: p.at, items: [p.sym.id + ':' + p.pin.number] });
+    add({ rule: 'unconnected-pin', refs: rf(p), severity: 'error', message: `${p.label} isn't connected. Wire it, or mark it no-connect (Q).`, sheetId: p.sheet.id, at: p.at, items: [p.sym.id + ':' + p.pin.number] });
   }
 
   for (const net of nl.nets) {
@@ -54,28 +61,28 @@ export function runErc(project, { measure = null } = {}) {
     // a no-connect marker on a connected Pin
     for (const m of members) {
       const nc = pinAt(m);
-      if (nc && members.length > 1) { usedMarkers.add(nc.id); add({ rule: 'no-connect-connected', severity: 'warning', message: `${m.label} is marked no-connect but is connected to ${net.name}.`, sheetId: m.sheet.id, at: m.at, items: [nc.id] }); }
+      if (nc && members.length > 1) { usedMarkers.add(nc.id); add({ rule: 'no-connect-connected', refs: rf(m), nets: [net.name], severity: 'warning', message: `${m.label} is marked no-connect but is connected to ${net.name}.`, sheetId: m.sheet.id, at: m.at, items: [nc.id] }); }
       else if (nc) usedMarkers.add(nc.id);
     }
     // a Net with a single Pin (a Wire or label going nowhere)
     if (members.length === 1 && !pinAt(first)) {
-      add({ rule: 'single-pin-net', severity: 'warning', message: `${net.name} only reaches ${first.label}.`, ...where, items: [net.name] });
+      add({ rule: 'single-pin-net', refs: rf(first), nets: [net.name], severity: 'warning', message: `${net.name} only reaches ${first.label}.`, ...where, items: [net.name] });
     }
     // two outputs driving one Net
     const outputs = members.filter((m) => m.pin.type === 'output' || m.pin.type === 'power_out');
     if (outputs.length > 1) {
-      add({ rule: 'output-conflict', severity: 'error', message: `${net.name} is driven by ${outputs.length} outputs: ${outputs.map((m) => m.label).join(', ')}.`, sheetId: outputs[1].sheet.id, at: outputs[1].at, items: outputs.map((m) => m.sym.id + ':' + m.pin.number) });
+      add({ rule: 'output-conflict', refs: outputs.flatMap(rf), nets: [net.name], severity: 'error', message: `${net.name} is driven by ${outputs.length} outputs: ${outputs.map((m) => m.label).join(', ')}.`, sheetId: outputs[1].sheet.id, at: outputs[1].at, items: outputs.map((m) => m.sym.id + ':' + m.pin.number) });
     }
     // power inputs with nothing driving them (a Power symbol counts as the supply)
     const powerIn = members.filter((m) => m.pin.type === 'power_in');
     const hasSupply = members.some((m) => DRIVERS.has(m.pin.type) || m.pin.type === 'power_out') || labelsOf(project, net).some((l) => l.style === 'power' || l.style === 'gnd');
     if (powerIn.length && !hasSupply) {
-      add({ rule: 'power-undriven', severity: 'error', message: `${powerIn.map((m) => m.label).join(', ')} ${powerIn.length === 1 ? 'is a power input' : 'are power inputs'} with nothing supplying ${net.name}. Add a Power symbol or a power output.`, sheetId: powerIn[0].sheet.id, at: powerIn[0].at, items: [net.name] });
+      add({ rule: 'power-undriven', refs: powerIn.flatMap(rf), nets: [net.name], severity: 'error', message: `${powerIn.map((m) => m.label).join(', ')} ${powerIn.length === 1 ? 'is a power input' : 'are power inputs'} with nothing supplying ${net.name}. Add a Power symbol or a power output.`, sheetId: powerIn[0].sheet.id, at: powerIn[0].at, items: [net.name] });
     }
     // two different names on one Net
     if (net.conflict) {
       const l = labelsOf(project, net)[0];
-      add({ rule: 'label-conflict', severity: 'error', message: `One net has ${net.conflict.length} names: ${net.conflict.join(', ')}. Labels with different names are joined by a wire or pin.`, ...(l ? { sheetId: l.sheet.id, at: l.at } : where), items: [net.name] });
+      add({ rule: 'label-conflict', refs: members.flatMap(rf), nets: [net.name, ...net.conflict], severity: 'error', message: `One net has ${net.conflict.length} names: ${net.conflict.join(', ')}. Labels with different names are joined by a wire or pin.`, ...(l ? { sheetId: l.sheet.id, at: l.at } : where), items: [net.name] });
     }
     // one name, mixed case (ADR-0013): a warning with a fix
     if (net.spellings) {
@@ -83,7 +90,7 @@ export function runErc(project, { measure = null } = {}) {
       const name = net.name.replace(/^.*\//, '');
       const ids = odd.map((l) => l.id);
       if (odd.length) {
-        add({ rule: 'mixed-spelling', severity: 'warning', message: `${net.spellings.join(' and ')} are the same net; use one spelling.`, sheetId: odd[0].sheet.id, at: odd[0].at, items: ids,
+        add({ rule: 'mixed-spelling', refs: members.flatMap(rf), nets: [net.name, ...net.spellings], severity: 'warning', message: `${net.spellings.join(' and ')} are the same net; use one spelling.`, sheetId: odd[0].sheet.id, at: odd[0].at, items: ids,
           fix: { label: `Rename to ${name}`, apply: (p) => { for (const s of p.schematic.sheets) for (const l of s.labels || []) if (ids.includes(l.id)) l.net = name; } } });
       }
     }
@@ -94,12 +101,12 @@ export function runErc(project, { measure = null } = {}) {
   for (const p of pins.values()) {
     const fp = footprintOf(project, p.comp);
     if (!fp) {
-      if (!seenComp.has(p.comp.id)) { seenComp.add(p.comp.id); add({ rule: 'no-footprint', severity: 'warning', message: `${p.comp.ref} has no footprint.`, sheetId: p.sheet.id, at: p.sym.at, items: [p.comp.id] }); }
+      if (!seenComp.has(p.comp.id)) { seenComp.add(p.comp.id); add({ rule: 'no-footprint', refs: [p.comp.ref], severity: 'warning', message: `${p.comp.ref} has no footprint.`, sheetId: p.sheet.id, at: p.sym.at, items: [p.comp.id] }); }
       continue;
     }
     const pad = padForPin(project, p.comp, p.pin.number);
     if (!fp.pads.some((x) => x.number === pad)) {
-      add({ rule: 'pin-without-pad', severity: 'error', message: `${p.label} has no pad ${pad} on ${fp.name}.`, sheetId: p.sheet.id, at: p.at, items: [p.sym.id + ':' + p.pin.number] });
+      add({ rule: 'pin-without-pad', refs: rf(p), severity: 'error', message: `${p.label} has no pad ${pad} on ${fp.name}.`, sheetId: p.sheet.id, at: p.at, items: [p.sym.id + ':' + p.pin.number] });
     }
   }
 
@@ -111,7 +118,7 @@ export function runErc(project, { measure = null } = {}) {
     const missing = part.units.map((u, i) => ({ u, i })).filter(({ i }) => !placed.some(({ y }) => (y.unit || 0) === i));
     if (missing.length && placed.length) {
       const power = missing.some(({ u }) => u.pins.length && u.pins.every((x) => x.type === 'power_in'));
-      add({ rule: 'unit-not-placed', severity: power ? 'error' : 'warning', message: `${missing.map(({ i }) => comp.ref + unitLetter(part, i)).join(', ')} ${missing.length === 1 ? "isn't" : "aren't"} placed${power ? ', so the chip has no power connection' : ''}.`, sheetId: placed[0].s.id, at: placed[0].y.at, items: [comp.id] });
+      add({ rule: 'unit-not-placed', refs: [comp.ref, ...missing.map(({ i }) => comp.ref + unitLetter(part, i))], severity: power ? 'error' : 'warning', message: `${missing.map(({ i }) => comp.ref + unitLetter(part, i)).join(', ')} ${missing.length === 1 ? "isn't" : "aren't"} placed${power ? ', so the chip has no power connection' : ''}.`, sheetId: placed[0].s.id, at: placed[0].y.at, items: [comp.id] });
     }
   }
 
@@ -130,17 +137,29 @@ export function runErc(project, { measure = null } = {}) {
         const r = placement.get(sym.id);
         if (!r?.flagged) continue;
         const comp = project.components[sym.componentId];
-        add({ rule: 'field-overlap', severity: 'warning', message: `${comp.ref}${unitLetter(partOf(project, comp), sym.unit)} fields overlap ${r.overlapWith || 'something'}. Move parts apart, drag the field, or pick another Field style.`, sheetId: sheet.id, at: [r.items[0].x, r.items[0].y], items: [sym.id] });
+        add({ rule: 'field-overlap', refs: [comp.ref, comp.ref + unitLetter(partOf(project, comp), sym.unit), r.overlapWith].filter((x) => x && x !== 'a wire'), severity: 'warning', message: `${comp.ref}${unitLetter(partOf(project, comp), sym.unit)} fields overlap ${r.overlapWith || 'something'}. Move parts apart, drag the field, or pick another Field style.`, sheetId: sheet.id, at: [r.items[0].x, r.items[0].y], items: [sym.id] });
       }
     }
   }
 
   const sheetOrder = new Map(project.schematic.sheets.map((s, i) => [s.id, i]));
-  return out.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'error' ? -1 : 1) || sheetOrder.get(a.sheetId) - sheetOrder.get(b.sheetId) || compareRefs(a.message, b.message));
+  const rank = { error: 0, warning: 1, info: 2 };
+  return out.sort((a, b) => rank[a.severity] - rank[b.severity] || sheetOrder.get(a.sheetId) - sheetOrder.get(b.sheetId) || compareRefs(a.message, b.message));
 }
 
 function labelsOf(project, net) {
   if (!net.labels) return [];
   const want = new Set(net.labels);
   return project.schematic.sheets.flatMap((s) => (s.labels || []).filter((l) => want.has(l.id)).map((l) => ({ ...l, sheet: s })));
+}
+
+/**
+ * The ERC card's filter: which severities to show, and a search over the parts and nets each
+ * violation involves. A query matches a Reference designator or Net name that starts with it,
+ * regardless of case ("r1" finds R1 and R10, "u1a" finds U1A, "vc" finds VCC).
+ */
+export function filterViolations(list, { severities = ['error', 'warning', 'info'], query = '' } = {}) {
+  const q = String(query).trim().toLowerCase();
+  return list.filter((v) => severities.includes(v.severity)
+    && (!q || [...v.refs, ...v.nets].some((x) => String(x).toLowerCase().startsWith(q) || String(x).toLowerCase().replace(/^.*\//, '').startsWith(q))));
 }

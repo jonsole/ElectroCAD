@@ -2,14 +2,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newProject, pinPositions, footprintRef } from '../src/renderer/core/project.js';
 import { placeSymbol, addWire, addLabel, toggleNoConnect, moveSelection, deleteItems, copySelection, pasteClip, unitSuggestion } from '../src/renderer/core/schematic.js';
-import { runErc } from '../src/renderer/core/erc.js';
+import { runErc, filterViolations } from '../src/renderer/core/erc.js';
 import { estimateWidth } from '../src/renderer/core/fields.js';
 import { RESISTOR, CAPACITOR, LED, LM324 } from '../src/renderer/library/mini.js';
 import { SCH_GRID as G } from '../src/renderer/core/units.js';
 
 const setup = () => { const p = newProject(); return { p, s: p.schematic.sheets[0] }; };
 const pin = (p, sym, n) => pinPositions(p, sym).find((x) => x.pin.number === n).at;
-const rules = (p, opts) => runErc(p, opts).map((v) => `${v.severity}:${v.rule}`);
+// problems only: Info items (e.g. pins marked no-connect) are listed but aren't problems
+const rules = (p, opts) => runErc(p, opts).filter((v) => v.severity !== 'info').map((v) => `${v.severity}:${v.rule}`);
 const placeUnit = (p, s, at) => { const { componentId, unit } = unitSuggestion(p, LM324); return placeSymbol(p, s, LM324, at, { unit, component: componentId ? p.components[componentId] : undefined }).sym; };
 
 test('a clean design has no violations', () => {
@@ -98,12 +99,12 @@ test('different names on one Net are an error; mixed case is a warning with a fi
   addLabel(p, s, { at: pin(p, a, '2'), net: 'EN' });
   addLabel(p, s, { at: pin(p, b, '1'), net: 'en' });
   addLabel(p, s, { at: pin(p, b, '1'), net: 'En' });
-  const v = runErc(p);
+  const v = runErc(p).filter((x) => x.severity !== 'info');
   assert.deepEqual(v.map((x) => x.rule), ['mixed-spelling'], 'case only: not a conflict');
   assert.equal(v[0].fix.label, 'Rename to EN');
   v[0].fix.apply(p);
   assert.deepEqual(s.labels.map((l) => l.net), ['EN', 'EN', 'EN']);
-  assert.deepEqual(runErc(p), []);
+  assert.deepEqual(rules(p), []);
   addLabel(p, s, { at: pin(p, a, '2'), net: 'ENABLE' });
   assert.deepEqual(rules(p), ['error:label-conflict']);
 });
@@ -114,7 +115,7 @@ test('a Pin with no Pad on the Footprint is an error; no Footprint is a warning'
   toggleNoConnect(p, s, pin(p, sym, '1')); toggleNoConnect(p, s, pin(p, sym, '2'));
   comp.footprint = footprintRef(p, { library: 'mine', footprint: { name: 'One_pad', pads: [{ number: '1', at: [0, 0], shape: 'rect', size: [G, G], layers: ['F.Cu'] }] } });
   const v = runErc(p);
-  assert.deepEqual(v.map((x) => x.rule), ['pin-without-pad']);
+  assert.deepEqual(v.filter((x) => x.severity !== 'info').map((x) => x.rule), ['pin-without-pad']);
   assert.match(v[0].message, /R1 pin 2 has no pad 2 on One_pad/);
   comp.footprint = null;
   assert.deepEqual(rules(p), ['warning:no-footprint']);
@@ -143,4 +144,27 @@ test('violations are sorted errors first and point at a Sheet and a place', () =
   const v = runErc(p);
   assert.deepEqual(v.map((x) => x.severity), ['error', 'error', 'warning']);
   for (const x of v) { assert.equal(x.sheetId, s.id); assert.equal(x.at.length, 2); assert.ok(x.id); }
+});
+
+test('pins marked no-connect are listed as Info; the filter picks severities and searches parts and nets', () => {
+  const { p, s } = setup();
+  const a = placeSymbol(p, s, RESISTOR, [G * 10, G * 10]).sym;   // R1
+  const b = placeSymbol(p, s, RESISTOR, [G * 30, G * 10]).sym;   // R2
+  for (let i = 0; i < 8; i++) placeSymbol(p, s, RESISTOR, [G * 10, G * (40 + 10 * i)]); // R3–R10
+  toggleNoConnect(p, s, pin(p, a, '1'));
+  addWire(p, s, [pin(p, a, '2'), pin(p, b, '1')]);
+  addLabel(p, s, { at: pin(p, b, '1'), net: 'VCC' });
+  addLabel(p, s, { at: pin(p, b, '1'), net: 'vcc' });
+  const all = runErc(p);
+  const info = all.filter((v) => v.severity === 'info');
+  assert.deepEqual(info.map((v) => v.message), ['R1 pin 1 is marked no-connect.']);
+  assert.equal(all[all.length - 1].severity, 'info', 'Info comes last');
+  assert.deepEqual(filterViolations(all, { severities: ['info'] }), info);
+  assert.ok(filterViolations(all, { severities: ['error'] }).every((v) => v.severity === 'error'));
+  const r1 = filterViolations(all, { query: 'r1' });
+  assert.ok(r1.length && r1.every((v) => v.refs.some((x) => /^R1/.test(x))), 'R1 and R10');
+  assert.ok(r1.some((v) => v.refs.includes('R10')));
+  assert.deepEqual(filterViolations(all, { query: 'R2' }).map((v) => v.rule).sort(), ['mixed-spelling', 'unconnected-pin']);
+  assert.deepEqual(filterViolations(all, { query: 'vc' }).map((v) => v.rule), ['mixed-spelling'], 'net names match too, any case');
+  assert.deepEqual(filterViolations(all, { query: 'nothing' }), []);
 });
