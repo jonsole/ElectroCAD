@@ -1,7 +1,7 @@
 // Schematic editor: the Part picker (modelled on DabbleCAD's 3D Design shape panel), placing
 // Parts (#4), drawing Wires and the live Netlist panel (#5), selecting, rotating, mirroring
 // and deleting. Every change is one History transaction (one undo step).
-import { h, icon, button, popupMenu } from '../ui/dom.js';
+import { h, icon, button, popupMenu, toast } from '../ui/dom.js';
 import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { later } from '../workspaces/workspace.js';
 import { MINI_LIBRARY, searchParts } from '../library/mini.js';
@@ -12,7 +12,8 @@ import { onSegment, eq } from '../core/geom.js';
 import { snapPt, SCH_GRID } from '../core/units.js';
 import { drawSheet, symbolThumbnail, measureText } from './render.js';
 import { SchematicInspector } from './inspector.js';
-import { placeFields, fieldWarnings, setDefaultFieldStyle, setComponentFieldStyle } from '../core/fields.js';
+import { placeFields, fieldWarnings, setDefaultFieldStyle, setComponentFieldStyle, hitField, styleFor } from '../core/fields.js';
+import { validateRef, updateComponent } from '../core/components.js';
 
 const DRAG_START_PX = 4;
 const IDLE_HINT = 'Nothing selected. Drag Parts from the picker on the right, or click one and then click the sheet. Middle- or right-drag to pan, scroll to zoom, Home to fit.';
@@ -193,7 +194,9 @@ export class SchematicEditor {
       if (this.placing && !this.placing.drag) { this._update(world); this.commitPlace(); return; }
       if (this.tool === 'wire') { this._wireClick(world, e.detail >= 2); return; }
       const tol = 4 / ws.view.view.scale;
-      const hit = hitSymbol(this.project, this.sheet, world, 3 / ws.view.view.scale) || hitWire(this.sheet, world, tol);
+      const fieldHit = this.placement && hitField(this.project, this.placement, world, tol / 2, measureText);
+      const hit = hitSymbol(this.project, this.sheet, world, 3 / ws.view.view.scale)
+        || (fieldHit && this.sheet.symbols.find((y) => y.id === fieldHit.symbolId)) || hitWire(this.sheet, world, tol);
       if (e.shiftKey && hit) { if (this.selection.has(hit.id)) this.selection.delete(hit.id); else this.selection.add(hit.id); this.refresh(); return; }
       if (hit) {
         if (!this.selection.has(hit.id)) this.selection = new Set([hit.id]);
@@ -205,6 +208,13 @@ export class SchematicEditor {
       }
       c.setPointerCapture(e.pointerId);
       this.refresh();
+    });
+    // double-click a Reference designator or Value to edit it in place
+    c.addEventListener('dblclick', (e) => {
+      if (this.tool !== 'select' || this.placing) return;
+      const world = ws.view.view.toWorld(ws.view.local(e));
+      const f = this.placement && hitField(this.project, this.placement, world, 3 / ws.view.view.scale, measureText);
+      if (f && (f.key === 'reference' || f.key === 'value')) { e.preventDefault(); this.editField(f.symbolId, f.key); }
     });
     c.addEventListener('pointerup', (e) => {
       if (e.button !== 0) return;
@@ -452,6 +462,65 @@ export class SchematicEditor {
     this.selection.clear();
     this.refresh();
   }
+
+  /**
+   * Edit a Reference designator or Value in a box over the canvas text. Enter or clicking away
+   * saves (one undo step), Esc cancels; a Reference that is taken, empty or has spaces is refused
+   * and editing continues. Values are edited as typed, whatever the Field style shows.
+   */
+  editField(symbolId, key) {
+    this.closeFieldEdit();
+    const sym = this.sheet.symbols.find((y) => y.id === symbolId);
+    if (!sym) return;
+    const comp = this.project.components[sym.componentId];
+    const item = this.placement?.get(symbolId)?.items.find((i) => i.keys.includes(key));
+    if (!item) return;
+    this.selection = new Set([symbolId]);
+    this.refresh();
+    const v = this.ws.view.view;
+    const [x0, y0] = v.toScreen([item.box.x0, item.box.y0]), [x1, y1] = v.toScreen([item.box.x1, item.box.y1]);
+    const style = styleFor(this.project, comp);
+    const px = Math.max(11, style.text.size * v.scale);
+    const original = key === 'reference' ? comp.ref : comp.value;
+    const input = h('input', { class: 'field-edit', type: 'text', value: original, spellcheck: false, 'aria-label': key === 'reference' ? 'Edit reference' : 'Edit value', dataset: { key } });
+    const w = Math.max(70, x1 - x0 + 30);
+    Object.assign(input.style, { left: `${(x0 + x1) / 2 - w / 2}px`, top: `${(y0 + y1) / 2 - px * 0.85}px`, width: `${w}px`, height: `${px * 1.7}px`, fontSize: `${px}px` });
+    const tip = h('div', { class: 'field-edit-tip' });
+    Object.assign(tip.style, { left: input.style.left, top: `${(y0 + y1) / 2 + px * 0.95}px` });
+    let done = false;
+    const close = () => { done = true; input.remove(); tip.remove(); this.fieldEdit = null; this.ws.view.canvas.focus({ preventScroll: true }); };
+    const commit = () => {
+      if (done) return true;
+      const text = input.value;
+      if (text === original) { close(); return true; }
+      if (key === 'reference') {
+        const bad = validateRef(this.project, comp.id, text);
+        if (bad) { input.classList.add('bad'); tip.textContent = bad; input.focus(); return false; }
+        this.app.edit(`Rename ${comp.ref} to ${text.trim()}`, (p) => updateComponent(p, comp.id, { ref: text }));
+      } else {
+        this.app.edit(`${comp.ref} value`, (p) => updateComponent(p, comp.id, { value: text }));
+      }
+      close();
+      return true;
+    };
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      else if (e.key === 'Escape') { e.preventDefault(); close(); }
+    });
+    input.addEventListener('input', () => { input.classList.remove('bad'); tip.textContent = ''; });
+    // clicking away saves; a reference that can't be used is dropped with a short message
+    input.addEventListener('blur', () => {
+      if (done) return;
+      if (!commit()) { const msg = tip.textContent; close(); toast(`${msg} ${comp.ref} kept its old name.`, 'warn', 4000); }
+    });
+    this.ws.view.el.append(input, tip);
+    input.focus();
+    input.select();
+    this.fieldEdit = { input, commit, close };
+  }
+
+  closeFieldEdit() { if (this.fieldEdit) this.fieldEdit.close(); }
 
   copy() {
     if (!this.selection.size) return;

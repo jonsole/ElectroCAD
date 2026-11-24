@@ -101,6 +101,15 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 - **Connectivity never changes when you move things.**
 - **Copy, paste, duplicate:** Ctrl+C, Ctrl+V (pastes under the cursor) and Ctrl+D (a copy four grid steps away). Pasted Components get the next free Reference designators and keep their Value, Footprint and Field style. Wires between copied parts come along.
 
+## Editing fields on the canvas
+
+- **Double-click to edit:** double-click a Reference designator or Value on the canvas and an edit box opens over the text, with the text selected.
+  - **Enter**, or clicking away, saves as one undo step. **Esc** cancels.
+  - A Reference that is taken, empty or has spaces is refused: Enter shows a red tip and keeps the box open; clicking away drops the edit with a short message.
+  - The Value is edited as typed, even when the Field style shows it differently (for example RKM `4k7`).
+  - With one-line styles ("R1 10k"), the half you double-click decides which field you edit.
+- **Single click** on a field selects its part.
+
 ## Schematic inspector
 
 The inspector is a floating card at the top right of the canvas, like the fork's 3D Design inspector. It stacks above the Netlist panel when both are open, and hides when nothing is selected.

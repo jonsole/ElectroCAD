@@ -156,3 +156,23 @@ test('thin line graphics (capacitor plates) count as obstacles', () => {
   const c2body = { x0: G * 52 - G * 1.6, x1: G * 52 + G * 1.6, y0: G * 47.6, y1: G * 48.4 };
   for (const it of pl.get(c1.sym.id).items) assert.ok(!intersects(it.box, c2body), JSON.stringify(it.box));
 });
+
+import { hitField } from '../src/renderer/core/fields.js';
+
+test('hitField finds the Reference and Value under a point, and splits one-line fields', () => {
+  const p = newProject();
+  const s = p.schematic.sheets[0];
+  const { sym } = placeSymbol(p, s, RESISTOR, [G * 40, G * 40]);
+  let pl = placeFields(p, s, { measure });
+  const ref = pl.get(sym.id).items.find((i) => i.keys.includes('reference'));
+  const val = pl.get(sym.id).items.find((i) => i.keys.includes('value'));
+  const mid = (b) => [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2];
+  assert.equal(hitField(p, pl, mid(ref.box)).key, 'reference');
+  assert.equal(hitField(p, pl, mid(val.box)).key, 'value');
+  assert.equal(hitField(p, pl, [G * 40, G * 40]), null, 'the body is not a field');
+  setDefaultFieldStyle(p, builtinFieldStyle('compact'));
+  pl = placeFields(p, s, { measure });
+  const line = pl.get(sym.id).items[0]; // "R1 10k"
+  assert.equal(hitField(p, pl, [line.box.x0 + 1, mid(line.box)[1]]).key, 'reference');
+  assert.equal(hitField(p, pl, [line.box.x1 - 1, mid(line.box)[1]]).key, 'value');
+});

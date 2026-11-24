@@ -38,4 +38,28 @@ fs.value = 'compact'; fs.dispatchEvent(new Event('change'));
 check('multi-field-style', [a.comp.id, b.comp.id].every((id) => app.project.components[id].fieldStyle === 'compact'));
 document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 check('esc-hides', insp().childElementCount === 0);
+
+// Double-click a field on the canvas to edit it in place.
+const ws = app.workspace('schematic');
+ws.view.view.fit({ x0: 30 * G, y0: 30 * G, x1: 70 * G, y1: 60 * G }, ws.view.w, ws.view.h, 20);
+ws.view.draw();
+const symA = app.project.schematic.sheets[0].symbols.find((y) => y.componentId === a.comp.id);
+const valItem = ed.placement.get(symA.id).items.find((i) => i.keys.includes('value'));
+const r = ws.view.canvas.getBoundingClientRect();
+// the parts use Compact here, so the field is one line ("R9 1k"): aim at the Value end
+const [vx, vy] = ws.view.view.toScreen([valItem.box.x1 - (valItem.box.x1 - valItem.box.x0) * 0.1, (valItem.box.y0 + valItem.box.y1) / 2]);
+ws.view.canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: r.left + vx, clientY: r.top + vy, bubbles: true, cancelable: true }));
+let box = document.querySelector('.field-edit');
+check('dblclick-opens-editor', !!box && box.value === app.project.components[a.comp.id].value, box && box.value);
+const depth2 = app.history.undoStack.length;
+box.value = '22k';
+box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+check('dblclick-value-saved', app.project.components[a.comp.id].value === '22k' && !document.querySelector('.field-edit') && app.history.undoStack.length === depth2 + 1);
+ed.editField(symA.id, 'reference');
+box = document.querySelector('.field-edit');
+box.value = app.project.components[b.comp.id].ref;
+box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+check('dblclick-dup-refused', !!document.querySelector('.field-edit') && /already used/.test(document.querySelector('.field-edit-tip').textContent));
+box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+check('esc-cancels', !document.querySelector('.field-edit') && app.history.undoStack.length === depth2 + 1);
 return { fails };

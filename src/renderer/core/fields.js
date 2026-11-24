@@ -256,3 +256,25 @@ export function importFieldStyle(text, taken = []) {
   for (let i = 2; names.has(name); i++) name = `${s.name} (${i})`;
   return { ...s, id: newId(), name };
 }
+
+/**
+ * Which field is at world point `pt` (within `tol` nm), from a placeFields result. For a
+ * one-line block ("R1 10k") the half under the point decides: the Reference designator's text
+ * width (from `measure`) splits it. Returns { symbolId, key, item } or null.
+ */
+export function hitField(project, placement, pt, tol = 0, measure = estimateWidth) {
+  for (const [symbolId, r] of placement) {
+    for (const it of r.items) {
+      const b = it.box;
+      if (pt[0] < b.x0 - tol || pt[0] > b.x1 + tol || pt[1] < b.y0 - tol || pt[1] > b.y1 + tol) continue;
+      if (it.keys.length === 1) return { symbolId, key: it.keys[0], item: it };
+      // one line: split at the end of the first field's text plus the space
+      const first = it.text.split(' ')[0];
+      const sym = project.schematic.sheets.flatMap((s) => s.symbols).find((y) => y.id === symbolId);
+      const style = styleFor(project, sym && project.components[sym.componentId]);
+      const split = b.x0 + measure(first + ' ', style.text.size);
+      return { symbolId, key: pt[0] <= split ? it.keys[0] : it.keys[1] || it.keys[0], item: it };
+    }
+  }
+  return null;
+}

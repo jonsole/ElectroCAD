@@ -325,3 +325,9 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .insp-section > .input { width: 100%; height: 28px; margin-top: 4px; }
 .insp-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .insp-btns .btn { flex: 1; }
+
+/* ---------- in-place field editing (double-click a Reference or Value) ---------- */
+.field-edit { position: absolute; z-index: 12; padding: 0 6px; border-radius: 6px; border: 1.5px solid var(--accent); background: var(--panel); color: var(--text); box-shadow: var(--shadow); outline: none; text-align: center; font-family: "Segoe UI", system-ui, sans-serif; }
+.field-edit.bad { border-color: var(--danger); }
+.field-edit-tip { position: absolute; z-index: 12; font-size: 11.5px; color: #fff; background: var(--danger); border-radius: 5px; padding: 2px 6px; pointer-events: none; white-space: nowrap; }
+.field-edit-tip:empty { display: none; }
