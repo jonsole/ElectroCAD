@@ -1,0 +1,17 @@
+ElectroCAD
+Copyright 2026 jonsole
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Parts of ElectroCAD are ported from DabbleCAD Plus, a fork of DabbleCAD
+maintained by jonsole (https://github.com/jonsole/DabbleCAD):
+  - the UI design tokens, component styles and layout (src/renderer/styles.css)
+  - the DOM helpers, dialogs, menus, toasts and stroke-icon set (src/renderer/ui/dom.js)
+  - the app shell, platform bridge, Electron main/preload process and smoke-test
+    harness structure (src/renderer/app.js, src/renderer/platform.js, electron/, tools/)
+  - the Laser workspace's canvas rulers and grid drawing (src/renderer/view/canvas2d.js)
+
+DabbleCAD
+Copyright 2026 DJMcNewgent
+Modifications Copyright 2026 jonsole
+Licensed under the Apache License, Version 2.0.

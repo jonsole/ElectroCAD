@@ -1,0 +1,129 @@
+// The four workspaces (Schematic · Board · Gerber · Library), laid out per docs/UI.md.
+// Ticket #2 builds the shell: the canvases pan and zoom, everything else is shown in
+// place but disabled, with a tooltip naming the ticket that brings it.
+import { h, button, icon } from '../ui/dom.js';
+import { Workspace, later, sep, spacer, section, segmented, toolButton } from './workspace.js';
+import { SCH_GRID, mm } from '../core/units.js';
+import { copperLayers } from '../core/project.js';
+
+// Layer colours (docs/UI.md, "Canvas colours").
+export const LAYER_COLORS = {
+  'F.Cu': '#e5484d', 'In1.Cu': '#e5b84d', 'In2.Cu': '#46a758', 'B.Cu': '#4f8cff',
+  'F.SilkS': '#e7eaf0', 'B.SilkS': '#b6bfcc', 'Edge.Cuts': '#f2c94c',
+};
+
+const editTools = () => [
+  later({ icon: 'undo', title: 'Undo (Ctrl+Z)' }, 4), later({ icon: 'redo', title: 'Redo (Ctrl+Shift+Z)' }, 4), sep(),
+  later({ icon: 'copy', title: 'Copy (Ctrl+C)' }, 8), later({ icon: 'paste', title: 'Paste (Ctrl+V)' }, 8),
+  later({ icon: 'duplicate', title: 'Duplicate (Ctrl+D)' }, 8), later({ icon: 'trash', title: 'Delete (Del)' }, 8),
+];
+
+function schematic(app) {
+  const p = app.project;
+  const side = h('div', { class: 'side-panel picker', 'aria-label': 'Part picker' },
+    h('div', { class: 'side-tools', style: { gridTemplateColumns: 'repeat(3, 1fr)' } },
+      ...[['netlist', 'Netlist', 5], ['erc', 'ERC', 11], ['sheets', 'Sheets', 7]].map(([ic, label, t]) => {
+        const b = h('button', { class: 'side-tool', type: 'button', title: `${label} (coming in #${t})`, disabled: true }, icon(ic, 20), h('span', {}, label));
+        return b;
+      })),
+    h('div', { class: 'side-filter' }, h('select', { class: 'select', disabled: true, title: 'Part categories (coming in #12)' }, h('option', {}, 'All parts'))),
+    h('div', { class: 'side-search' }, icon('search', 16), h('input', { class: 'input', type: 'search', placeholder: 'Search parts', disabled: true })),
+    h('div', { class: 'shape-grid' }, h('div', { class: 'side-empty' }, 'Parts arrive here with the Part picker (#4): drag one onto the sheet, or click it and then click the sheet.')),
+    h('div', { class: 'side-foot' }, later({ label: 'Import', icon: 'import', title: 'Import KiCad or Eagle libraries' }, 32), later({ label: 'New part', icon: 'plus', title: 'Create a Part in the Library tab' }, 13)));
+  return new Workspace({
+    id: 'schematic', label: 'Schematic', icon: 'schematic', title: 'Schematic: place Parts, wire them and check the Netlist',
+    grid: SCH_GRID,
+    frame: { x0: 0, y0: 0, x1: mm(297), y1: mm(210) }, // A4 landscape sheet
+    toolbar: [...editTools(), sep(),
+      later({ icon: 'rotate', title: 'Rotate (R)' }, 4), later({ icon: 'mirror', title: 'Mirror (X)' }, 4), spacer(),
+      later({ label: 'ERC', icon: 'erc', title: 'Electrical rule check' }, 11),
+      later({ label: 'Print', icon: 'print', title: 'Print or export to PDF/SVG' }, 14)],
+    hint: 'Nothing selected. Drag Parts from the picker on the right. Middle- or right-drag to pan, scroll to zoom, Home to fit the sheet.',
+    tools: [toolButton('select', 'Select (V)', { active: true }), toolButton('wire', 'Wire (W)', { ticket: 5 }),
+      toolButton('netLabel', 'Net label (L)', { ticket: 7 }), toolButton('globalLabel', 'Global label (Ctrl+L)', { ticket: 7 }),
+      toolButton('power', 'Power symbol (P)', { ticket: 7 }), toolButton('ground', 'Ground (G)', { ticket: 7 }),
+      toolButton('noConnect', 'No-connect (Q)', { ticket: 11 }), null,
+      toolButton('ltext', 'Text', { ticket: 8 }), toolButton('ruler', 'Measure', { ticket: 8 })],
+    side,
+    chips: () => p.schematic.sheets.map((s, i) => h('button', { class: 'chip text-chip' + (i === 0 ? ' on' : ''), type: 'button', title: s.name }, String(i + 1))),
+    status: () => `${Object.keys(p.components).length} components · ${p.schematic.sheets.length} sheet · grid 50 mil`,
+  });
+}
+
+function board(app) {
+  const p = app.project;
+  const layers = () => [...copperLayers(p.board.stack.copper), 'F.SilkS', 'B.SilkS', 'Edge.Cuts'];
+  const layerRow = (name, i) => h('div', { class: 'll-row' + (i === 0 ? ' on' : ''), title: name },
+    h('span', { class: 'll-chip', style: { background: LAYER_COLORS[name] || '#888' } }, name === 'Edge.Cuts' ? 'Edge' : name.replace('.Cu', '').replace('.SilkS', ' silk')),
+    h('span', { class: 'll-name' }, name),
+    h('input', { type: 'checkbox', checked: true, title: 'Visible', 'aria-label': `${name} visible` }));
+  const side = h('div', { class: 'side-panel' },
+    section('Layers', h('div', { class: 'layer-list' }, ...layers().map(layerRow))),
+    section('Properties', h('p', { class: 'side-note' }, 'Nothing selected.')),
+    section('Net classes', h('p', { class: 'side-note' }, 'Default · track 0.25 mm · clearance 0.2 mm')),
+    section('DRC', h('p', { class: 'side-note' }, 'Not run yet.')));
+  return new Workspace({
+    id: 'board', label: 'Board', icon: 'board', title: 'Board: place Footprints, route Tracks and pour Zones',
+    grid: mm(0.5), home: { x0: -10e6, y0: -10e6, x1: 110e6, y1: 90e6 },
+    toolbar: [...editTools(), sep(),
+      later({ label: 'Annotate', icon: 'annotate', title: 'Forward annotation: bring Schematic changes onto the Board' }, 16),
+      later({ label: 'DRC', icon: 'erc', title: 'Design rule check' }, 25), spacer(),
+      h('div', { class: 'mode-group', title: 'Routing mode' },
+        later({ label: 'Shove', title: 'Shove routing mode' }, 29), later({ label: 'Walkaround', title: 'Walkaround routing mode' }, 22), later({ label: 'Free', title: 'Free routing mode' }, 20)),
+      sep(), segmented([['2d', '2D', 'twoD', '2D board view'], ['3d', '3D', 'cube', '3D board preview', 40]], '2d')],
+    hint: 'No board yet. Draw an Outline, then use Annotate to bring Components over from the Schematic.',
+    tools: [toolButton('select', 'Select (V)', { active: true }), toolButton('route', 'Route (X)', { ticket: 20 }),
+      toolButton('dragTrack', 'Drag track (D)', { ticket: 31 }), toolButton('via', 'Via', { ticket: 21 }),
+      toolButton('zone', 'Zone', { ticket: 23 }), toolButton('outline', 'Outline', { ticket: 15 }), null,
+      toolButton('ltext', 'Text', { ticket: 15 }), toolButton('ruler', 'Measure', { ticket: 15 })],
+    side,
+    chips: () => copperLayers(p.board.stack.copper).map((name, i) => h('button', { class: 'chip' + (i === 0 ? ' on' : ''), type: 'button', title: `${name} (active layer)`, style: { background: LAYER_COLORS[name] } }, name.replace('.Cu', ''))),
+    status: () => `${p.board.stack.copper}-layer · ${p.board.footprints.length} footprints · grid 0.5 mm`,
+  });
+}
+
+function gerber() {
+  const outputs = [['Gerber X2 (copper, mask, paste, silk, Edge.Cuts)', true], ['Excellon drill (PTH / NPTH)', true], ['BOM (CSV)', false], ['Pick-and-place (CSV)', false]];
+  const side = h('div', { class: 'side-panel' },
+    section('Fab preset', h('select', { class: 'select', disabled: true, style: { width: '100%' }, title: 'Fab presets (coming in #24)' }, h('option', {}, 'Generic'))),
+    section('Layers', h('p', { class: 'side-note' }, 'Generate to see each Gerber and drill file here.')),
+    section('Output', ...outputs.map(([label, on]) => h('label', { class: 'check-row' }, h('input', { type: 'checkbox', checked: on, disabled: true }), label))),
+    section('Checks', h('p', { class: 'side-note' }, 'DRC summary and missing-layer warnings appear here.')));
+  return new Workspace({
+    id: 'gerber', label: 'Gerber', icon: 'gerber', title: 'Gerber: generate Fab output, check it and download the zip',
+    grid: mm(0.5), home: { x0: -10e6, y0: -10e6, x1: 110e6, y1: 90e6 },
+    toolbar: [later({ label: 'Generate', icon: 'play', title: 'Generate Fab output', cls: 'btn-primary' }, 26),
+      later({ label: 'Download zip', icon: 'zip', title: 'Download the fab zip' }, 26),
+      later({ label: 'Open Gerber files…', icon: 'folder', title: 'Open a fab zip or Gerber/Excellon files' }, 28), spacer(),
+      segmented([['top', 'Top', null, 'View from the top', 28], ['bottom', 'Bottom', null, 'View from the bottom', 28]], 'top')],
+    hint: 'Nothing generated yet. Choose a Fab preset and outputs on the right, then Generate.',
+    tools: [toolButton('select', 'Pan and inspect', { active: true }), toolButton('ruler', 'Measure', { ticket: 28 })],
+    side,
+    status: () => 'No files',
+  });
+}
+
+function library() {
+  const side = h('div', { class: 'side-panel' },
+    section('Libraries',
+      h('div', { class: 'side-search', style: { padding: '0 0 8px' } }, icon('search', 16), h('input', { class: 'input', type: 'search', placeholder: 'Search libraries', disabled: true })),
+      h('p', { class: 'side-note' }, 'No user Libraries yet. The built-in starter Library arrives with #12.')),
+    section('Part', h('p', { class: 'side-note' }, 'Select or create a Part to edit its prefix, default Value, Units and Preferred footprints.')),
+    section('Properties', h('p', { class: 'side-note' }, 'Nothing selected.')));
+  return new Workspace({
+    id: 'library', label: 'Library', icon: 'library', title: 'Library: your Libraries, and the Symbol and Footprint editors',
+    grid: SCH_GRID, home: { x0: -20e6, y0: -15e6, x1: 20e6, y1: 15e6 },
+    toolbar: [segmented([['symbol', 'Symbol', 'schematic', 'Edit the Symbol', 13], ['footprint', 'Footprint', 'pad', 'Edit the Footprint', 19]], 'symbol'), sep(),
+      later({ label: 'New part', icon: 'plus', title: 'New Part' }, 13), later({ label: 'Save', icon: 'check', title: 'Save to Library' }, 13)],
+    hint: 'Pick a Library and Part on the right, or create a new Part.',
+    tools: [toolButton('select', 'Select (V)', { active: true }), toolButton('pin', 'Pin', { ticket: 13 }), toolButton('pad', 'Pad', { ticket: 19 }), null,
+      toolButton('lline', 'Line', { ticket: 13 }), toolButton('lrect', 'Rectangle', { ticket: 13 }), toolButton('lellipse', 'Circle', { ticket: 13 }),
+      toolButton('arc', 'Arc', { ticket: 13 }), toolButton('ltext', 'Text', { ticket: 13 }), toolButton('wand', 'Footprint generator', { ticket: 19 })],
+    side,
+    status: () => 'No Part open',
+  });
+}
+
+export function buildWorkspaces(app) {
+  return [schematic(app), board(app), gerber(app), library(app)];
+}
