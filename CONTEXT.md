@@ -14,6 +14,14 @@ _Avoid_: Design, file, workspace
 One of the four top-level tabs of the editor: Schematic, Board, Gerber or Library.
 _Avoid_: Mode, view, page
 
+**Project store**:
+The app-managed place where every Project lives and is autosaved: a folder in the app's data directory on desktop, browser storage on the web. A `.ecad` file on disk is an import or export of a stored Project.
+_Avoid_: Project library (Library means Parts), workspace, drive
+
+**Your projects**:
+The home screen listing every Project in the Project store as a card with a thumbnail. It opens from the logo.
+_Avoid_: Dashboard (fine in code), file browser, recent files
+
 **Schematic**:
 The logical drawing of the circuit: Symbols joined by Wires and Net labels, spread over one or more Sheets.
 _Avoid_: Diagram, circuit

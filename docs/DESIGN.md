@@ -183,12 +183,14 @@ Converters live in `io/kicad/*` and `io/eagle/*`, and each one returns `{ projec
 
 ## 10. Storage
 
-`platform.js` exposes one storage contract with two backends:
+[ADR-0011](adr/0011-projects-live-in-an-app-managed-store.md). `platform.js` exposes one **Project store** contract with two backends:
 
-- **Desktop (Electron):** projects and libraries are real files and folders. A user Library folder lives in the app's data directory.
-- **Browser:**
-  - **IndexedDB** holds the recent-project list, autosave copies and user Libraries.
-  - **Open/Save** uses the File System Access API where the browser has it (Chrome and Edge), so Save writes back to the same file. Elsewhere it falls back to upload and download.
+- **The contract:** `listProjects() → [meta]`, `loadProject(id)`, `saveProject(id, text, meta)`, `deleteProject(id)`, `duplicateProject(id)`, plus `importFile()` / `exportFile(name, text)` for `.ecad` files on disk. `meta` is `{ id, name, modified, components, layers, thumb }`, where the thumbnail is a small PNG data URL.
+- **Desktop (Electron):** a `projects` folder in the app's data directory holds `<id>.ecad` files and an `index.json` of the metadata. "Projects folder" opens it. User Libraries live in a sibling `libraries` folder.
+- **Browser:** IndexedDB holds the Projects, their metadata, the user Libraries and the settings that outgrow localStorage.
+- **Autosave:** about 1.5 s after the last change, and at once on Ctrl+S, on switching Project, and before the window closes. The save state reads "Saving…" / "All changes saved".
+- **Thumbnail:** the Board if it has an Outline or Footprints, otherwise the first Sheet, rendered offscreen with the current Colour theme.
+- **Start-up:** the last open Project is reopened. On the very first run, a new Project is created.
 
 ## 11. Agents (MCP server)
 

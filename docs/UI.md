@@ -19,7 +19,21 @@ Copy these rather than restyle them, and keep the attribution in `NOTICE`:
 
 ## Screen layout
 
-The top bar's **File** menu holds New project (Ctrl+N), Open… (Ctrl+O), Save (Ctrl+S) and Save as… (Ctrl+Shift+S). Desktop saves go to a real `.ecad` file (in place after the first save). The browser downloads the file and opens one by upload; saving in place in Chrome/Edge comes with #6. The save state next to the project name reads "Not saved yet", "Unsaved changes" or "Saved". Import and Export are only for KiCad and Eagle files.
+Projects live in the **Project store** and autosave (ADR-0011). The save state next to the project name reads "Saving…" or "All changes saved".
+- **Logo:** opens **Your projects**.
+- **File menu:** New project (Ctrl+N), Your projects…, Open file… (Ctrl+O, imports an `.ecad` into the store), Save as file… (Ctrl+Shift+S; a download in the browser). Ctrl+S saves to the store at once.
+- **Import and Export** are only for KiCad and Eagle files.
+
+### Your projects (home screen)
+
+This is a full-window page over the app, ported from the fork's "Your designs" dashboard (`.dashboard`, `.dash-head`, `.dash-grid`, `.dash-card`).
+- **Header:** the logo, then **Open file…**, **Projects folder** (desktop only) and **Back to project**.
+- **Body:** a "Your projects" title and a card grid:
+  - first, a dashed **Create new project** card;
+  - then one card per Project, newest first, each with a 4:3 thumbnail, the name, the edited time ("5 min ago") and "12 components · 2-layer";
+  - the open Project's card is outlined in accent.
+- **Card actions:** clicking a card opens it. Its ⋯ menu has Open, Duplicate, Rename, Save as file… and Delete (with confirmation).
+- **Keyboard:** cards are focusable and Enter opens them.
 
 ```
 ┌ Top bar (48) ─ logo · name · commit │ project name · save state ──── File · Import · Export │ theme · help · about · settings ┐
