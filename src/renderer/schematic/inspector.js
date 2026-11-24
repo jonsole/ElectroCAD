@@ -4,7 +4,7 @@
 // the Field style and the shared commands. Every change is one undo step.
 import { h, button, toast } from '../ui/dom.js';
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
-import { moveSelection, rotateSymbols, mirrorSymbols, cleanupWires } from '../core/schematic.js';
+import { moveSelection, rotateSymbols, mirrorSymbols, cleanupWires, placedUnits, setSymbolUnit, unitLetter } from '../core/schematic.js';
 import { setComponentFieldStyle, styleFor, hasPinnedFields } from '../core/fields.js';
 import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { partOf } from '../core/project.js';
@@ -92,6 +92,21 @@ export class SchematicInspector {
       return this._edit(`Rename ${comp.ref} to ${v.trim()}`, (p) => updateComponent(p, comp.id, { ref: v }));
     }));
     rows.push(this._text('Value', comp.value, (v) => this._edit(`${comp.ref} value`, (p) => updateComponent(p, comp.id, { value: v }))));
+
+    // multi-Unit Parts: which Unit this Symbol is; swap to any Unit not placed elsewhere (#10)
+    if (part.units.length > 1) {
+      const placed = placedUnits(this.project, comp.id);
+      const sel = h('select', { class: 'select', 'aria-label': 'Unit' }, ...part.units.map((u, i) => {
+        const power = u.pins.length && u.pins.every((x) => x.type === 'power_in');
+        const taken = placed.has(i) && i !== sym.unit;
+        return h('option', { value: String(i), disabled: taken }, `${unitLetter(part, i)}${power ? ' (power)' : ''}${taken ? ' (placed)' : ''}`);
+      }));
+      sel.value = String(sym.unit || 0);
+      sel.addEventListener('change', () => this._edit(`${comp.ref}: Unit ${unitLetter(part, +sel.value)}`, (p) => setSymbolUnit(p, sym.id, +sel.value)));
+      const missing = part.units.map((_, i) => i).filter((i) => !placed.has(i)).map((i) => unitLetter(part, i));
+      rows.push(h('div', { class: 'param param-wide' }, h('label', {}, 'Unit'), sel,
+        missing.length ? h('div', { class: 'insp-note' }, `Not placed yet: ${comp.ref}${missing.join(', ' + comp.ref)}`) : null));
+    }
 
     // Footprint: Preferred first, then any other (identity Pin map)
     const ch = footprintChoices(this.project, comp, this.ed.parts);

@@ -75,7 +75,51 @@ export const LED = {
   pinMap: { LED_0805: { 1: '1', 2: '2' } },
 };
 
-export const MINI_LIBRARY = [RESISTOR, CAPACITOR, LED];
+// SOIC-14 (1.27 mm pitch): pads 1–7 down the left, 8–14 up the right, as in KiCad's SOIC-14_3.9x8.7mm_P1.27mm.
+const soic14 = () => ({
+  name: 'SOIC-14_3.9x8.7mm_P1.27mm',
+  pads: Array.from({ length: 14 }, (_, i) => {
+    const left = i < 7;
+    const row = left ? i : 13 - i;
+    return { number: String(i + 1), at: [left ? -mm(2.475) : mm(2.475), mm(-3.81 + row * 1.27)], shape: 'roundrect', size: [mm(1.95), mm(0.6)], layers: ['F.Cu', 'F.Paste', 'F.Mask'] };
+  }),
+  graphics: [{ type: 'rect', layer: 'F.CrtYd', a: [-mm(3.7), -mm(4.6)], b: [mm(3.7), mm(4.6)] }],
+});
+
+// One amplifier of an op-amp: a triangle with − above + on the left and the output on the right.
+const opAmpUnit = (name, minus, plus, out) => ({
+  name, hidePinNumbers: false, hidePinNames: false,
+  graphics: [{ type: 'poly', pts: [[-3 * G, -3 * G], [3 * G, 0], [-3 * G, 3 * G], [-3 * G, -3 * G]], fill: 'background' }],
+  pins: [
+    { number: minus, name: '-', at: [-5 * G, -G], dir: 'R', length: 2 * G, type: 'input' },
+    { number: plus, name: '+', at: [-5 * G, G], dir: 'R', length: 2 * G, type: 'input' },
+    { number: out, name: '~', at: [5 * G, 0], dir: 'L', length: 2 * G, type: 'output' },
+  ],
+});
+
+// LM324: four op-amps (Units A–D) and a separate power Unit (E), sharing one SOIC-14 (ADR-0005).
+export const LM324 = {
+  id: 'mini-lm324', name: 'LM324', prefix: 'U', defaultValue: 'LM324', keywords: 'lm324 op-amp opamp quad amplifier ic',
+  origin: { library: 'builtin-mini', partId: 'lm324', version: 1 },
+  units: [
+    opAmpUnit('A', '2', '3', '1'),
+    opAmpUnit('B', '6', '5', '7'),
+    opAmpUnit('C', '9', '10', '8'),
+    opAmpUnit('D', '13', '12', '14'),
+    {
+      name: 'E', hidePinNumbers: false, hidePinNames: false,
+      graphics: [{ type: 'rect', a: [-1.5 * G, -2 * G], b: [1.5 * G, 2 * G], fill: 'background' }],
+      pins: [
+        { number: '4', name: 'V+', at: [0, -4 * G], dir: 'D', length: 2 * G, type: 'power_in' },
+        { number: '11', name: 'V-', at: [0, 4 * G], dir: 'U', length: 2 * G, type: 'power_in' },
+      ],
+    },
+  ],
+  footprints: { SOIC14: soic14() },
+  pinMap: {},
+};
+
+export const MINI_LIBRARY = [RESISTOR, CAPACITOR, LED, LM324];
 
 /** Parts whose name or keywords contain every word of the query. */
 export function searchParts(parts, query) {

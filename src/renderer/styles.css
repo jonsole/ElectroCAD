@@ -383,3 +383,14 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .net-opt.current::after { content: ' ✓'; color: var(--muted); font-weight: 400; }
 .insp-row-btns { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 2px 0 6px; } /* as in DabbleCAD */
 .insp-row-btns .btn { height: 30px; }
+
+/* ---------- Unit chooser while placing a multi-Unit Part (#10) ---------- */
+.unit-strip { position: absolute; top: 40px; left: 50%; transform: translateX(-50%); z-index: 12; display: flex; align-items: center; gap: 4px; padding: 4px 6px 4px 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+.unit-strip[hidden] { display: none; }
+.us-ref { font-weight: 700; font-size: 13px; margin-right: 4px; }
+.us-unit, .us-new { height: 28px; min-width: 28px; padding: 0 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); color: var(--text); font: 600 12.5px "Segoe UI", system-ui, sans-serif; cursor: pointer; }
+.us-unit:hover, .us-new:hover { border-color: var(--accent); }
+.us-unit.on, .us-new.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.us-unit:disabled { opacity: 0.35; cursor: default; text-decoration: line-through; }
+.us-sep { width: 1px; align-self: stretch; margin: 2px 4px; background: var(--border); }
+.us-new { padding: 0 10px; }

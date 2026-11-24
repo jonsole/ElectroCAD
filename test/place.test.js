@@ -10,11 +10,13 @@ const onGrid = ([x, y]) => x % SCH_GRID === 0 && y % SCH_GRID === 0;
 
 test('mini Library parts are valid: Pins on the grid, a Pin map for every Pin, Pads to match', () => {
   for (const part of MINI_LIBRARY) {
-    const unit = part.units[0];
-    for (const pin of unit.pins) assert.ok(onGrid(pin.at), `${part.name} pin ${pin.number} off grid`);
+    const pins = part.units.flatMap((u) => u.pins);
+    for (const pin of pins) assert.ok(onGrid(pin.at), `${part.name} pin ${pin.number} off grid`);
+    assert.equal(new Set(pins.map((x) => x.number)).size, pins.length, `${part.name}: pin numbers are unique across Units`);
     for (const [fpId, fp] of Object.entries(part.footprints)) {
       const pads = new Set(fp.pads.map((p) => p.number));
-      for (const pin of unit.pins) assert.ok(pads.has(part.pinMap[fpId][pin.number]), `${part.name} pin ${pin.number} has no pad on ${fpId}`);
+      // a missing Pin map entry means Pin n -> Pad n
+      for (const pin of pins) assert.ok(pads.has(part.pinMap?.[fpId]?.[pin.number] ?? pin.number), `${part.name} pin ${pin.number} has no pad on ${fpId}`);
     }
   }
 });
@@ -35,7 +37,8 @@ test('Pins stay on the grid when a Symbol placed on the grid is rotated or mirro
 test('search matches names and keywords', () => {
   assert.deepEqual(searchParts(MINI_LIBRARY, 'cap').map((p) => p.name), ['Capacitor']);
   assert.deepEqual(searchParts(MINI_LIBRARY, 'diode').map((p) => p.name), ['LED']);
-  assert.equal(searchParts(MINI_LIBRARY, '').length, 3);
+  assert.equal(searchParts(MINI_LIBRARY, '').length, MINI_LIBRARY.length);
+  assert.deepEqual(searchParts(MINI_LIBRARY, 'op-amp').map((p) => p.name), ['LM324']);
 });
 
 test('placing snaps to the grid and allocates Reference designators per prefix', () => {

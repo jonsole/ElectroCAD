@@ -1,6 +1,6 @@
 // Schematic editing commands (DOM-free). Each is a mutation the editor runs inside one
 // History transaction, so every user action is exactly one undo step.
-import { addComponent, partOf, pruneOrphans, uid, pinPositions, nextRef, newSheet, addFootprint } from './project.js';
+import { addComponent, partOf, partKey, pruneOrphans, uid, pinPositions, nextRef, newSheet, addFootprint } from './project.js';
 import { compareRefs } from './netlist.js';
 import { labelBounds } from './labels.js';
 import { place, eq, distToSegment2, onSegment, rot90 } from './geom.js';
@@ -9,6 +9,52 @@ import { snapPt, SCH_GRID } from './units.js';
 /** Place a new Component's Unit on `sheet`, snapped to the 50 mil grid. */
 export function placeSymbol(project, sheet, part, at, opts = {}) {
   return addComponent(project, sheet, part, snapPt(at, SCH_GRID), opts);
+}
+
+// ------------------------------------------------------------------ Units (#10, ADR-0005)
+
+/** The letter of a Unit (A, B…), or '' for a single-Unit Part. */
+export const unitLetter = (part, unit) => (part && part.units.length > 1 ? String.fromCharCode(65 + (unit || 0)) : '');
+
+/** Unit indexes of a Component placed on any Sheet. */
+export function placedUnits(project, componentId) {
+  const out = new Set();
+  for (const s of project.schematic.sheets) for (const y of s.symbols) if (y.componentId === componentId) out.add(y.unit || 0);
+  return out;
+}
+
+/** The next unplaced Unit of a Component after `after` (wrapping round), or -1 when all are placed. */
+export function nextUnplacedUnit(project, componentId, after = -1) {
+  const comp = project.components[componentId];
+  const n = partOf(project, comp)?.units.length || 0;
+  const placed = placedUnits(project, componentId);
+  for (let i = 1; i <= n; i++) { const u = (after + i + n) % n; if (!placed.has(u)) return u; }
+  return -1;
+}
+
+/**
+ * What placing `part` should put down next: an unplaced Unit of an existing Component of that Part
+ * (the lowest Reference designator with a gap, its first gap), else Unit A of a new Component
+ * ({ componentId: null }). Single-Unit Parts always start a new Component.
+ */
+export function unitSuggestion(project, part) {
+  const key = partKey(part);
+  if ((project.parts[key] || part).units.length > 1) {
+    const comps = Object.values(project.components).filter((c) => c.partId === key).sort((a, b) => compareRefs(a.ref, b.ref));
+    for (const c of comps) { const u = nextUnplacedUnit(project, c.id); if (u >= 0) return { componentId: c.id, unit: u }; }
+  }
+  return { componentId: null, unit: 0 };
+}
+
+/** Swap a placed Symbol to another Unit of its Component that isn't placed anywhere (gate swap). */
+export function setSymbolUnit(project, symbolId, unit) {
+  const sym = symbolsById(project, [symbolId])[0];
+  if (!sym) return false;
+  const part = partOf(project, project.components[sym.componentId]);
+  if (!part || !part.units[unit] || unit === sym.unit) return false;
+  if (placedUnits(project, sym.componentId).has(unit)) return false;
+  sym.unit = unit;
+  return true;
 }
 
 function symbolsById(project, ids) {

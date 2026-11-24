@@ -287,7 +287,7 @@ export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(),
   }
   if (ghostLabel) drawLabels(ctx, view, C, [ghostLabel], { alpha: 0.6 });
   if (ghost) {
-    drawUnit(ctx, toScreen, view.scale, ghost.part, 0, ghost, { reference: ghost.part.prefix + '?', value: ghost.part.defaultValue }, C, { alpha: 0.6 });
+    drawUnit(ctx, toScreen, view.scale, ghost.part, ghost.unit || 0, ghost, { reference: ghost.ref || ghost.part.prefix + '?', value: ghost.part.defaultValue }, C, { alpha: 0.6 });
   }
 }
 

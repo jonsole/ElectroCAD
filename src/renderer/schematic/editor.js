@@ -5,9 +5,9 @@ import { h, icon, button, popupMenu, toast } from '../ui/dom.js';
 import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { later } from '../workspaces/workspace.js';
 import { MINI_LIBRARY, searchParts } from '../library/mini.js';
-import { placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, addLabel, addSheet, renameSheet, moveSheet, deleteSheet, validateSheetName, hitWire, preferredAxis, routeWire, moveSelection, copySelection, pasteClip, itemsInRect, itemsBounds, cleanupWires } from '../core/schematic.js';
+import { placedUnits, unitSuggestion, nextUnplacedUnit, unitLetter, placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, addLabel, addSheet, renameSheet, moveSheet, deleteSheet, validateSheetName, hitWire, preferredAxis, routeWire, moveSelection, copySelection, pasteClip, itemsInRect, itemsBounds, cleanupWires } from '../core/schematic.js';
 import { buildNetlist } from '../core/netlist.js';
-import { pinPositions } from '../core/project.js';
+import { pinPositions, nextRef, partOf } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
 import { snapPt, SCH_GRID, mm } from '../core/units.js';
 
@@ -261,6 +261,7 @@ export class SchematicEditor {
     if (this.toolBtn) for (const [t, b] of Object.entries(this.toolBtn)) b.classList.toggle('active', this.tool === t && !this.placing);
     this.renderNetlist();
     this.renderSheets();
+    this.renderUnitStrip();
     this.renderStyleFoot();
     this.ws?.renderBar();
     this.inspector?.render();
@@ -283,9 +284,9 @@ export class SchematicEditor {
         ? `Power: click a Pin or Wire to add ${this._powerName()} · double-click a power symbol's name to pick another net · R rotate · Esc back to Select`
         : `${t.what}: click a Pin, a Wire or a grid point, then type the net name and press Enter · R rotate · Esc back to Select`;
     }
-    else if (this.placing) text = `Placing ${this.placing.part.name}: ${this.placing.drag ? 'release on the sheet to place' : 'click to place, keep clicking for more'} · R rotate · X mirror · Esc ${this.placing.drag ? 'cancel' : 'stop'}`;
+    else if (this.placing) text = `Placing ${this.placing.part.units.length > 1 ? `${this._placingName(this.placing)} (${this.placing.part.name})` : this.placing.part.name}: ${this.placing.drag ? 'release on the sheet to place' : 'click to place, keep clicking for more'} · R rotate · X mirror · Esc ${this.placing.drag ? 'cancel' : 'stop'}`;
     else if (this.selection.size) {
-      const refs = this.sheet.symbols.filter((y) => this.selection.has(y.id)).map((y) => this.project.components[y.componentId]?.ref);
+      const refs = this.sheet.symbols.filter((y) => this.selection.has(y.id)).map((y) => { const c = this.project.components[y.componentId]; return c ? c.ref + unitLetter(partOf(this.project, c), y.unit) : ''; });
       const nw = this.sheet.wires.filter((w) => this.selection.has(w.id)).length;
       const labels = (this.sheet.labels || []).filter((l) => this.selection.has(l.id)).map((l) => l.net);
       const what = [...refs, ...labels, ...(nw ? [`${nw} wire${nw === 1 ? '' : 's'}`] : [])].join(', ');
@@ -417,6 +418,8 @@ export class SchematicEditor {
     this.stack = h('div', { class: 'float-stack' });
     const layer = h('div', { class: 'card-layer' }, this.stack);
     ws.view.el.append(layer);
+    this.unitStrip = h('div', { class: 'unit-strip', role: 'toolbar', 'aria-label': 'Unit to place', hidden: true });
+    ws.view.el.append(this.unitStrip);
     const dock = { el: this.stack, put: (card) => this.stack.append(...order.filter((c) => c === card || c.parentElement === this.stack)) };
     for (const c of order) this.stack.append(c);
     this.cards = {};
@@ -431,7 +434,7 @@ export class SchematicEditor {
   }
 
   draw(ctx, view, C) {
-    const ghost = this.placing && this.placing.at ? { part: this.placing.part, at: this.placing.at, rot: this.placing.rot, mirror: this.placing.mirror } : null;
+    const ghost = this.placing && this.placing.at ? { part: this.placing.part, unit: this.placing.unit || 0, ref: this._placingName(this.placing), at: this.placing.at, rot: this.placing.rot, mirror: this.placing.mirror } : null;
     let wiring = null, target = null;
     if (this.tool === 'wire' && this.cursor) {
       target = this._endTarget(this.cursor) ? this.cursor : null;
@@ -464,7 +467,8 @@ export class SchematicEditor {
 
   beginPlace(part, { drag = false } = {}) {
     this.tool = 'select'; this.wiring = null;
-    this.placing = { part, rot: 0, mirror: false, drag, at: null };
+    // which Unit goes down: the next unplaced Unit of a Component of this Part, else a new one (#10)
+    this.placing = { part, rot: 0, mirror: false, drag, at: null, ...unitSuggestion(this.project, part) };
     this.selection.clear();
     this.ws.view.canvas.style.cursor = 'crosshair';
     this.refresh();
@@ -473,6 +477,7 @@ export class SchematicEditor {
   endPlace() {
     if (!this.placing) return;
     this.placing = null;
+    this.renderUnitStrip();
     this.ws.view.canvas.style.cursor = '';
     this.refresh();
   }
@@ -487,8 +492,14 @@ export class SchematicEditor {
   commitPlace() {
     const pl = this.placing;
     if (!pl || !pl.at) return null;
-    const res = this.app.edit(`Place ${pl.part.name}`, (p) => placeSymbol(p, this._S(p), pl.part, pl.at, { rot: pl.rot, mirror: pl.mirror }));
+    const res = this.app.edit(`Place ${this._placingName(pl)}`, (p) => placeSymbol(p, this._S(p), pl.part, pl.at,
+      { rot: pl.rot, mirror: pl.mirror, unit: pl.unit, component: pl.componentId ? p.components[pl.componentId] : undefined }));
     if (pl.drag) { this.placing = null; this.ws.view.canvas.style.cursor = ''; }
+    else if (pl.part.units.length > 1) {
+      // keep going with the same Component's next Unit; once all are down, start a new Component
+      const next = nextUnplacedUnit(this.project, res.comp.id, pl.unit);
+      Object.assign(pl, next >= 0 ? { componentId: res.comp.id, unit: next } : { componentId: null, unit: 0 });
+    }
     this.selection = new Set([res.sym.id]);
     this.refresh();
     return res;
@@ -498,10 +509,43 @@ export class SchematicEditor {
   placeAtViewCenter(part) {
     const v = this.ws.view;
     const at = snapPt(v.view.toWorld([v.w / 2, v.h / 2]), SCH_GRID);
-    const res = this.app.edit(`Place ${part.name}`, (p) => placeSymbol(p, this._S(p), part, at));
+    const { componentId, unit } = unitSuggestion(this.project, part);
+    const res = this.app.edit(`Place ${part.name}`, (p) => placeSymbol(p, this._S(p), part, at, { unit, component: componentId ? p.components[componentId] : undefined }));
     this.selection = new Set([res.sym.id]);
     this.refresh();
     return res;
+  }
+
+  /** "U1B", or "U2A" for a new Component (the next free Reference designator): what the next click places. */
+  _placingName(pl) {
+    const comp = pl.componentId && this.project.components[pl.componentId];
+    if (!comp && pl.part.units.length < 2) return pl.part.prefix + '?';
+    return `${comp ? comp.ref : nextRef(this.project, pl.part.prefix)}${unitLetter(pl.part, pl.unit)}`;
+  }
+
+  /**
+   * While placing a multi-Unit Part: a strip at the top of the canvas with the Component's Units
+   * (placed ones greyed out, the next one lit) and a button for a new Component. Click to choose.
+   */
+  renderUnitStrip() {
+    const el = this.unitStrip;
+    if (!el) return;
+    const pl = this.placing;
+    if (!pl || pl.part.units.length < 2) { el.replaceChildren(); el.hidden = true; return; }
+    el.hidden = false;
+    const comp = pl.componentId && this.project.components[pl.componentId];
+    const placed = comp ? placedUnits(this.project, comp.id) : new Set();
+    const choose = (componentId, unit) => { Object.assign(pl, { componentId, unit }); this.refresh(); };
+    const newRef = nextRef(this.project, pl.part.prefix);
+    el.replaceChildren(
+      h('span', { class: 'us-ref' }, comp ? comp.ref : newRef),
+      ...pl.part.units.map((u, i) => h('button', {
+        class: 'us-unit' + (i === pl.unit ? ' on' : ''), type: 'button', disabled: placed.has(i),
+        title: placed.has(i) ? `${comp.ref}${unitLetter(pl.part, i)} is already placed` : `Place ${comp ? comp.ref : newRef}${unitLetter(pl.part, i)}${u.pins.some((x) => x.type === 'power_in') && u.pins.every((x) => x.type === 'power_in') ? ' (power)' : ''}`,
+        onClick: () => choose(pl.componentId, i),
+      }, unitLetter(pl.part, i))),
+      h('span', { class: 'us-sep' }),
+      h('button', { class: 'us-new' + (!comp ? ' on' : ''), type: 'button', title: `Start a new ${pl.part.name}`, onClick: () => choose(null, 0) }, `New ${newRef}`));
   }
 
   _tilePointerDown(e, part) {
