@@ -155,3 +155,46 @@ test('every Power symbol is offered every power net, including new ones', () => 
   assert.equal(filterNetNames(choices, '+5V', '+5V'), choices);
   assert.deepEqual(filterNetNames(choices, '3v', '+5V'), ['+3V3']);
 });
+
+import { canonicalNetName } from '../src/renderer/core/labels.js';
+
+test('ADR-0013: net names match regardless of case and the Net takes one spelling', () => {
+  const { p, s1, s2 } = twoSheets();
+  const a = placeSymbol(p, s1, RESISTOR, [G * 10, G * 10]).sym;
+  const b = placeSymbol(p, s2, RESISTOR, [G * 10, G * 10]).sym;
+  const c = placeSymbol(p, s2, RESISTOR, [G * 30, G * 10]).sym;
+  addLabel(p, s1, { at: pinAt(p, a, '1'), net: '+3v3', style: 'power' });
+  addLabel(p, s2, { at: pinAt(p, b, '1'), net: '+3V3', style: 'power' });
+  addLabel(p, s2, { at: pinAt(p, c, '1'), net: '+3V3', style: 'power' });
+  const net = netOf(p, 'R1', '1');
+  assert.deepEqual(net.pins.map((x) => x.ref), ['R1', 'R2', 'R3'], 'one Net');
+  assert.equal(net.name, '+3V3', 'the spelling most labels use');
+  assert.deepEqual(net.spellings, ['+3V3', '+3v3'], 'mixed spellings are reported for ERC');
+  assert.equal(net.conflict, undefined, 'case-only differences are not a name conflict');
+  // a Power symbol's spelling beats a Global label's, even when outnumbered
+  addLabel(p, s1, { at: pinAt(p, a, '1'), net: '+3V3_x', scope: 'global' });
+  assert.deepEqual(netOf(p, 'R1', '1').conflict, ['+3V3', '+3V3_x'], 'a different name is still a conflict');
+  // local labels on one Sheet join across case; same name on two Sheets stays two Nets
+  addLabel(p, s1, { at: pinAt(p, a, '2'), net: 'en' });
+  addLabel(p, s2, { at: pinAt(p, b, '2'), net: 'EN' });
+  addLabel(p, s2, { at: pinAt(p, c, '2'), net: 'En' });
+  assert.deepEqual(netOf(p, 'R2', '2').pins.map((x) => x.ref), ['R2', 'R3'], 'en/EN/En join on Sheet 2');
+  assert.equal(netOf(p, 'R1', '2').pins.length, 1, 'but not with Sheet 1');
+  assert.deepEqual(buildNetlist(p).nets.map((n) => n.name).filter((n) => /en$/i.test(n)).sort(), ['Sheet 1/en', 'Sheet 2/EN'], 'qualified regardless of case');
+});
+
+test('ADR-0013: a typed name takes the spelling of a Net that already exists', () => {
+  const { p, s1, s2 } = twoSheets();
+  const keep = addLabel(p, s1, { at: [G, G], net: '+3V3', style: 'power' });
+  const other = addLabel(p, s2, { at: [G, G], net: 'VCC', style: 'power' });
+  assert.equal(canonicalNetName(p, '+3v3'), '+3V3');
+  assert.equal(canonicalNetName(p, ' vcc '), 'VCC');
+  assert.equal(canonicalNetName(p, '+5V'), '+5V', 'a new name is kept');
+  assert.equal(canonicalNetName(p, 'vcc', other.id), 'vcc', 'the label being renamed does not count');
+  keep.net = 'gnd_a';
+  assert.equal(canonicalNetName(p, 'GND_A'), 'gnd_a');
+  // the name box lists each Net once, in the Project's spelling
+  keep.net = '+3v3';
+  const choices = netNameChoices(p, keep);
+  assert.ok(choices.includes('+3v3') && !choices.includes('+3V3'));
+});

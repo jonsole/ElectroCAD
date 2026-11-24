@@ -127,6 +127,9 @@ _Avoid_: Port, off-page connector
 **Power symbol**:
 A Global label drawn as a power or ground glyph, such as GND or +3V3.
 
+**Net name**:
+The name a Net is known by, taken from its labels (Power symbol, then Global label, then Net label), or generated as `Net-(R1-Pad2)` when it has none. Labels match names regardless of case (ADR-0013): `+3v3` and `+3V3` are one Net, shown with one canonical spelling.
+
 **Ratsnest**:
 The straight "airwire" lines drawn on the Board between Pads that share a Net but are not yet joined by copper.
 _Avoid_: Airwires (fine in UI text), unrouted

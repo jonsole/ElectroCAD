@@ -67,7 +67,8 @@ export function buildNetlist(project) {
       const p = k(l.at);
       wired.add(p);
       const global = l.scope === 'global' || l.style === 'power' || l.style === 'gnd';
-      uf.union(p, global ? `global:${name}` : `${prefix}label:${name}`);
+      const k2 = name.toLowerCase(); // names match regardless of case (ADR-0013)
+      uf.union(p, global ? `global:${k2}` : `${prefix}label:${k2}`);
       if (!labelsAt.has(p)) labelsAt.set(p, []);
       labelsAt.get(p).push(l);
     }
@@ -99,21 +100,51 @@ export function buildNetlist(project) {
     const ls = groupLabels.get(r) || [];
     if (ps.length < 2 && !g.wired && !ls.length) { unconnected.push(...ps); continue; }
     const first = ps[0];
-    const sorted = [...ls].sort((a, b) => rank(a) - rank(b) || String(a.net).localeCompare(String(b.net)));
-    const names = [...new Set(sorted.map((l) => String(l.net).trim()))];
-    const net = { name: names[0] || `Net-(${first.ref}-Pad${first.pad})`, pins: ps };
-    if (names.length > 1) net.conflict = names;
-    if (sorted[0] && rank(sorted[0]) === 2) net.sheet = sheetName.get(sorted[0].id); // two different names on one Net: an ERC error (#11)
+    const names = netNames(ls, rank);
+    const net = { name: names[0]?.spelling || `Net-(${first.ref}-Pad${first.pad})`, pins: ps };
+    if (names.length > 1) net.conflict = names.map((n) => n.spelling); // two different names on one Net: an ERC error (#11)
+    if (names[0]?.spellings.length > 1) net.spellings = names[0].spellings; // one name, mixed case: an ERC warning (ADR-0013)
+    if (names[0] && names[0].rank === 2) net.sheet = sheetName.get(names[0].labels[0].id);
     nets.push(net);
   }
   // a Net label name used on several Sheets makes separate Nets: qualify them with the Sheet name
   const count = new Map();
-  for (const n of nets) count.set(n.name, (count.get(n.name) || 0) + 1);
-  for (const n of nets) if (count.get(n.name) > 1 && n.sheet) n.name = `${n.sheet}/${n.name}`;
+  const low = (n) => n.name.toLowerCase();
+  for (const n of nets) count.set(low(n), (count.get(low(n)) || 0) + 1);
+  for (const n of nets) if (count.get(low(n)) > 1 && n.sheet) n.name = `${n.sheet}/${n.name}`;
   for (const n of nets) delete n.sheet;
   nets.sort((a, b) => compareRefs(a.pins[0].ref, b.pins[0].ref) || compareRefs(a.pins[0].pad, b.pins[0].pad));
   unconnected.sort((a, b) => compareRefs(a.ref, b.ref) || compareRefs(a.pin, b.pin));
   return { nets, unconnected };
+}
+
+/**
+ * The distinct names among a Net's labels, compared regardless of case (ADR-0013), best first:
+ * by kind (Power symbol, Global label, Net label), then alphabetically. A name's spelling is the
+ * one most of its best-ranked labels use (ties: alphabetical); `spellings` lists every spelling
+ * seen, that one first.
+ */
+function netNames(labels, rank) {
+  const byKey = new Map();
+  for (const l of labels) {
+    const spelling = String(l.net).trim();
+    const k = spelling.toLowerCase();
+    if (!byKey.has(k)) byKey.set(k, { rank: rank(l), counts: new Map(), labels: [] });
+    const e = byKey.get(k);
+    e.rank = Math.min(e.rank, rank(l));
+    e.counts.set(spelling, (e.counts.get(spelling) || 0) + 1);
+    e.labels.push(l);
+  }
+  const byCase = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+  const out = [...byKey.values()].map((e) => {
+    const best = e.labels.filter((l) => rank(l) === e.rank);
+    const topCount = new Map();
+    for (const l of best) { const x = String(l.net).trim(); topCount.set(x, (topCount.get(x) || 0) + 1); }
+    const spelling = [...topCount].sort((a, b) => b[1] - a[1] || byCase(a[0], b[0]))[0][0];
+    const spellings = [...e.counts].sort((a, b) => (a[0] === spelling ? -1 : b[0] === spelling ? 1 : b[1] - a[1] || byCase(a[0], b[0]))).map((x) => x[0]);
+    return { rank: e.rank, spelling, spellings, labels: best };
+  });
+  return out.sort((a, b) => a.rank - b.rank || a.spelling.localeCompare(b.spelling));
 }
 
 /**

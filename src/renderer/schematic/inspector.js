@@ -2,13 +2,13 @@
 // 3D Design inspector. For one selected part it edits the Reference designator, Value,
 // Footprint, Field style, position/rotation/mirror, MPN and custom fields; for several it offers
 // the Field style and the shared commands. Every change is one undo step.
-import { h, button } from '../ui/dom.js';
+import { h, button, toast } from '../ui/dom.js';
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
 import { moveSelection, rotateSymbols, mirrorSymbols, cleanupWires } from '../core/schematic.js';
 import { setComponentFieldStyle, styleFor } from '../core/fields.js';
 import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { partOf } from '../core/project.js';
-import { validateLabelName, isPower, netNameChoices } from '../core/labels.js';
+import { validateLabelName, isPower, netNameChoices, canonicalNetName } from '../core/labels.js';
 import { snap, SCH_GRID, mm } from '../core/units.js';
 
 const fmtMm = (nm) => String(+(nm / 1e6).toFixed(2));
@@ -183,8 +183,12 @@ export class SchematicInspector {
     const rename = (v) => {
       const bad = validateLabelName(v);
       if (bad) return bad;
-      if (l.style === 'power') this.ed.nextName.power = v.trim();
-      return this._edit(`Rename ${l.net} to ${v.trim()}`, (p) => { this._find(p, l.id).net = v.trim(); });
+      // names match regardless of case: use the spelling the Net already has (ADR-0013)
+      const name = canonicalNetName(this.project, v, l.id);
+      if (name !== v.trim()) toast(`${v.trim()} is the same net as ${name}, so it uses that spelling.`, 'info', 3500);
+      if (name === l.net) { this.render(); return true; }
+      if (l.style === 'power') this.ed.nextName.power = name;
+      return this._edit(`Rename ${l.net} to ${name}`, (p) => { this._find(p, l.id).net = name; });
     };
     if (isPower(l) && l.style !== 'gnd') {
       // a real list of every power net (a <datalist> would only show the one already typed)

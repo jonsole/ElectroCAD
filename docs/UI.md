@@ -96,6 +96,7 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 - The name box offers the net names already in the Project. After a Net label the next one offers the name with its number bumped (D0 → D1).
 - Text stays readable: Net and Global labels turned 180° or 270° read left-to-right or bottom-to-top, sitting on the other side of their point. Power symbols turn freely with upright text.
 - Labels select, move, copy, rotate and delete with everything else. A label sitting on a Wire that moves goes with it. Double-click a label to rename it. The inspector edits the name, whether it joins on this sheet only or every sheet, and its rotation.
+- Names match regardless of case (ADR-0013): `+3v3` and `+3V3` are one Net. Typing a name that differs from an existing Net only by case stores the existing spelling and says so in a toast. Mixed spellings from an import are kept on the labels; the Net shows the most used one, and ERC (#11) warns about them.
 - Net names: Power symbol beats Global label beats Net label beats the generated `Net-(R1-Pad2)`. Local labels named alike on two Sheets are two Nets, shown as `Sheet 1/EN` and `Sheet 2/EN`. Two different names on one Net are kept for ERC (#11).
 - **Sheets** are flat. The bottom bar has a chip per Sheet (click to switch, double-click to rename) and a + to add one after the current Sheet. The Sheets icon on the toolbar opens a card listing them with rename, move up/down and delete (the last Sheet stays). Each is one undo step; deleting a Sheet takes its parts with it and says so in a toast.
 

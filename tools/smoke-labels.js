@@ -73,6 +73,17 @@ key('p');
 click(pin(c.sym, '1'));
 check('power-uses-last', netOf('R2', '1')?.name === '+3V3', netOf('R2', '1'));
 key('Escape');
+// names match regardless of case (ADR-0013): typing "en" where EN exists stores "EN"
+key('l');
+click([pin(c.sym, '2')[0] + 6 * G, pin(c.sym, '2')[1]]);
+const ebox = document.querySelector('.field-edit.label-edit');
+ebox.value = 'en';
+ebox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+check('spelling-adopted', app.project.schematic.sheets[0].labels.some((l) => l.net === 'EN' && l.at[0] === pin(c.sym, '2')[0] + 6 * G) && !app.project.schematic.sheets[0].labels.some((l) => l.net === 'en'));
+check('spelling-toast', /same net as EN/.test(document.querySelector('.toast')?.textContent || document.body.textContent));
+key('Escape');
+key('z', { ctrlKey: true }); // take it back off again
+check('spelling-undo', app.project.schematic.sheets[0].labels.length === 4);
 
 // a second Sheet from the bottom bar's +
 document.querySelector('.chip-add').click();

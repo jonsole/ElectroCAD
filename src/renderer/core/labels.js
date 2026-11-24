@@ -102,11 +102,35 @@ export function validateLabelName(name) {
  */
 export function netNameChoices(project, label) {
   const power = isPower(label);
-  const names = new Set(power ? POWER_NAMES : []);
+  // one entry per Net name regardless of case, in the Project's spelling (ADR-0013)
+  const names = new Map();
   for (const s of project.schematic.sheets) {
-    for (const x of s.labels || []) if (x.style !== 'gnd' && isPower(x) === power && x.net) names.add(x.net);
+    for (const x of s.labels || []) if (x.style !== 'gnd' && isPower(x) === power && x.net) {
+      const k = x.net.trim().toLowerCase();
+      if (!names.has(k)) names.set(k, x.net.trim());
+    }
   }
-  return [...names].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }) || a.localeCompare(b));
+  if (power) for (const n of POWER_NAMES) if (!names.has(n.toLowerCase())) names.set(n.toLowerCase(), n);
+  return [...names.values()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }) || a.localeCompare(b));
+}
+
+/**
+ * The spelling to store for a typed net name: when a label elsewhere in the Project already uses
+ * the same name apart from case, its spelling (the most used one); otherwise the name as typed,
+ * trimmed. `exceptId` is the label being renamed, which doesn't count (ADR-0013).
+ */
+export function canonicalNetName(project, typed, exceptId = null) {
+  const name = String(typed ?? '').trim();
+  const k = name.toLowerCase();
+  const counts = new Map();
+  for (const s of project.schematic.sheets) {
+    for (const x of s.labels || []) {
+      const n = String(x.net || '').trim();
+      if (x.id !== exceptId && n.toLowerCase() === k) counts.set(n, (counts.get(n) || 0) + 1);
+    }
+  }
+  if (!counts.size || counts.has(name)) return name;
+  return [...counts].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0];
 }
 
 /** The choices to show for what is typed: all of them until the text changes, then those containing it. */

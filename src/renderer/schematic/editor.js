@@ -17,7 +17,7 @@ import { SchematicInspector } from './inspector.js';
 import { makeDraggable } from '../ui/draggable.js';
 import { placeFields, fieldWarnings, setDefaultFieldStyle, setComponentFieldStyle, hitField, styleFor } from '../core/fields.js';
 import { validateRef, updateComponent } from '../core/components.js';
-import { hitLabel, labelBounds, labelShape, labelFrame, validateLabelName, isPower, netNameChoices, filterNetNames } from '../core/labels.js';
+import { hitLabel, labelBounds, labelShape, labelFrame, validateLabelName, isPower, netNameChoices, filterNetNames, canonicalNetName } from '../core/labels.js';
 
 /** The label tools: what each one places. */
 const LABEL_TOOLS = {
@@ -673,10 +673,14 @@ export class SchematicEditor {
     const close = () => { if (done) return; done = true; input.remove(); tip.remove(); list.remove(); this.labelEdit = null; this.ws.view.canvas.focus({ preventScroll: true }); this.ws.view.invalidate(); };
     const commit = () => {
       if (done) return true;
-      const name = input.value.trim();
-      if (label && name === original) { close(); return true; }
-      const bad = validateLabelName(name);
+      const typed = input.value.trim();
+      if (label && typed === original) { close(); return true; }
+      const bad = validateLabelName(typed);
       if (bad) { input.classList.add('bad'); tip.classList.remove('note'); tip.textContent = bad; input.focus(); return false; }
+      // names match regardless of case: use the spelling the Net already has (ADR-0013)
+      const name = canonicalNetName(this.project, typed, label?.id);
+      if (name !== typed) toast(`${typed} is the same net as ${name}, so it uses that spelling.`, 'info', 3500);
+      if (label && name === original) { close(); return true; }
       if (label) {
         this.app.edit(`Rename ${original} to ${name}`, (p) => { const x = (this._S(p).labels || []).find((y) => y.id === label.id); if (x) x.net = name; });
         if (label.style === 'power') this.nextName.power = name; // the next Power symbol uses it
