@@ -9,7 +9,7 @@ A schematic-capture and PCB-layout editor for 2- and 4-layer hobbyist boards. It
 | Schematic | Flat multi-Sheet schematic, Wires, Junctions, Net labels (per Sheet), Global labels, Power symbols, multi-Unit Parts, ERC | Hierarchical sheets, buses, Unit (gate) swap |
 | Library | Built-in generated starter Library, Part/Symbol/Footprint editors, KiCad and Eagle library import, frozen project copies with "Update from Library" | Online part search |
 | Board | Schematic-first only. 2 or 4 copper layers, Outline, Footprint placement, Track routing at 45°/90° with three Routing modes (Shove, Walkaround, Free), through Vias, live-refilled Zones, Net classes, Fab presets, DRC | Differential pairs, length tuning, arcs, blind/buried vias |
-| Sync | Forward annotation with a change list, Back annotation of Reference designators and Footprints, Cross-probing | — |
+| Sync | Forward annotation with a change list (Components added or removed, Nets), live Footprint changes from either editor (ADR-0008), Back annotation of Reference designators, Cross-probing | — |
 | Output | Gerber RS-274X (X2 attributes), Excellon drill, BOM CSV, pick-and-place CSV, PDF/SVG schematic print | ODB++, IPC-2581, STEP |
 | Interchange | Native `.ecad`. KiCad: read 6+, write 9 (`.kicad_sch`, `.kicad_pcb`, `.kicad_sym`, `.kicad_mod`). Eagle XML 6+ / Fusion Electronics: read and write (`.sch`, `.brd`, `.lbr`) | KiCad 5 legacy, Eagle binary, Altium, EasyEDA |
 | 3D | Board preview with three.js (reusing DabbleCAD's viewer): board, copper, silk, box bodies | STEP models |

@@ -1,6 +1,6 @@
 # The Schematic is the single source of truth for connectivity
 
-Nets are derived from the Schematic only. The Board never defines a Net. It only holds copper that carries Nets the Schematic named. Schematic changes reach the Board through an explicit **Forward annotation** step that shows a list of changes, not a live sync. The changes that flow back from the Board (Reference designator renumbering and Footprint swaps) go through an explicit **Back annotation**. This is how KiCad and Eagle (with forward/back annotation off) behave, and it keeps "why is this pad on that net?" answerable from a single place.
+Nets are derived from the Schematic only. The Board never defines a Net. It only holds copper that carries Nets the Schematic named. Schematic changes reach the Board through an explicit **Forward annotation** step that shows a list of changes, not a live sync. The only change that flows back from the Board is Reference designator renumbering, through an explicit **Back annotation**. Footprint choice is a live Component property that either editor can change; see [ADR-0008](0008-footprint-is-a-live-component-property.md). This is how KiCad and Eagle (with forward/back annotation off) behave, and it keeps "why is this pad on that net?" answerable from a single place.
 
 ## Consequences
 

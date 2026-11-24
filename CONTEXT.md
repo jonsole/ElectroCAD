@@ -57,7 +57,7 @@ The mapping from a Part's Pin numbers to the Pad numbers of one Footprint. A Foo
 _Avoid_: Connect (Eagle's word)
 
 **Preferred footprint**:
-A Footprint the Part lists, with its own Pin map. A Component may also be given any other Footprint.
+A Footprint the Part lists, with its own Pin map. A Component may also be given any other Footprint. The chosen Footprint is a property of the Component, set when it is placed and editable from either editor.
 
 **Library origin**:
 The Library and version a Project's embedded Part was copied from. The embedded copy stays frozen until the user runs an explicit update from the Library.
@@ -157,14 +157,14 @@ Design rule check. It finds places where the Board breaks its Design rules or is
 Electrical rule check. It finds Schematic mistakes such as unconnected Pins or two outputs driving one Net.
 
 **Forward annotation**:
-Pushing Schematic changes (new Components, changed Nets) onto the Board.
+Pushing Schematic changes (Components added or removed, changed Nets) onto the Board. Footprint changes don't need it: they apply to both editors at once.
 _Avoid_: Update PCB, sync (too vague)
 
 **Cross-probing**:
 Selecting a Component or Net in one editor highlights the same thing in the other.
 
 **Back annotation**:
-Pushing Board-side changes, such as a renumbered Reference designator or a swapped Footprint, back to the Schematic.
+Pushing Reference designators renumbered on the Board back to the Schematic.
 
 **Fab output**:
 The files a board house needs: Gerber, Excellon drill, BOM and pick-and-place.
