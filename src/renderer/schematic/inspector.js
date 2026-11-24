@@ -4,7 +4,7 @@
 // the Field style and the shared commands. Every change is one undo step.
 import { h, button } from '../ui/dom.js';
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
-import { moveSelection, rotateSymbols, mirrorSymbols } from '../core/schematic.js';
+import { moveSelection, rotateSymbols, mirrorSymbols, cleanupWires } from '../core/schematic.js';
 import { setComponentFieldStyle, styleFor } from '../core/fields.js';
 import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { partOf } from '../core/project.js';
@@ -105,7 +105,7 @@ export class SchematicInspector {
         if (!Number.isFinite(v)) { inp.value = fmtMm(sym.at[axis]); return; }
         const target = snap(mm(v), SCH_GRID);
         const delta = axis ? [0, target - sym.at[1]] : [target - sym.at[0], 0];
-        if (delta[0] || delta[1]) this._edit(`Move ${comp.ref}`, (p) => moveSelection(p, p.schematic.sheets[0], [sym.id], delta));
+        if (delta[0] || delta[1]) this._edit(`Move ${comp.ref}`, (p) => { moveSelection(p, p.schematic.sheets[0], [sym.id], delta); cleanupWires(p, p.schematic.sheets[0]); });
         else inp.value = fmtMm(sym.at[axis]);
       });
       return inp;

@@ -124,3 +124,61 @@ test('a wire T-joined onto a moving wire follows it', () => {
   assert.equal(sig(p), before);
   assert.ok(orthogonal(s) && noZero(s), JSON.stringify(s.wires));
 });
+
+// ---------------------------------------------------------------- tidying wires after a drag
+import { cleanupWires } from '../src/renderer/core/schematic.js';
+
+test('two straight runs meeting end to end become one', () => {
+  const { p, s } = seriesStraight();
+  const w = s.wires[0];
+  const mid = [(w.a[0] + w.b[0]) / 2, w.a[1]];
+  s.wires = [{ id: 'w1', a: w.a, b: mid }, { id: 'w2', a: mid, b: w.b }];
+  const before = sig(p);
+  assert.ok(cleanupWires(p, s));
+  assert.equal(s.wires.length, 1);
+  assert.equal(sig(p), before);
+});
+
+test('overlapping runs on the same line (a hidden segment) become one covering both', () => {
+  const { p, s } = seriesStraight();
+  const w = s.wires[0];
+  s.wires.push({ id: 'hidden', a: [w.a[0] + G, w.a[1]], b: [w.a[0] + G * 3, w.a[1]] }); // lies on top of w
+  s.wires.push({ id: 'back', a: [w.b[0], w.b[1]], b: [w.b[0] - G * 2, w.b[1]] });       // doubles back over w
+  const before = sig(p);
+  cleanupWires(p, s);
+  assert.equal(s.wires.length, 1);
+  assert.equal(sig(p), before);
+});
+
+test('runs are not joined where something else connects', () => {
+  const { p, s, r1 } = seriesStraight();
+  const w = s.wires[0];
+  const mid = [(w.a[0] + w.b[0]) / 2, w.a[1]];
+  s.wires = [{ id: 'w1', a: w.a, b: mid }, { id: 'w2', a: mid, b: w.b }, { id: 'w3', a: mid, b: [mid[0], mid[1] + G * 5] }]; // a T at mid
+  cleanupWires(p, s);
+  assert.equal(s.wires.length, 3, 'the T stays: three ends meet there');
+  // a Pin at the meeting point also stops the join
+  const q = newProject();
+  const t = q.schematic.sheets[0];
+  const r = placeSymbol(q, t, RESISTOR, [G * 20, G * 20], { rot: 90 }).sym;
+  const pp = pinAt(q, r, '1');
+  t.wires = [{ id: 'a', a: [pp[0] - G * 4, pp[1]], b: pp }, { id: 'b', a: pp, b: [pp[0] + G * 4, pp[1]] }];
+  cleanupWires(q, t);
+  assert.equal(t.wires.length, 2);
+  void r1;
+});
+
+test('a drag that leaves overlapping runs is tidied with the Netlist unchanged', () => {
+  const p = newProject();
+  const s = p.schematic.sheets[0];
+  const r1 = placeSymbol(p, s, RESISTOR, [G * 10, G * 10]).sym;
+  const r2 = placeSymbol(p, s, RESISTOR, [G * 40, G * 20]).sym;
+  const a = pinAt(p, r1, '2'), b = pinAt(p, r2, '1');
+  addWire(p, s, [a, [G * 25, a[1]], [G * 25, b[1]], b]); // right, down, right
+  const before = sig(p);
+  moveSelection(p, s, [r2.id], [0, -G * 10]); // R2 up level with R1: the middle run collapses
+  cleanupWires(p, s);
+  assert.equal(sig(p), before);
+  assert.ok(orthogonal(s) && noZero(s));
+  assert.equal(s.wires.length, 1, JSON.stringify(s.wires));
+});

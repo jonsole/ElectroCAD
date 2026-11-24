@@ -5,7 +5,7 @@ import { h, icon, button, popupMenu, toast } from '../ui/dom.js';
 import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { later } from '../workspaces/workspace.js';
 import { MINI_LIBRARY, searchParts } from '../library/mini.js';
-import { placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, hitWire, preferredAxis, routeWire, moveSelection, copySelection, pasteClip, itemsInRect, itemsBounds } from '../core/schematic.js';
+import { placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, hitWire, preferredAxis, routeWire, moveSelection, copySelection, pasteClip, itemsInRect, itemsBounds, cleanupWires } from '../core/schematic.js';
 import { buildNetlist } from '../core/netlist.js';
 import { pinPositions } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
@@ -223,7 +223,8 @@ export class SchematicEditor {
         this.drag = null; this.preview = null;
         if (d.moved && (d.delta[0] || d.delta[1])) {
           const ids = d.ids, delta = d.delta;
-          this.app.edit('Move', (p) => moveSelection(p, p.schematic.sheets[0], ids, delta));
+          // on release the wires are tidied too (joined runs, no hidden segments), in the same undo step
+          this.app.edit('Move', (p) => { moveSelection(p, p.schematic.sheets[0], ids, delta); cleanupWires(p, p.schematic.sheets[0]); });
         }
         this.refresh();
       } else if (this.marquee) {
@@ -409,7 +410,7 @@ export class SchematicEditor {
     this.wiring = null;
     if (!w || w.points.length < 2) { this.refresh(); return; }
     const pts = w.points;
-    this.app.edit('Draw wire', (p) => addWire(p, p.schematic.sheets[0], pts));
+    this.app.edit('Draw wire', (p) => { addWire(p, p.schematic.sheets[0], pts); cleanupWires(p, p.schematic.sheets[0]); });
     this.refresh();
   }
 
@@ -557,7 +558,7 @@ export class SchematicEditor {
   nudge(dx, dy) {
     if (!this.selection.size) return;
     const ids = [...this.selection];
-    this.app.edit('Move', (p) => moveSelection(p, p.schematic.sheets[0], ids, [dx * SCH_GRID, dy * SCH_GRID]));
+    this.app.edit('Move', (p) => { moveSelection(p, p.schematic.sheets[0], ids, [dx * SCH_GRID, dy * SCH_GRID]); cleanupWires(p, p.schematic.sheets[0]); });
     this.refresh();
   }
 

@@ -302,3 +302,65 @@ export function itemsInRect(project, sheet, r, mode = 'window') {
   }
   return out;
 }
+
+// ---------------------------------------------------------------- tidying Wires
+
+/**
+ * Tidy a Sheet's Wires without changing what connects to what:
+ *   - drop zero-length runs and exact duplicates;
+ *   - runs on the same line that overlap become one run covering both (no hidden segments);
+ *   - runs on the same line that meet end to end become one, when nothing else connects at the
+ *     meeting point (no Pin, no third Wire end, no Wire passing through it).
+ * Returns true if anything changed.
+ */
+export function cleanupWires(project, sheet) {
+  let changed = false;
+  const pinKeys = new Set(sheet.symbols.flatMap((y) => pinPositions(project, y).map((x) => ptKey(x.at))));
+  const axisOf = (w) => (w.a[1] === w.b[1] ? 'h' : w.a[0] === w.b[0] ? 'v' : null);
+  const lineOf = (w) => (axisOf(w) === 'h' ? 'h' + w.a[1] : 'v' + w.a[0]);
+  const lo = (w) => (axisOf(w) === 'h' ? Math.min(w.a[0], w.b[0]) : Math.min(w.a[1], w.b[1]));
+  const hi = (w) => (axisOf(w) === 'h' ? Math.max(w.a[0], w.b[0]) : Math.max(w.a[1], w.b[1]));
+  const make = (w, a, b) => (axisOf(w) === 'h' ? { id: w.id, a: [a, w.a[1]], b: [b, w.a[1]] } : { id: w.id, a: [w.a[0], a], b: [w.a[0], b] });
+  for (let guard = 0; guard < 1000; guard++) {
+    let step = false;
+    // zero length and duplicates
+    const seen = new Set();
+    const kept = [];
+    for (const w of sheet.wires) {
+      if (w.a[0] === w.b[0] && w.a[1] === w.b[1]) { step = true; continue; }
+      const k = [ptKey(w.a), ptKey(w.b)].sort().join('|');
+      if (seen.has(k)) { step = true; continue; }
+      seen.add(k); kept.push(w);
+    }
+    sheet.wires = kept;
+    // overlapping or end-to-end runs on the same line
+    outer: for (let i = 0; i < sheet.wires.length; i++) {
+      const w = sheet.wires[i];
+      const ax = axisOf(w);
+      if (!ax) continue;
+      for (let j = i + 1; j < sheet.wires.length; j++) {
+        const x = sheet.wires[j];
+        if (axisOf(x) !== ax || lineOf(x) !== lineOf(w)) continue;
+        const [l1, h1, l2, h2] = [lo(w), hi(w), lo(x), hi(x)];
+        if (h1 < l2 || h2 < l1) continue; // apart
+        if (h1 === l2 || h2 === l1) {
+          // they meet at one point: merge only if nothing else connects there
+          const v = h1 === l2 ? h1 : h2;
+          const P = ax === 'h' ? [v, w.a[1]] : [w.a[0], v];
+          const k = ptKey(P);
+          if (pinKeys.has(k)) continue;
+          const ends = sheet.wires.reduce((n, y) => n + (ptKey(y.a) === k) + (ptKey(y.b) === k), 0);
+          if (ends !== 2) continue;
+          if (sheet.wires.some((y) => y !== w && y !== x && onSegment(P, y.a, y.b))) continue;
+        }
+        sheet.wires[i] = make(w, Math.min(l1, l2), Math.max(h1, h2));
+        sheet.wires.splice(j, 1);
+        step = true;
+        break outer;
+      }
+    }
+    if (!step) break;
+    changed = true;
+  }
+  return changed;
+}

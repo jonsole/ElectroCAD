@@ -99,6 +99,11 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
   - a Wire with one moving end stretches. If its far end is a plain corner, the corner slides along so an L stays an L; otherwise the original run stays on its line, so T-joins onto it stay connected, and a new corner reaches the moved end;
   - a Wire T-joined onto a Wire that moves goes along with it.
 - **Connectivity never changes when you move things.**
+- **Tidying on release:** when you release a drag (and after nudging, moving from the inspector or drawing a Wire), the Wires are tidied in the same undo step:
+  - straight runs that meet end to end are joined, unless a Pin, a third Wire or a Wire passing through connects there;
+  - runs lying on top of each other on the same line become one, so no segment is left hidden under another;
+  - zero-length runs and duplicates are removed.
+  This never changes connectivity.
 - **Copy, paste, duplicate:** Ctrl+C, Ctrl+V (pastes under the cursor) and Ctrl+D (a copy four grid steps away). Pasted Components get the next free Reference designators and keep their Value, Footprint and Field style. Wires between copied parts come along.
 
 ## Editing fields on the canvas

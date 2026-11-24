@@ -72,4 +72,22 @@ key('Delete');
 check('deleted-dup', Object.keys(app.project.components).length === nComps);
 key('z', { ctrlKey: true });
 check('undo-delete', Object.keys(app.project.components).length === nComps + 3);
+
+// 6. Tidy on release: an S-shaped wire whose middle run collapses becomes one straight run.
+key('Escape');
+const r5 = put(R, 50, 80), r6 = put(R, 74, 86);
+app.edit('s-wire', (pr) => { const sh = pr.schematic.sheets[0]; const a = pin(r5, '2'), b = pin(r6, '1'); S.addWire(pr, sh, [a, [62 * G, a[1]], [62 * G, b[1]], b]); });
+const wiresBefore = app.project.schematic.sheets[0].wires.length;
+const net56 = () => NL.buildNetlist(app.project).nets.find((n) => n.pins.some((x) => x.ref === app.project.components[r5.componentId].ref))?.pins.map((x) => x.ref + '.' + x.pin).sort().join();
+const n0 = net56();
+ws.view.view.fit({ x0: 42 * G, y0: 74 * G, x1: 84 * G, y1: 92 * G }, ws.view.w, ws.view.h, 20);
+const f6 = scr(r6.at), t6 = scr([r6.at[0], r6.at[1] - 6 * G]);
+pe('pointerdown', f6, 1); pe('pointermove', [f6[0], f6[1] - 10], 1); pe('pointermove', t6, 1);
+const previewWires = ed.preview.schematic.sheets[0].wires.length;
+pe('pointerup', t6, 0);
+const after = app.project.schematic.sheets[0].wires.length;
+out.tidy = { wiresBefore, previewWires, after };
+check('tidied-on-release', after === wiresBefore - 3 + 1, out.tidy); // the three-run S becomes one run
+check('tidy-keeps-net', net56() === n0, [net56(), n0]);
+check('tidy-same-undo-step', (() => { key('z', { ctrlKey: true }); const back = app.project.schematic.sheets[0].wires.length === wiresBefore; key('z', { ctrlKey: true, shiftKey: true }); return back; })());
 return { fails, out };
