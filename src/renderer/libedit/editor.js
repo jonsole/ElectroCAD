@@ -16,7 +16,8 @@ import { drawUnit } from '../schematic/render.js';
 import { shapeHandles, hitHandle, dragHandle, snapPoint } from '../core/handles.js';
 import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { SCHEMATIC_GRIDS, DEFAULT_SCHEMATIC_GRID, gridLabel, setGridStep, snapToGrid } from '../core/grid.js';
-import { gridPanel, watchAlt } from '../ui/grid.js';
+import { watchAlt } from '../ui/grid.js';
+import { GridCard } from '../ui/gridCard.js';
 
 const HALF = G / 2;
 const snap = (v, step) => Math.round(v / step) * step;
@@ -133,7 +134,13 @@ export class LibraryEditor {
       newPart: button({ label: 'New part', icon: 'plus', title: 'A new Part in this Library', onClick: () => this.createPart() }),
       save: button({ label: 'Save', icon: 'check', cls: 'btn-primary', title: 'Save the Part to its Library (Ctrl+S)', onClick: () => this.save() }),
     };
-    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.del, this.btn.rotate, h('span', { class: 'sep' }), this.btn.newPart, this.btn.save];
+    this.gridCard = new GridCard({
+      key: 'library-grid', choices: SCHEMATIC_GRIDS,
+      state: () => ({ grid: this.grid, origin: [0, 0], scope: 'Symbol editor', originEditable: false, originNote: 'The Symbol\'s anchor: pick a point and the Part moves so that point is the anchor.' }),
+      onGrid: (which, nm) => this.setGrid(which, nm),
+      onPick: () => { if (this.draft) this.setTool('origin'); },
+    });
+    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.del, this.btn.rotate, h('span', { class: 'sep' }), this.gridCard.button, h('span', { class: 'sep' }), this.btn.newPart, this.btn.save];
   }
 
   tools() {
@@ -264,10 +271,7 @@ export class LibraryEditor {
     const u = this.unitObj;
     const sel = [...this.selection];
     if (!u || !sel.length) {
-      el.replaceChildren(gridPanel({
-        grid: this.grid, choices: SCHEMATIC_GRIDS, onGrid: (which, nm) => this.setGrid(which, nm),
-        originText: 'the Symbol\'s anchor (the Origin tool moves it)',
-      }), h('p', { class: 'side-note' }, this.draft ? 'Select a Pin or a graphic on the canvas. Pins snap to the grid, graphics to half of it; hold Alt for the Alt grid. Keep Pins on 50 mil so they meet wires on the Schematic.' : 'Nothing selected.'));
+      el.replaceChildren(h('p', { class: 'side-note' }, this.draft ? 'Select a Pin or a graphic on the canvas. Pins snap to the grid, graphics to half of it (the Grid button on the toolbar sets both); hold Alt for the Alt grid. Keep Pins on 50 mil so they meet wires on the Schematic.' : 'Nothing selected.'));
       return;
     }
     const pins = sel.filter((s) => s.startsWith('pin:')).map((s) => +s.slice(4));
@@ -332,6 +336,7 @@ export class LibraryEditor {
     this.renderPart();
     this.renderProps();
     if (this.ws) this.ws.view.grid = this.gridStep;
+    this.gridCard?.render();
     this.ws?.renderBar();
     this._hint();
     this.ws?.view.invalidate();
@@ -360,6 +365,7 @@ export class LibraryEditor {
     const c = ws.view.canvas;
     const world = (e) => ws.view.view.toWorld(ws.view.local(e));
     watchAlt(ws, (on) => this.setAlt(on));
+    this.gridCard.mount(ws);
     c.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || !this.draft) return;
       const w = world(e);

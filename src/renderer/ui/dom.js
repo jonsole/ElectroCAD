@@ -34,6 +34,7 @@ const P = {
   home: 'M3 11.5 12 4l9 7.5M5.5 10v9.5h4.5v-6h4v6h4.5V10',
   fit: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5M9 9h6v6H9z',
   plus: 'M12 5v14M5 12h14',
+  grid: 'M4 4h16v16H4zM4 9.33h16M4 14.67h16M9.33 4v16M14.67 4v16',
   viewIcons: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
   viewSmall: 'M4 5h4v4H4zM10 7h4M4 15h4v4H4zM10 17h4M15 5h1M15 15h1',
   viewList: 'M4 6h2M9 6h11M4 12h2M9 12h11M4 18h2M9 18h11',

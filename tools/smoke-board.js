@@ -88,7 +88,9 @@ key('z', { ctrlKey: true });
 check('hole-undo', board().outline[hole].r === 1.5 * MM);
 // grids: change the main grid in Properties; Alt switches to the Alt grid while held
 ed.selection.clear(); key('Escape'); ed.refresh();
-const gsel = document.querySelector('[data-ws="board"] select[aria-label="Grid"]');
+ed.gridCard.button.click();
+check('grid-card', ed.gridCard.open && ed.gridCard.button.classList.contains('active'));
+const gsel = document.querySelector('[data-ws="board"] .grid-card select[aria-label="Grid"]');
 gsel.value = String(1e6); gsel.dispatchEvent(new Event('change'));
 check('grid-main', board().grid.main === 1e6 && ws.view.grid === 1e6, [board().grid, ws.view.grid]);
 document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Alt', altKey: true, bubbles: true }));
@@ -109,7 +111,12 @@ ed.setAlt(false);
 // the origin tool: click near the rounded rectangle's top-left arc end; it snaps onto it
 key('o'); click(0.2, 3.2);
 check('origin', JSON.stringify(board().origin) === JSON.stringify([0, 3 * MM]) && ws.view.origin === board().origin && ed.tool === 'select', board().origin);
-check('origin-panel', /0, 3 mm from the page origin/.test(document.querySelector('[data-ws="board"] .grid-panel').textContent));
+check('origin-card', document.querySelector('[data-ws="board"] .grid-card input[aria-label="Origin Y"]').value === '3', document.querySelector('[data-ws="board"] .grid-card input[aria-label="Origin Y"]')?.value);
+// typing an origin X in the card moves it
+const ox = document.querySelector('[data-ws="board"] .grid-card input[aria-label="Origin X"]');
+ox.value = '2'; ox.dispatchEvent(new Event('change'));
+check('origin-typed', board().origin[0] === 2 * MM && board().origin[1] === 3 * MM, board().origin);
+key('z', { ctrlKey: true });
 // the Board's view is kept across tabs
 const view = JSON.stringify(ws.view.view.toJSON());
 app.setWorkspace('schematic'); await new Promise((r2) => requestAnimationFrame(r2)); app.setWorkspace('board');

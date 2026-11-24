@@ -85,6 +85,14 @@ dlg.querySelector('input[aria-label="Origin X (mm)"]').value = '5';
 check('sch-grid', sheet().grid.main === 2 * G && ws.view.grid === 2 * G && sheet().origin[0] === 5e6, [sheet().grid, sheet().origin]);
 key('z', { ctrlKey: true });
 check('sch-grid-undo', sheet().grid.main === G && sheet().origin[0] === 0);
+// the toolbar Grid button opens the Grid card for the current sheet
+ed.gridCard.button.click();
+const gc = document.querySelector('[data-ws="schematic"] .grid-card');
+check('sch-grid-card', ed.gridCard.open && gc.querySelector('.fp-count').textContent === sheet().name);
+const gcs = gc.querySelector('select[aria-label="Alt grid"]'); gcs.value = String(G / 2 / 5); gcs.dispatchEvent(new Event('change'));
+check('sch-card-alt', sheet().grid.alt === G / 10, sheet().grid);
+key('z', { ctrlKey: true });
+ed.gridCard.toggle(false);
 ed.toggleSheets(false);
 key('o'); click(10.2, 10.1);
 check('sch-origin', JSON.stringify(sheet().origin) === JSON.stringify([10 * G, 10 * G]) && ws.view.origin === sheet().origin, sheet().origin);

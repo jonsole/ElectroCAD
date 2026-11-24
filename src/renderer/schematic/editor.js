@@ -14,6 +14,7 @@ import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { snapToGrid, gridLabel, SCHEMATIC_GRIDS, setGridStep } from '../core/grid.js';
 import { watchAlt } from '../ui/grid.js';
 import { RULER } from '../view/canvas2d.js';
+import { GridCard } from '../ui/gridCard.js';
 import { hitDrawing, drawingDefaults, paperRect, titleBlockLayout, PAPER_SIZES, TITLE_FIELDS, LINE_STYLES } from '../core/drawings.js';
 import { pinPositions, nextRef, partOf } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
@@ -445,10 +446,17 @@ export class SchematicEditor {
     this.netlistBtn = button({ icon: 'netlist', title: 'Netlist', onClick: () => this.toggleNetlist() });
     this.ercBtn = button({ icon: 'erc', title: 'Electrical rule check (ERC)', onClick: () => this.toggleErc() });
     const erc = this.ercBtn;
+    this.gridCard = new GridCard({
+      key: 'schematic-grid', choices: SCHEMATIC_GRIDS,
+      state: () => ({ grid: this.sheet.grid, origin: this.sheet.origin, scope: this.sheet.name, originNote: "The origin is measured from the paper's top-left corner." }),
+      onGrid: (which, nm) => this.app.edit(`${this.sheet.name}: ${which === 'alt' ? 'Alt grid' : 'grid'} ${gridLabel(nm)}`, (p) => { const g = this._S(p).grid; setGridStep(g, which, nm); }),
+      onOrigin: (at) => this.app.edit(`${this.sheet.name}: grid origin`, (p) => { this._S(p).origin = at; }),
+      onPick: () => this.setTool('origin'),
+    });
     return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }),
       this.btn.copy, this.btn.paste, this.btn.dup, this.btn.del, h('span', { class: 'sep' }),
       this.btn.rotate, this.btn.mirror, h('span', { class: 'sep' }), this.btn.fields, h('span', { class: 'sep' }),
-      this.sheetsBtn, this.netlistBtn, erc];
+      this.gridCard.button, this.sheetsBtn, this.netlistBtn, erc];
   }
 
   /** The left tool palette: Select and Wire are live; the rest name their tickets. */
@@ -467,7 +475,7 @@ export class SchematicEditor {
       this.toolBtn.noConnect, null,
       ...Object.entries(DRAW_TOOLS).map(([id, t]) => (this.toolBtn[id] = button({ icon: t.icon, title: t.title, onClick: () => this.setTool(id) }))),
       toolButton('ruler', 'Measure', { ticket: 8 }),
-      (this.toolBtn.origin = button({ icon: 'target', title: 'Grid origin (O): click to move the origin there; it snaps onto Pins, Wire ends and handles. Reset it with the sheet\'s gear in the Sheets card', onClick: () => this.setTool('origin') }))];
+      (this.toolBtn.origin = button({ icon: 'target', title: 'Grid origin (O): click to move the origin there; it snaps onto Pins, Wire ends and handles. Reset it in the Grid card (toolbar)', onClick: () => this.setTool('origin') }))];
   }
 
   setTool(tool) {
@@ -507,6 +515,7 @@ export class SchematicEditor {
     this.renderNetlist();
     this.renderSheets();
     this.renderErc();
+    this.gridCard?.render();
     this.renderUnitStrip();
     this.renderStyleFoot();
     this.ws?.renderBar();
@@ -724,7 +733,7 @@ export class SchematicEditor {
     // Cards dock in a column at the top right; each one moves by its header and resizes from its
     // corner on its own (like DabbleCAD's inspector), and docks again on a header double-click.
     this.ercEl = h('div', { class: 'float-panel erc-panel', role: 'region', 'aria-label': 'Electrical rule check' });
-    const order = [this.inspector.el, this.sheetsEl, this.ercEl, this.netlistEl];
+    const order = [this.inspector.el, this.gridCard.el, this.sheetsEl, this.ercEl, this.netlistEl];
     this.stack = h('div', { class: 'float-stack' });
     const layer = h('div', { class: 'card-layer' }, this.stack);
     ws.view.el.append(layer);
@@ -737,6 +746,7 @@ export class SchematicEditor {
       this.cards[k] = makeDraggable(c, { key: `schematic-${k}`, layer, dock });
       c.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
     }
+    this.gridCard.mount(ws, { layer, dock });
     this.renderNetlist();
     this.renderSheets();
     this.renderErc();
@@ -835,7 +845,7 @@ export class SchematicEditor {
     const [ax, ay] = v.toScreen([b.x0 - pad, b.y0 - pad]), [bx, by] = v.toScreen([b.x1 + pad, b.y1 + pad]);
     const cr = ws.view.canvas.getBoundingClientRect();
     const item = { x0: ax, y0: ay, x1: bx, y1: by };
-    const cards = [this.inspector?.el, this.sheetsEl, this.ercEl, this.netlistEl]
+    const cards = [this.inspector?.el, this.gridCard?.el, this.sheetsEl, this.ercEl, this.netlistEl]
       .filter((el) => el && el.offsetParent && el.childElementCount && getComputedStyle(el).display !== 'none')
       .map((el) => { const r = el.getBoundingClientRect(); return { x0: r.left - cr.left, y0: r.top - cr.top, x1: r.right - cr.left, y1: r.bottom - cr.top }; });
     const hits = (a, c) => a.x0 < c.x1 && a.x1 > c.x0 && a.y0 < c.y1 && a.y1 > c.y0;

@@ -17,7 +17,8 @@ import { openAnnotateDialog } from './annotate-dialog.js';
 import { placedPads, padNets } from '../core/footprint.js';
 import { shapeHandles, hitHandle, dragOutlineHandle, snapPoint, handlePoints } from '../core/handles.js';
 import { drawHandles, drawSnapMark } from '../view/handles.js';
-import { gridPanel, watchAlt } from '../ui/grid.js';
+import { watchAlt } from '../ui/grid.js';
+import { GridCard } from '../ui/gridCard.js';
 
 const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
 
@@ -28,7 +29,7 @@ export const BOARD_TOOLS = {
   polygon: { icon: 'lpolygon', title: 'Outline polygon (P): click corners; A makes the next side an arc; click the first point to close', key: 'p' },
   circle: { icon: 'lellipse', title: 'Round outline or hole (C): click the centre, then the edge', key: 'c' },
   measure: { icon: 'ruler', title: 'Measure (M): click two points', key: 'm' },
-  origin: { icon: 'target', title: 'Grid origin (O): click to move the origin there; it snaps onto handles. Reset it in Properties', key: 'o' },
+  origin: { icon: 'target', title: 'Grid origin (O): click to move the origin there; it snaps onto handles. Reset it in the Grid card (toolbar)', key: 'o' },
 };
 
 const pref = {
@@ -86,7 +87,14 @@ export class BoardEditor {
       redo: button({ icon: 'redo', title: 'Redo (Ctrl+Shift+Z)', onClick: () => this.app.redo() }),
       del: button({ icon: 'trash', title: 'Delete (Del)', onClick: () => this.deleteSelection() }),
     };
-    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.del];
+    this.gridCard = new GridCard({
+      key: 'board-grid', choices: GRID_CHOICES,
+      state: () => ({ grid: this.board.grid, origin: this.board.origin, scope: 'Board', originNote: 'The origin is measured from the page origin.' }),
+      onGrid: (which, nm) => this.app.edit(`${which === 'alt' ? 'Alt grid' : 'Grid'}: ${gridLabel(nm)}`, (p) => setGrid(p, which, nm)),
+      onOrigin: (at) => this.app.edit('Grid origin', (p) => { p.board.origin = at; }),
+      onPick: () => this.setTool('origin'),
+    });
+    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.del, h('span', { class: 'sep' }), this.gridCard.button];
   }
 
   tools(later) {
@@ -155,7 +163,6 @@ export class BoardEditor {
     if (['outline', 'polygon', 'circle'].includes(this.tool) || (!sel.length && this.tool === 'select')) {
       if (this.tool === 'outline') parts.push(field('Corner radius', fmt(this.radius), (v) => { this.radius = mm(Math.max(0, v)); pref.set('boardCornerRadius', toMm(this.radius)); this.ws?.view.invalidate(); }));
     }
-    if (!sel.length && (this.tool === 'select' || this.tool === 'origin')) parts.push(this.gridPanel());
     if (sel.length === 1) {
       const s = sel[0], i = [...this.selection][0];
       const label = { rect: 'Rectangle', circle: 'Circle', line: 'Line', arc: 'Arc' }[s.type] || s.type;
@@ -179,18 +186,6 @@ export class BoardEditor {
       icon(ok ? 'check' : 'info', 16),
       h('span', {}, ok ? `Outline closed · ${fmt(b.x1 - b.x0)} × ${fmt(b.y1 - b.y0)} mm${c.pieces > 1 ? ` · ${c.pieces} separate pieces` : ''}${c.cutouts ? ` · ${c.cutouts} cut-out${c.cutouts > 1 ? 's' : ''}` : ''}` : c.problems.join(' '))));
     el.replaceChildren(...parts);
-  }
-
-  /** Grid and origin: the main and Alt grid steps, and where the origin is. */
-  gridPanel() {
-    const o = this.board.origin;
-    return gridPanel({
-      grid: this.board.grid, choices: GRID_CHOICES,
-      onGrid: (which, nm) => this.app.edit(`${which === 'alt' ? 'Alt grid' : 'Grid'}: ${gridLabel(nm)}`, (p) => setGrid(p, which, nm)),
-      originText: o[0] || o[1] ? `${fmt(o[0])}, ${fmt(o[1])} mm from the page origin` : 'at the page origin',
-      onResetOrigin: o[0] || o[1] ? () => this.app.edit('Reset grid origin', (p) => { p.board.origin = [0, 0]; }) : null,
-      resetTitle: 'Put the grid origin back at the page origin',
-    });
   }
 
   chips() {
@@ -221,6 +216,7 @@ export class BoardEditor {
     if (this.stackEl) { this.renderStack(); this.renderLayers(); this.renderProps(); }
     this._home();
     if (this.ws) { this.ws.view.grid = this.gridStep; this.ws.view.origin = this.board.origin; }
+    this.gridCard?.render();
     this.ws?.renderBar();
     this._hint();
     this.ws?.view.invalidate();
@@ -390,6 +386,7 @@ export class BoardEditor {
     };
     c.addEventListener('pointerup', up);
     watchAlt(ws, (on) => this.setAlt(on));
+    this.gridCard.mount(ws);
     c.addEventListener('pointercancel', up);
     c.addEventListener('pointerleave', () => { if (this.tool !== 'select') { this.cursor = null; ws.view.invalidate(); } });
     this.refresh();
