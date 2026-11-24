@@ -27,6 +27,21 @@ key('z', { ctrlKey: true });
 check('undo-in-library', ed.draft.units[0].graphics.length === 1 && app.history.undoStack.length === projectUndo);
 key('z', { ctrlKey: true, shiftKey: true });
 check('redo', ed.draft.units[0].graphics.length === 2);
+// resize handles: drag the box's right side out half a grid, then undo
+const drag = (x0, y0, x1, y1) => {
+  const r = ws.view.canvas.getBoundingClientRect();
+  const o = (x, y, buttons) => { const [sx, sy] = ws.view.view.toScreen([x * G, y * G]); return { clientX: r.left + sx, clientY: r.top + sy, button: 0, buttons, bubbles: true, cancelable: true, pointerId: 15 }; };
+  ws.view.canvas.dispatchEvent(new PointerEvent('pointermove', o(x0, y0, 0)));
+  ws.view.canvas.dispatchEvent(new PointerEvent('pointerdown', o(x0, y0, 1)));
+  ws.view.canvas.dispatchEvent(new PointerEvent('pointermove', o(x1, y1, 1)));
+  ws.view.canvas.dispatchEvent(new PointerEvent('pointerup', o(x1, y1, 0)));
+};
+ed.setTool('select'); ed.selection = new Set(['g:1']); ed.refresh();
+drag(2, 0, 2.5, 0);
+check('lib-resize', ed.draft.units[0].graphics[1].b[0] === 2.5 * G, ed.draft.units[0].graphics[1]);
+key('z', { ctrlKey: true });
+check('lib-resize-undo', ed.draft.units[0].graphics[1].b[0] === 2 * G);
+ed.selection.clear(); ed.refresh();
 // a second Unit without Pins can't be saved
 document.querySelector('.ws-root[data-ws="library"] .chip-add').click();
 check('unit-b', ed.draft.units.length === 2 && ed.unit === 1);

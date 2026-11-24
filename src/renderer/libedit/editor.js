@@ -13,6 +13,8 @@ import { shapePoints, distToSegment2 } from '../core/geom.js';
 import { newLibrary, newPart, addUnit, removeUnit, addPin, partProblems, savePart, renameLibrary, unitName, PIN_TYPES, PART_CATEGORIES, LibraryError } from '../core/library.js';
 import { STARTER_LIBRARY } from '../library/starter.js';
 import { drawUnit } from '../schematic/render.js';
+import { shapeHandles, hitHandle, dragHandle } from '../core/handles.js';
+import { drawHandles } from '../view/handles.js';
 
 const HALF = G / 2;
 const snap = (v, step) => Math.round(v / step) * step;
@@ -302,6 +304,12 @@ export class LibraryEditor {
       if (e.button !== 0 || !this.draft) return;
       const w = world(e);
       if (this.tool === 'select') {
+        const handle = !e.shiftKey && this._handleAt(w, 5 / ws.view.view.scale);
+        if (handle) {
+          this.handleDrag = { ...handle, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.draft), moved: false };
+          try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+          return;
+        }
         const hit = this.hitTest(w, 5 / ws.view.view.scale);
         if (e.shiftKey && hit) { if (this.selection.has(hit)) this.selection.delete(hit); else this.selection.add(hit); this.refresh(); return; }
         if (hit) {
@@ -318,6 +326,20 @@ export class LibraryEditor {
     c.addEventListener('pointermove', (e) => {
       const w = world(e);
       this.cursor = w;
+      if (this.handleDrag && (e.buttons & 1)) {
+        const d = this.handleDrag;
+        if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 3) return;
+        d.moved = true;
+        this.draft = structuredClone(d.snapshot);
+        const gs = this.draft.units[this.unit].graphics;
+        gs[d.index] = dragHandle(gs[d.index], d.key, snapPt(w, HALF));
+        ws.view.invalidate();
+        return;
+      }
+      if (this.tool === 'select' && !e.buttons) {
+        const h = this._handleAt(w, 5 / ws.view.view.scale);
+        if (h) { c.style.cursor = h.cursor; this._onHandle = true; } else if (this._onHandle) { c.style.cursor = ''; this._onHandle = false; }
+      }
       if (this.drag && (e.buttons & 1)) {
         const d = this.drag;
         if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 4) return;
@@ -332,6 +354,14 @@ export class LibraryEditor {
       } else if (this.tool !== 'select') ws.view.invalidate();
     });
     c.addEventListener('pointerup', () => {
+      if (this.handleDrag) {
+        const d = this.handleDrag; this.handleDrag = null;
+        const g = this.draft.units[this.unit].graphics[d.index];
+        this.draft = d.snapshot;
+        if (d.moved && JSON.stringify(g) !== JSON.stringify(d.snapshot.units[this.unit].graphics[d.index])) this.edit('Resize', (p) => { p.units[this.unit].graphics[d.index] = g; });
+        else this.refresh();
+        return;
+      }
       if (!this.drag) return;
       const d = this.drag; this.drag = null;
       const delta = d.delta;
@@ -340,6 +370,20 @@ export class LibraryEditor {
       else this.refresh();
     });
     this.refresh();
+  }
+
+  /** The one selected graphic (not text) shows resize handles. */
+  _handleGraphic() {
+    if (this.tool !== 'select' || this.selection.size !== 1 || this.drag?.moved) return null;
+    const [k, i] = [...this.selection][0].split(':');
+    const g = k === 'g' && this.unitObj?.graphics[+i];
+    return g && g.type !== 'text' ? { g, index: +i } : null;
+  }
+
+  _handleAt(w, tol) {
+    const sel = this._handleGraphic();
+    const h = sel && hitHandle(sel.g, w, tol);
+    return h ? { index: sel.index, key: h.key, cursor: h.cursor } : null;
   }
 
   /** What's under a point: a Pin (its tip or line) or a graphic; returns a selection key or null. */
@@ -448,6 +492,8 @@ export class LibraryEditor {
       ctx.strokeRect(Math.min(...xs) - 4, Math.min(...ys) - 4, Math.max(...xs) - Math.min(...xs) + 8, Math.max(...ys) - Math.min(...ys) + 8);
     }
     ctx.restore();
+    const hg = this._handleGraphic();
+    if (hg) drawHandles(ctx, view, C, shapeHandles(hg.g), this.handleDrag?.key);
     // a shape being drawn, to the cursor
     if (this.drawing && this.cursor) {
       const cur = snapPt(this.cursor, HALF);

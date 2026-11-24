@@ -1,6 +1,6 @@
 // Resize handles for shapes (schematic markup and the Board Outline). DOM-free; lengths nm.
 //
-// Shapes are the shared ones: line { pts }, rect { a, b }, circle { c, r }, arc { start, mid, end }.
+// Shapes are the shared ones: line { pts } (and the Symbol editor's poly { pts }), rect { a, b }, circle { c, r }, arc { start, mid, end }.
 // shapeHandles() lists the handles; dragHandle() returns the shape with one handle moved to a
 // point. On the Outline, dragOutlineHandle() also keeps the loop closed: the neighbours that
 // share a moved end follow it.
@@ -11,6 +11,8 @@ const same = (a, b) => a[0] === b[0] && a[1] === b[1];
 /** The handles of a shape: [{ key, at, cursor }]. Text has none (its size is in the inspector). */
 export function shapeHandles(s) {
   switch (s.type) {
+    case 'poly':
+      return s.pts.map((p, i) => ({ key: `p${i}`, at: p, cursor: 'move' }));
     case 'line': {
       const hs = s.pts.map((p, i) => ({ key: `p${i}`, at: p, cursor: 'move' }));
       if (s.pts.length === 2) hs.push({ key: 'side', at: mid(s.pts[0], s.pts[1]), cursor: 'move', side: true });
@@ -71,6 +73,7 @@ export function arcWithEnds(s, start, end) {
  */
 export function dragHandle(s, key, pt) {
   switch (s.type) {
+    case 'poly':
     case 'line': {
       if (key === 'side') {
         const [a, b] = s.pts;

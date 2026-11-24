@@ -66,3 +66,9 @@ test('Outline: rectangles and circles resize on their own', () => {
   const out = dragOutlineHandle(rectOutline([0, 0], [mm(10), mm(10)]), 0, 'se', [mm(20), mm(5)]);
   assert.deepEqual(out[0].b, [mm(20), mm(5)]);
 });
+
+test('polygons (Symbol graphics) have a handle per point', () => {
+  const tri = { type: 'poly', pts: [[0, 0], [10, 0], [5, 8]], fill: 'outline' };
+  assert.deepEqual(shapeHandles(tri).map((h) => h.key), ['p0', 'p1', 'p2']);
+  assert.deepEqual(dragHandle(tri, 'p2', [5, 12]).pts[2], [5, 12]);
+});
