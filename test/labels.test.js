@@ -134,7 +134,7 @@ test('labels and Sheets survive save and load; a damaged label is refused', () =
   assert.equal(back.schematic.sheets.length, 2);
   assert.deepEqual(back.schematic.sheets[1].labels[0], s2.labels[0]);
   s2.labels[0].style = 'weird';
-  assert.throws(() => deserialize(serialize(p)), /unknown kind/);
+  assert.throws(() => deserialize(serialize(p)), /damaged[\s\S]*"weird" is not one of/);
 });
 
 import { netNameChoices, filterNetNames } from '../src/renderer/core/labels.js';

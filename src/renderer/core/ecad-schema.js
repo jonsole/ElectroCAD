@@ -1,0 +1,1248 @@
+// The JSON Schema of the Native format (.ecad), version 3. The single source: opening a file
+// checks it (core/project.js), the tests check what the app writes, and
+// tools/write-format-example.js publishes it as docs/formats/ecad.schema.json.
+// Meaning of each field: docs/formats/ecad.md.
+export const ECAD_SCHEMA = {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jonsole.github.io/ElectroCAD/formats/ecad.schema.json",
+  "title": "ElectroCAD Project (.ecad), format version 3",
+  "description": "The Native format. See docs/formats/ecad.md for the meaning of each field. Strict on purpose: the tests check that every key the app writes is described here. Opening a file refuses anything it doesn't describe (ADR-0014). Uses only a plain subset of JSON Schema (type, const, enum, required, properties, additionalProperties, items, minItems, maxItems, minimum, minLength, oneOf, $ref).",
+  "type": "object",
+  "required": [
+    "format",
+    "version",
+    "id",
+    "name",
+    "parts",
+    "components",
+    "footprints",
+    "schematic",
+    "board",
+    "fieldStyles"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "electrocad"
+    },
+    "version": {
+      "const": 3,
+      "description": "Goes up with every format change. Before 1.0 there is no compatibility: a file of any other version is refused (ADR-0014)."
+    },
+    "id": {
+      "$ref": "#/$defs/id"
+    },
+    "name": {
+      "type": "string"
+    },
+    "parts": {
+      "type": "object",
+      "description": "Every Part used, keyed by its Library origin (\"library/partId@version\"), so Parts from different Libraries never clash. Frozen copies (ADR-0004).",
+      "additionalProperties": {
+        "$ref": "#/$defs/part"
+      }
+    },
+    "components": {
+      "type": "object",
+      "description": "Keyed by Component id.",
+      "additionalProperties": {
+        "$ref": "#/$defs/component"
+      }
+    },
+    "footprints": {
+      "type": "object",
+      "description": "Footprints Components use that are not one of their Part's Preferred footprints, stored once and referenced by key from Component.footprint.fpKey.",
+      "additionalProperties": {
+        "$ref": "#/$defs/projectFootprint"
+      }
+    },
+    "schematic": {
+      "type": "object",
+      "required": [
+        "sheets"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sheets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/sheet"
+          }
+        }
+      }
+    },
+    "board": {
+      "$ref": "#/$defs/board"
+    },
+    "fieldStyles": {
+      "type": "object",
+      "required": [
+        "default",
+        "styles"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "type": "string",
+          "description": "Key in styles: the Project's default Field style."
+        },
+        "styles": {
+          "type": "object",
+          "description": "Every Field style the Project uses, keyed by style id (ADR-0012).",
+          "additionalProperties": {
+            "$ref": "#/$defs/fieldStyle"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nm": {
+      "type": "integer",
+      "description": "A length or coordinate in nanometres (ADR-0003)."
+    },
+    "point": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/nm"
+      },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "[x, y] in nm, +Y down."
+    },
+    "rot90": {
+      "enum": [
+        0,
+        90,
+        180,
+        270
+      ],
+      "description": "Degrees, counter-clockwise on screen."
+    },
+    "part": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "prefix",
+        "units"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Same as its key in parts."
+        },
+        "name": {
+          "type": "string"
+        },
+        "prefix": {
+          "type": "string",
+          "description": "Reference designator prefix, e.g. R, C, U."
+        },
+        "defaultValue": {
+          "type": "string"
+        },
+        "keywords": {
+          "type": "string",
+          "description": "Space-separated search words for the Part picker."
+        },
+        "origin": {
+          "type": "object",
+          "required": [
+            "library",
+            "partId",
+            "version"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "library": {
+              "type": "string"
+            },
+            "partId": {
+              "type": "string"
+            },
+            "version": {
+              "type": "integer"
+            }
+          },
+          "description": "Library origin, for Update from Library (#39)."
+        },
+        "units": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/unit"
+          },
+          "description": "ADR-0005: always an array, usually one Unit."
+        },
+        "footprints": {
+          "type": "object",
+          "description": "Preferred footprints keyed by fpId.",
+          "additionalProperties": {
+            "$ref": "#/$defs/footprint"
+          }
+        },
+        "pinMap": {
+          "type": "object",
+          "description": "pinMap[fpId][pinNumber] = padNumber. A missing entry means Pin n -> Pad n.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "unit": {
+      "type": "object",
+      "required": [
+        "name",
+        "graphics",
+        "pins"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "A, B, C… for multi-Unit Parts."
+        },
+        "hidePinNumbers": {
+          "type": "boolean"
+        },
+        "hidePinNames": {
+          "type": "boolean"
+        },
+        "graphics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/shape"
+          }
+        },
+        "pins": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pin"
+          }
+        }
+      }
+    },
+    "pin": {
+      "type": "object",
+      "required": [
+        "number",
+        "name",
+        "at",
+        "dir",
+        "length",
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "number": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "description": "\"~\" means no name."
+        },
+        "at": {
+          "$ref": "#/$defs/point",
+          "description": "The connection tip, in the Symbol's frame."
+        },
+        "dir": {
+          "enum": [
+            "L",
+            "R",
+            "U",
+            "D"
+          ],
+          "description": "From the tip into the body."
+        },
+        "length": {
+          "$ref": "#/$defs/nm"
+        },
+        "type": {
+          "enum": [
+            "passive",
+            "input",
+            "output",
+            "bidirectional",
+            "tri_state",
+            "power_in",
+            "power_out",
+            "open_collector",
+            "open_emitter",
+            "unspecified",
+            "no_connect"
+          ]
+        }
+      }
+    },
+    "shape": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "a",
+            "b"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "rect"
+            },
+            "a": {
+              "$ref": "#/$defs/point"
+            },
+            "b": {
+              "$ref": "#/$defs/point"
+            },
+            "fill": {
+              "$ref": "#/$defs/fill"
+            },
+            "width": {
+              "$ref": "#/$defs/strokeScale"
+            },
+            "layer": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "pts"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "line"
+            },
+            "pts": {
+              "$ref": "#/$defs/points"
+            },
+            "width": {
+              "$ref": "#/$defs/strokeScale"
+            },
+            "layer": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "pts"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "poly"
+            },
+            "pts": {
+              "$ref": "#/$defs/points"
+            },
+            "fill": {
+              "$ref": "#/$defs/fill"
+            },
+            "width": {
+              "$ref": "#/$defs/strokeScale"
+            },
+            "layer": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "c",
+            "r"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "circle"
+            },
+            "c": {
+              "$ref": "#/$defs/point"
+            },
+            "r": {
+              "$ref": "#/$defs/nm"
+            },
+            "fill": {
+              "$ref": "#/$defs/fill"
+            },
+            "width": {
+              "$ref": "#/$defs/strokeScale"
+            },
+            "layer": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "start",
+            "mid",
+            "end"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "arc"
+            },
+            "start": {
+              "$ref": "#/$defs/point"
+            },
+            "mid": {
+              "$ref": "#/$defs/point",
+              "description": "Any point on the arc between start and end (three points, so no angles are stored)."
+            },
+            "end": {
+              "$ref": "#/$defs/point"
+            },
+            "width": {
+              "$ref": "#/$defs/strokeScale"
+            },
+            "layer": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "points": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "$ref": "#/$defs/point"
+      }
+    },
+    "fill": {
+      "enum": [
+        "none",
+        "background",
+        "outline"
+      ]
+    },
+    "strokeScale": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Multiplier on the standard line width (not nm)."
+    },
+    "footprint": {
+      "type": "object",
+      "required": [
+        "name",
+        "pads"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "pads": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pad"
+          }
+        },
+        "graphics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/shape"
+          },
+          "description": "Shapes with a layer: F.SilkS, F.CrtYd, F.Fab…"
+        }
+      }
+    },
+    "pad": {
+      "type": "object",
+      "required": [
+        "number",
+        "at",
+        "shape",
+        "size",
+        "layers"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "number": {
+          "type": "string"
+        },
+        "at": {
+          "$ref": "#/$defs/point"
+        },
+        "shape": {
+          "enum": [
+            "rect",
+            "circle",
+            "oval",
+            "roundrect"
+          ]
+        },
+        "size": {
+          "$ref": "#/$defs/point",
+          "description": "[width, height] in nm."
+        },
+        "drill": {
+          "$ref": "#/$defs/nm",
+          "description": "Through-hole pads only."
+        },
+        "layers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "component": {
+      "type": "object",
+      "required": [
+        "id",
+        "partId",
+        "ref",
+        "value",
+        "mpn",
+        "footprint",
+        "fields"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "partId": {
+          "type": "string",
+          "description": "Key in parts."
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Reference designator, unique in the Project, no spaces."
+        },
+        "value": {
+          "type": "string",
+          "description": "As typed; Field styles only change how it is drawn."
+        },
+        "mpn": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "manufacturer",
+                "number"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "manufacturer": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "footprint": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "fpId"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "fpId": {
+                  "type": "string",
+                  "description": "A Preferred footprint: key in the Part's footprints. Pins map to Pads by the Part's pinMap."
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "fpKey"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "fpKey": {
+                  "type": "string",
+                  "description": "Any other Footprint: key in the Project's footprints. Pin n maps to Pad n."
+                }
+              }
+            }
+          ]
+        },
+        "fields": {
+          "type": "object",
+          "description": "Custom fields: name -> text.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "fieldStyle": {
+          "type": "string",
+          "description": "Key in fieldStyles.styles; absent = the Project default."
+        }
+      }
+    },
+    "sheet": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "symbols",
+        "wires",
+        "labels",
+        "noConnects"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique in the Project regardless of case, no \"/\"."
+        },
+        "symbols": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/symbol"
+          }
+        },
+        "wires": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/wire"
+          }
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/label"
+          }
+        },
+        "noConnects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/noConnect"
+          }
+        }
+      }
+    },
+    "symbol": {
+      "type": "object",
+      "required": [
+        "id",
+        "componentId",
+        "unit",
+        "at",
+        "rot",
+        "mirror"
+      ],
+      "additionalProperties": false,
+      "description": "One placed Unit of a Component.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "componentId": {
+          "type": "string",
+          "description": "Key in components."
+        },
+        "unit": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Index into the Part's units."
+        },
+        "at": {
+          "$ref": "#/$defs/point",
+          "description": "Origin, on the 50 mil grid."
+        },
+        "rot": {
+          "$ref": "#/$defs/rot90"
+        },
+        "mirror": {
+          "type": "boolean",
+          "description": "Left-right flip, applied before rotation."
+        },
+        "fieldPins": {
+          "type": "object",
+          "description": "Pinned fields (#53): field key -> text centre in the Symbol's own frame.",
+          "additionalProperties": {
+            "$ref": "#/$defs/point"
+          }
+        }
+      }
+    },
+    "wire": {
+      "type": "object",
+      "required": [
+        "id",
+        "a",
+        "b"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "a": {
+          "$ref": "#/$defs/point"
+        },
+        "b": {
+          "$ref": "#/$defs/point"
+        }
+      }
+    },
+    "label": {
+      "type": "object",
+      "required": [
+        "id",
+        "at",
+        "rot",
+        "net",
+        "scope",
+        "style"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "at": {
+          "$ref": "#/$defs/point",
+          "description": "Connection point."
+        },
+        "rot": {
+          "$ref": "#/$defs/rot90"
+        },
+        "net": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Matched regardless of case (ADR-0013); stored as typed."
+        },
+        "scope": {
+          "enum": [
+            "local",
+            "global"
+          ],
+          "description": "Power symbols are always global."
+        },
+        "style": {
+          "enum": [
+            "label",
+            "power",
+            "gnd"
+          ]
+        }
+      }
+    },
+    "noConnect": {
+      "type": "object",
+      "required": [
+        "id",
+        "at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "at": {
+          "$ref": "#/$defs/point"
+        }
+      },
+      "description": "A no-connect marker on a Pin tip (#11)."
+    },
+    "board": {
+      "type": "object",
+      "required": [
+        "stack",
+        "preset",
+        "outline",
+        "footprints",
+        "tracks",
+        "vias",
+        "zones",
+        "rules",
+        "netClasses"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "stack": {
+          "type": "object",
+          "required": [
+            "copper",
+            "thickness"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "copper": {
+              "enum": [
+                2,
+                4
+              ]
+            },
+            "thickness": {
+              "$ref": "#/$defs/nm"
+            }
+          }
+        },
+        "preset": {
+          "type": "string",
+          "description": "Fab preset id (#24)."
+        },
+        "outline": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/shape"
+          },
+          "description": "Edge.Cuts shapes: lines and arcs forming closed loops (#15)."
+        },
+        "footprints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/boardFootprint"
+          }
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/track"
+          }
+        },
+        "vias": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/via"
+          }
+        },
+        "zones": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/zone"
+          }
+        },
+        "rules": {
+          "type": "object",
+          "required": [
+            "clearance",
+            "trackWidth",
+            "viaDrill",
+            "viaDiameter",
+            "minHole",
+            "annularRing",
+            "edgeClearance"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "clearance": {
+              "$ref": "#/$defs/nm"
+            },
+            "trackWidth": {
+              "$ref": "#/$defs/nm"
+            },
+            "viaDrill": {
+              "$ref": "#/$defs/nm"
+            },
+            "viaDiameter": {
+              "$ref": "#/$defs/nm"
+            },
+            "minHole": {
+              "$ref": "#/$defs/nm"
+            },
+            "annularRing": {
+              "$ref": "#/$defs/nm"
+            },
+            "edgeClearance": {
+              "$ref": "#/$defs/nm"
+            }
+          }
+        },
+        "netClasses": {
+          "type": "object",
+          "description": "Net classes by name (#24).",
+          "additionalProperties": {
+            "$ref": "#/$defs/netClass"
+          }
+        }
+      }
+    },
+    "fieldStyle": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "arrangement",
+        "show",
+        "text",
+        "valueFormat",
+        "placement"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string"
+        },
+        "builtin": {
+          "type": "boolean",
+          "description": "A copy of one of the app's built-in styles."
+        },
+        "arrangement": {
+          "enum": [
+            "stacked",
+            "one-line"
+          ]
+        },
+        "show": {
+          "type": "object",
+          "required": [
+            "reference",
+            "value",
+            "footprint",
+            "mpn",
+            "hideValueIfPartName"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "reference": {
+              "type": "boolean"
+            },
+            "value": {
+              "type": "boolean"
+            },
+            "footprint": {
+              "type": "boolean"
+            },
+            "mpn": {
+              "type": "boolean"
+            },
+            "hideValueIfPartName": {
+              "type": "boolean"
+            }
+          }
+        },
+        "text": {
+          "type": "object",
+          "required": [
+            "size",
+            "bold",
+            "italic",
+            "gap"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "size": {
+              "$ref": "#/$defs/nm"
+            },
+            "bold": {
+              "type": "boolean"
+            },
+            "italic": {
+              "type": "boolean"
+            },
+            "gap": {
+              "$ref": "#/$defs/nm"
+            }
+          }
+        },
+        "valueFormat": {
+          "enum": [
+            "as-typed",
+            "rkm",
+            "si"
+          ]
+        },
+        "placement": {
+          "type": "object",
+          "required": [
+            "horizontal",
+            "vertical"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "horizontal": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "enum": [
+                  "split",
+                  "above",
+                  "below",
+                  "right",
+                  "left"
+                ]
+              }
+            },
+            "vertical": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "enum": [
+                  "split",
+                  "above",
+                  "below",
+                  "right",
+                  "left"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "projectFootprint": {
+      "type": "object",
+      "required": [
+        "library",
+        "footprint"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "library": {
+          "type": "string",
+          "description": "Where it came from, e.g. builtin-mini or a user Library name."
+        },
+        "footprint": {
+          "$ref": "#/$defs/footprint"
+        }
+      }
+    },
+    "copperLayer": {
+      "enum": [
+        "F.Cu",
+        "In1.Cu",
+        "In2.Cu",
+        "B.Cu"
+      ]
+    },
+    "netName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A Net by name (ADR-0015), matched regardless of case (ADR-0013)."
+    },
+    "boardFootprint": {
+      "type": "object",
+      "required": [
+        "id",
+        "componentId",
+        "at",
+        "rot",
+        "side",
+        "locked"
+      ],
+      "additionalProperties": false,
+      "description": "Where a Component sits on the Board. Its Footprint comes from the Component (ADR-0008), not copied here.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "componentId": {
+          "type": "string"
+        },
+        "at": {
+          "$ref": "#/$defs/point"
+        },
+        "rot": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Degrees counter-clockwise, 0 to less than 360, rounded to 0.01 (ADR-0015)."
+        },
+        "side": {
+          "enum": [
+            "F",
+            "B"
+          ]
+        },
+        "locked": {
+          "type": "boolean"
+        }
+      }
+    },
+    "track": {
+      "type": "object",
+      "required": [
+        "id",
+        "a",
+        "b",
+        "width",
+        "layer",
+        "net"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "a": {
+          "$ref": "#/$defs/point"
+        },
+        "b": {
+          "$ref": "#/$defs/point"
+        },
+        "width": {
+          "$ref": "#/$defs/nm"
+        },
+        "layer": {
+          "$ref": "#/$defs/copperLayer"
+        },
+        "net": {
+          "$ref": "#/$defs/netName"
+        }
+      }
+    },
+    "via": {
+      "type": "object",
+      "required": [
+        "id",
+        "at",
+        "drill",
+        "diameter",
+        "from",
+        "to",
+        "net"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "at": {
+          "$ref": "#/$defs/point"
+        },
+        "drill": {
+          "$ref": "#/$defs/nm"
+        },
+        "diameter": {
+          "$ref": "#/$defs/nm"
+        },
+        "from": {
+          "const": "F.Cu",
+          "description": "v1 has through vias only."
+        },
+        "to": {
+          "const": "B.Cu"
+        },
+        "net": {
+          "$ref": "#/$defs/netName"
+        }
+      }
+    },
+    "zone": {
+      "type": "object",
+      "required": [
+        "id",
+        "layer",
+        "net",
+        "outline",
+        "priority",
+        "clearance",
+        "thermal"
+      ],
+      "additionalProperties": false,
+      "description": "The fill is not stored: it is recomputed from the outline and rules (ADR-0015).",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "layer": {
+          "$ref": "#/$defs/copperLayer"
+        },
+        "net": {
+          "$ref": "#/$defs/netName"
+        },
+        "outline": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "$ref": "#/$defs/point"
+          }
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "clearance": {
+          "$ref": "#/$defs/nm"
+        },
+        "thermal": {
+          "type": "object",
+          "required": [
+            "gap",
+            "spoke"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "gap": {
+              "$ref": "#/$defs/nm"
+            },
+            "spoke": {
+              "$ref": "#/$defs/nm"
+            }
+          }
+        }
+      }
+    },
+    "netClass": {
+      "type": "object",
+      "required": [
+        "trackWidth",
+        "clearance",
+        "viaDrill",
+        "viaDiameter",
+        "nets"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "trackWidth": {
+          "$ref": "#/$defs/nm"
+        },
+        "clearance": {
+          "$ref": "#/$defs/nm"
+        },
+        "viaDrill": {
+          "$ref": "#/$defs/nm"
+        },
+        "viaDiameter": {
+          "$ref": "#/$defs/nm"
+        },
+        "nets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/netName"
+          }
+        }
+      }
+    }
+  }
+};

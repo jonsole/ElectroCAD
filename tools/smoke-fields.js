@@ -71,5 +71,5 @@ check('override-undone', !app.project.components[r2.componentId].fieldStyle);
 // Saved with the Project.
 await app.saveNow();
 const stored = JSON.parse(await window.electroNative.loadProject(app.project.id));
-check('saved-default', stored.fieldStyles.default === 'rkm' && stored.fieldStyles.styles.rkm && stored.version === 2, stored.fieldStyles.default);
+check('saved-default', stored.fieldStyles.default === 'rkm' && stored.fieldStyles.styles.rkm && stored.version === window.electrocadLib.project.VERSION, stored.fieldStyles.default);
 return { fails, out };

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  newProject, addComponent, nextRef, pinPositions, padForPin, footprintOf, pruneOrphans,
+  newProject, addComponent, footprintRef, nextRef, pinPositions, padForPin, footprintOf, pruneOrphans,
   serialize, deserialize, VERSION, FORMAT, ProjectFileError,
 } from '../src/renderer/core/project.js';
 import { mm, SCH_GRID } from '../src/renderer/core/units.js';
@@ -26,7 +26,7 @@ const opamp = () => ({
   pinMap: { 'SOIC-8': { 1: '1', 2: '2', 3: '3', 4: '4', 8: '8' } },
 });
 const resistor = () => ({
-  id: 'part-r', name: 'Resistor', prefix: 'R', defaultValue: '10k', origin: null,
+  id: 'part-r', name: 'Resistor', prefix: 'R', defaultValue: '10k',
   units: [{ name: 'A', graphics: [], pins: [
     { number: '1', name: '~', at: [-mm(3.81), 0], dir: 'R', length: mm(1.27), type: 'passive' },
     { number: '2', name: '~', at: [mm(3.81), 0], dir: 'L', length: mm(1.27), type: 'passive' },
@@ -90,7 +90,8 @@ test('Pins map to Pads through the Preferred footprint Pin map, or by number for
   assert.equal(padForPin(p, comp, '1'), '2');
   comp.footprint = { fpId: 'R_0805' };
   assert.equal(padForPin(p, comp, '1'), '1');
-  comp.footprint = { library: 'mine', footprint: { name: 'R_Custom', pads: [], graphics: [] } };
+  comp.footprint = footprintRef(p, { library: 'mine', footprint: { name: 'R_Custom', pads: [], graphics: [] } });
+  assert.deepEqual(comp.footprint, { fpKey: 'mine/R_Custom' }, 'stored once in the Project footprints table');
   assert.equal(padForPin(p, comp, '2'), '2', 'identity Pin map for a non-preferred Footprint');
   assert.equal(footprintOf(p, comp).name, 'R_Custom');
 });

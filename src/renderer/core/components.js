@@ -1,6 +1,6 @@
 // Component edits for the inspector (#9): Reference designator, Value, MPN, custom fields and
 // Footprint (a Preferred footprint, or any other, which uses the identity Pin map: ADR-0008).
-import { partOf } from './project.js';
+import { partOf, footprintRef, footprintOf, pruneOrphans } from './project.js';
 
 /** Why a Reference designator can't be used, or null when it's fine. */
 export function validateRef(project, compId, ref) {
@@ -35,7 +35,10 @@ export function updateComponent(project, compId, patch) {
     for (const [k, v] of Object.entries(patch.fields || {})) if (String(k).trim()) f[String(k).trim()] = String(v);
     c.fields = f;
   }
-  if ('footprint' in patch) c.footprint = patch.footprint ? structuredClone(patch.footprint) : null;
+  if ('footprint' in patch) {
+    c.footprint = footprintRef(project, patch.footprint);
+    pruneOrphans(project); // drops a table Footprint nothing uses any more
+  }
 }
 
 /**
@@ -58,4 +61,4 @@ export function footprintChoices(project, comp, library) {
 }
 
 /** The key of a Component's current choice in footprintChoices. */
-export const footprintKey = (comp) => (!comp.footprint ? '' : comp.footprint.fpId ? 'p:' + comp.footprint.fpId : 'o:' + comp.footprint.footprint?.name);
+export const footprintKey = (project, comp) => (!comp.footprint ? '' : comp.footprint.fpId ? 'p:' + comp.footprint.fpId : 'o:' + footprintOf(project, comp)?.name);

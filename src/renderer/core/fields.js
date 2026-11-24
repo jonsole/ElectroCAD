@@ -9,7 +9,7 @@
 import { labelBounds } from './labels.js';
 import { mm, SCH_GRID, snapPt } from './units.js';
 import { place, unplace } from './geom.js';
-import { partOf } from './project.js';
+import { partOf, footprintOf } from './project.js';
 import { compareRefs } from './netlist.js';
 import { formatValue } from './values.js';
 
@@ -147,7 +147,7 @@ export function fieldLines(project, comp, part, style, unitIndex = 0) {
   const resistance = /^R(?![A-Z])/i.test(part.prefix || '') && !/^(RLY|RV)/i.test(part.prefix || '');
   if (style.show.value && comp.value && !hideValue) lines.push({ key: 'value', text: formatValue(comp.value, style.valueFormat, { resistance }) });
   if (style.show.footprint && comp.footprint) {
-    const fp = comp.footprint.footprint ? comp.footprint.footprint.name : comp.footprint.fpId;
+    const fp = footprintOf(project, comp)?.name || comp.footprint.fpId || comp.footprint.fpKey;
     if (fp) lines.push({ key: 'footprint', text: fp });
   }
   if (style.show.mpn && comp.mpn && comp.mpn.number) lines.push({ key: 'mpn', text: comp.mpn.number });

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { newProject, addComponent, serialize, deserialize, ProjectFileError, VERSION } from '../src/renderer/core/project.js';
 import { projectMeta, sortNewestFirst, importProject, duplicateProject, exportFileName, hasBoardContent, describeMeta } from '../src/renderer/core/store.js';
 
-const part = { id: 'p-r', name: 'Resistor', prefix: 'R', defaultValue: '10k', origin: null,
+const part = { id: 'p-r', name: 'Resistor', prefix: 'R', defaultValue: '10k',
   units: [{ name: 'A', graphics: [], pins: [] }], footprints: {}, pinMap: {} };
 
 test('card metadata counts Components and copper layers', () => {

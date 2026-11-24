@@ -9,7 +9,7 @@ const G = mm(1.27); // one schematic grid step
 //   { type: 'rect', a: [x, y], b: [x, y], fill: 'none' | 'background' | 'outline' }
 //   { type: 'line', pts: [[x, y], ...] }   { type: 'poly', pts: [...], fill }   { type: 'circle', c, r, fill }
 // Pins: `at` is the connection tip; `dir` points from the tip into the body ('L','R','U','D').
-// Fields: where the Reference designator and Value are drawn (always upright).
+// Fields aren't positioned here: Field styles place them (ADR-0012).
 
 const chip0805 = (name) => ({
   name,
@@ -32,7 +32,6 @@ export const RESISTOR = {
     name: 'A', hidePinNumbers: true, hidePinNames: true,
     graphics: [{ type: 'rect', a: [-2 * G, -0.8 * G], b: [2 * G, 0.8 * G], fill: 'background' }],
     pins: twoPin(4 * G).map((p) => ({ ...p, length: 2 * G })),
-    fields: { reference: { at: [0, -2 * G] }, value: { at: [0, 2 * G] } },
   }],
   footprints: { R_0805: chip0805('R_0805_2012Metric') },
   pinMap: { R_0805: { 1: '1', 2: '2' } },
@@ -48,7 +47,6 @@ export const CAPACITOR = {
       { type: 'line', pts: [[0.4 * G, -1.6 * G], [0.4 * G, 1.6 * G]], width: 2 },
     ],
     pins: twoPin(3 * G).map((p) => ({ ...p, length: 2.6 * G })),
-    fields: { reference: { at: [0, -2.6 * G] }, value: { at: [0, 2.6 * G] } },
   }],
   footprints: { C_0805: chip0805('C_0805_2012Metric') },
   pinMap: { C_0805: { 1: '1', 2: '2' } },
@@ -72,7 +70,6 @@ export const LED = {
       { number: '2', name: 'A', at: [-3 * G, 0], dir: 'R', length: 2 * G, type: 'passive' },
       { number: '1', name: 'K', at: [3 * G, 0], dir: 'L', length: 2 * G, type: 'passive' },
     ],
-    fields: { reference: { at: [0, -3.2 * G] }, value: { at: [0, 2.2 * G] } },
   }],
   footprints: { LED_0805: chip0805('LED_0805_2012Metric') },
   pinMap: { LED_0805: { 1: '1', 2: '2' } },

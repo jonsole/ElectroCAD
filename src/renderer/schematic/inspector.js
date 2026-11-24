@@ -98,7 +98,7 @@ export class SchematicInspector {
     const fpSel = h('select', { class: 'select', 'aria-label': 'Footprint', dataset: { role: 'footprint' } },
       ch.preferred.length ? h('optgroup', { label: 'Preferred' }, ...ch.preferred.map((c) => h('option', { value: c.key }, c.label))) : null,
       ch.other.length ? h('optgroup', { label: 'Other footprints (pins map by number)' }, ...ch.other.map((c) => h('option', { value: c.key }, c.label))) : null);
-    fpSel.value = footprintKey(comp);
+    fpSel.value = footprintKey(this.project, comp);
     fpSel.addEventListener('change', () => {
       const c = [...ch.preferred, ...ch.other].find((x) => x.key === fpSel.value);
       if (c) this._edit(`${comp.ref} footprint`, (p) => updateComponent(p, comp.id, { footprint: c.value }));

@@ -24,7 +24,7 @@ check('autosaved', l.some((m) => m.name === 'Alpha') && app.saveState.textConten
 check('thumbnail', /^data:image\/png;base64,/.test(l[0].thumb || ''), (l[0].thumb || '').slice(0, 30));
 
 // Some content so the card counts and the round trip mean something.
-const part = { id: 'smoke-r', name: 'Resistor', prefix: 'R', defaultValue: '10k', origin: null,
+const part = { id: 'smoke-r', name: 'Resistor', prefix: 'R', defaultValue: '10k',
   units: [{ name: 'A', graphics: [], pins: [] }], footprints: {}, pinMap: {} };
 P.addComponent(app.project, app.project.schematic.sheets[0], part, [U.mm(20), U.mm(20)]);
 app.markDirty();

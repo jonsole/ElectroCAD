@@ -5,9 +5,13 @@
 //   - All coordinates are integer nm, +Y down (ADR-0003).
 import { mm } from './units.js';
 import { place } from './geom.js';
+import { ECAD_SCHEMA } from './ecad-schema.js';
+import { checkSchema } from './schema-check.js';
 
 export const FORMAT = 'electrocad';
-export const VERSION = 2; // 2: Field styles (ADR-0012)
+// Goes up with every format change. Before 1.0 files of other versions are refused (ADR-0014).
+// 3: Parts keyed by Library origin, Project footprints table, no Unit.fields, Board object shapes.
+export const VERSION = 3;
 
 /** Thrown when a file can't be opened as a Project; the message is shown to the user. */
 export class ProjectFileError extends Error {
@@ -23,7 +27,7 @@ export const uid = (prefix = 'o') =>
 export function newProject(name = 'Untitled') {
   return {
     format: FORMAT, version: VERSION, id: uid('p'), name,
-    parts: {}, components: {},
+    parts: {}, components: {}, footprints: {},
     schematic: { sheets: [newSheet('Sheet 1')] },
     board: newBoard(),
     fieldStyles: defaultFieldStyles(),
@@ -85,8 +89,9 @@ export function nextRef(project, prefix) {
  * @param {boolean} [opts.mirror=false]
  */
 export function addComponent(project, sheet, part, at, opts = {}) {
-  if (!project.parts[part.id]) project.parts[part.id] = structuredClone(part);
-  const stored = project.parts[part.id];
+  const key = partKey(part);
+  if (!project.parts[key]) project.parts[key] = { ...structuredClone(part), id: key };
+  const stored = project.parts[key];
   const unit = opts.unit || 0;
   if (!stored.units[unit]) throw new RangeError(`${stored.name} has no Unit ${unit}`);
   let comp = opts.component;
@@ -96,7 +101,7 @@ export function addComponent(project, sheet, part, at, opts = {}) {
       id: uid('c'), partId: stored.id, ref: nextRef(project, stored.prefix),
       value: opts.value ?? stored.defaultValue ?? stored.name,
       mpn: null,
-      footprint: opts.footprint ? structuredClone(opts.footprint) : firstFp ? { fpId: firstFp } : null,
+      footprint: opts.footprint ? footprintRef(project, opts.footprint) : firstFp ? { fpId: firstFp } : null,
       fields: {},
     };
     project.components[comp.id] = comp;
@@ -108,11 +113,45 @@ export function addComponent(project, sheet, part, at, opts = {}) {
 
 export const partOf = (project, comp) => (comp ? project.parts[comp.partId] : null);
 
-/** The Component's Footprint object, whether Preferred (by id) or any other (embedded). */
+/**
+ * The key a Library Part is stored under in a Project: its Library origin
+ * ("builtin-mini/resistor@1"), so Parts from different Libraries never clash. A Part without an
+ * origin (made in the Project) keeps its own id.
+ */
+export const partKey = (part) => (part.origin ? `${part.origin.library}/${part.origin.partId}@${part.origin.version}` : part.id);
+
+/**
+ * Store a Footprint in the Project's footprints table (once: an identical one already there is
+ * reused) and return its key, "library/name" (with ~2, ~3… when a different Footprint has that name).
+ */
+export function addFootprint(project, library, footprint) {
+  project.footprints ||= {};
+  const base = `${library}/${footprint.name}`;
+  const same = JSON.stringify(footprint);
+  for (let i = 1; ; i++) {
+    const key = i === 1 ? base : `${base}~${i}`;
+    const there = project.footprints[key];
+    if (!there) { project.footprints[key] = { library, footprint: structuredClone(footprint) }; return key; }
+    if (there.library === library && JSON.stringify(there.footprint) === same) return key;
+  }
+}
+
+/**
+ * A Component's footprint reference from a choice: { fpId } (Preferred), { fpKey } (already in the
+ * table) or { library, footprint } (any other: stored in the table). null clears it.
+ */
+export function footprintRef(project, choice) {
+  if (!choice) return null;
+  if (choice.fpId) return { fpId: choice.fpId };
+  if (choice.fpKey) return { fpKey: choice.fpKey };
+  return { fpKey: addFootprint(project, choice.library || 'user', choice.footprint) };
+}
+
+/** The Component's Footprint object, whether Preferred (in its Part) or any other (in the Project's table). */
 export function footprintOf(project, comp) {
   const fp = comp && comp.footprint;
   if (!fp) return null;
-  if (fp.footprint) return fp.footprint;
+  if (fp.fpKey) return project.footprints?.[fp.fpKey]?.footprint || null;
   return partOf(project, comp)?.footprints?.[fp.fpId] || null;
 }
 
@@ -140,55 +179,112 @@ export function pruneOrphans(project) {
   for (const id of Object.keys(project.components)) if (!placed.has(id)) delete project.components[id];
   const used = new Set(Object.values(project.components).map((c) => c.partId));
   for (const id of Object.keys(project.parts)) if (!used.has(id)) delete project.parts[id];
+  const usedFp = new Set(Object.values(project.components).map((c) => c.footprint?.fpKey).filter(Boolean));
+  for (const k of Object.keys(project.footprints || {})) if (!usedFp.has(k)) delete project.footprints[k];
 }
 
 // ---------------------------------------------------------------- Native format
 
 export const FILE_EXTENSION = 'ecad';
 
-export const serialize = (project) => JSON.stringify(project, null, 1) + '\n';
+/**
+ * Write a Project as text: JSON indented one space, with short arrays of plain values (points,
+ * layer lists, slot lists) on one line so a moved point is a one-line change in a diff.
+ */
+export const serialize = (project) => pretty(project, '') + '\n';
 
-// Migrations from older file versions: MIGRATIONS[n] turns a version-n project into n+1.
-const MIGRATIONS = {
-  // 1 -> 2: Field styles; older Projects use Classic
-  1: (p) => ({ ...p, version: 2, fieldStyles: p.fieldStyles || defaultFieldStyles() }),
-};
+const INLINE_MAX = 90;
+const plain = (v) => v === null || typeof v !== 'object' || (Array.isArray(v) && v.every(plain));
+const inline = (v) => (Array.isArray(v) ? `[${v.map(inline).join(', ')}]` : JSON.stringify(v));
+function pretty(v, pad) {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  const inner = pad + ' ';
+  if (Array.isArray(v)) {
+    if (!v.length) return '[]';
+    if (v.every(plain)) { const one = inline(v); if (one.length + inner.length <= INLINE_MAX) return one; }
+    return `[\n${v.map((x) => inner + pretty(x, inner)).join(',\n')}\n${pad}]`;
+  }
+  const keys = Object.keys(v).filter((k) => v[k] !== undefined);
+  if (!keys.length) return '{}';
+  return `{\n${keys.map((k) => `${inner}${JSON.stringify(k)}: ${pretty(v[k], inner)}`).join(',\n')}\n${pad}}`;
+}
 
-/** Parse a .ecad file. Throws ProjectFileError with a user-facing message when it can't. */
+/** Parse a .ecad file. Throws ProjectFileError with a user-facing message when it can't be opened. */
 export function deserialize(text) {
   let p;
   try { p = JSON.parse(text); } catch { throw new ProjectFileError('This file is not an ElectroCAD project (it is not valid JSON).'); }
   if (!p || typeof p !== 'object' || p.format !== FORMAT) throw new ProjectFileError('This file is not an ElectroCAD project.');
-  if (!Number.isInteger(p.version) || p.version < 1) throw new ProjectFileError('This project file has no valid version number.');
+  if (!Number.isInteger(p.version)) throw new ProjectFileError('This project file has no valid version number.');
   if (p.version > VERSION) {
-    throw new ProjectFileError(`This project was saved by a newer version of ElectroCAD (file version ${p.version}; this app reads up to ${VERSION}). Update ElectroCAD to open it.`);
+    throw new ProjectFileError(`This project was saved by a newer version of ElectroCAD (file version ${p.version}; this app reads version ${VERSION}). Update ElectroCAD to open it.`);
   }
-  while (p.version < VERSION) {
-    const step = MIGRATIONS[p.version];
-    if (!step) throw new ProjectFileError(`Project file version ${p.version} can't be upgraded.`);
-    p = step(p);
+  if (p.version < VERSION) {
+    // before 1.0 the format changes without migrations (ADR-0014)
+    throw new ProjectFileError(`This project was saved by an earlier development version of ElectroCAD (file version ${p.version}; this app reads version ${VERSION}). Before version 1.0, older project files can't be opened.`);
   }
   validate(p);
   return p;
 }
 
-function validate(p) {
-  const need = (cond, what) => { if (!cond) throw new ProjectFileError(`This project file is damaged: ${what}.`); };
-  need(typeof p.name === 'string', 'the name is missing');
-  need(p.parts && typeof p.parts === 'object', 'the Parts are missing');
-  need(p.components && typeof p.components === 'object', 'the Components are missing');
-  need(p.schematic && Array.isArray(p.schematic.sheets) && p.schematic.sheets.length > 0, 'the schematic has no Sheets');
-  for (const s of p.schematic.sheets) {
-    need(['symbols', 'wires', 'labels', 'noConnects'].every((k) => Array.isArray(s[k])), `Sheet "${s.name}" is incomplete`);
-    for (const y of s.symbols) need(p.components[y.componentId], `a Symbol on "${s.name}" refers to a missing Component`);
-    for (const l of s.labels) {
-      need(Array.isArray(l.at) && l.at.length === 2 && typeof l.net === 'string', `a label on "${s.name}" is damaged`);
-      need(['label', 'power', 'gnd'].includes(l.style) && ['local', 'global'].includes(l.scope), `the label ${l.net} on "${s.name}" has an unknown kind`);
-    }
+/**
+ * Everything wrong with a parsed Project, in plain words: the schema (core/ecad-schema.js), then
+ * what a schema can't say (unique ids and references, keys that must point at something).
+ * Returns a list; empty means the Project is sound.
+ */
+export function projectProblems(p) {
+  const raw = checkSchema(ECAD_SCHEMA, p);
+  const sheetName = (i) => p?.schematic?.sheets?.[i]?.name;
+  const where = (path) => path.replace(/^\$\.?/, '')
+    .replace(/^schematic\.sheets\[(\d+)\]/, (_, i) => `sheet "${sheetName(+i) ?? +i + 1}"`)
+    .replace(/\.(symbols|wires|labels|noConnects)\[(\d+)\]/g, (_, k, i) => ` ${k.replace(/s$/, '').replace('noConnect', 'no-connect')} ${+i + 1}`)
+    .replace(/^components\.([^.]+)/, (_, id) => `component ${p.components?.[id]?.ref ?? id}`) || 'the file';
+  const out = raw.map((e) => { const i = e.indexOf(': '); return `${where(e.slice(0, i))}: ${e.slice(i + 2)}`; });
+  if (out.length) return out;
+  // what the schema can't check
+  const ids = new Map();
+  const seen = (id, what) => { if (ids.has(id)) out.push(`${what} has the same id (${id}) as ${ids.get(id)}`); else ids.set(id, what); };
+  const refs = new Map();
+  for (const [key, c] of Object.entries(p.components)) {
+    const what = `component ${c.ref}`;
+    if (c.id !== key) out.push(`${what} is stored under the key ${key} but has the id ${c.id}`);
+    seen(c.id, what);
+    if (refs.has(c.ref)) out.push(`two components are called ${c.ref}`); else refs.set(c.ref, c.id);
+    const part = p.parts[c.partId];
+    if (!part) { out.push(`${what} uses a part that isn't in the file (${c.partId})`); continue; }
+    if (c.footprint?.fpId && !part.footprints?.[c.footprint.fpId]) out.push(`${what} uses footprint ${c.footprint.fpId}, which its part doesn't have`);
+    if (c.footprint?.fpKey && !p.footprints[c.footprint.fpKey]) out.push(`${what} uses footprint ${c.footprint.fpKey}, which isn't in the file`);
+    if (c.fieldStyle && !p.fieldStyles.styles[c.fieldStyle]) out.push(`${what} uses the field style ${c.fieldStyle}, which isn't in the file`);
   }
-  for (const c of Object.values(p.components)) need(p.parts[c.partId], `Component ${c.ref} refers to a missing Part`);
-  const b = p.board;
-  need(b && b.stack && (b.stack.copper === 2 || b.stack.copper === 4), 'the board layer stack is missing or not 2/4 layers');
-  need(['outline', 'footprints', 'tracks', 'vias', 'zones'].every((k) => Array.isArray(b[k])), 'the board is incomplete');
-  need(p.fieldStyles && typeof p.fieldStyles.styles === 'object' && typeof p.fieldStyles.default === 'string', 'the field styles are missing');
+  for (const [key, part] of Object.entries(p.parts)) if (part.id !== key) out.push(`part ${part.name} is stored under the key ${key} but has the id ${part.id}`);
+  if (!p.fieldStyles.styles[p.fieldStyles.default]) out.push(`the default field style ${p.fieldStyles.default} isn't in the file`);
+  const names = new Set();
+  for (const s of p.schematic.sheets) {
+    const what = `sheet "${s.name}"`;
+    seen(s.id, what);
+    if (names.has(s.name.toLowerCase())) out.push(`two sheets are called ${s.name}`); else names.add(s.name.toLowerCase());
+    s.symbols.forEach((y, i) => {
+      seen(y.id, `${what} symbol ${i + 1}`);
+      const c = p.components[y.componentId];
+      if (!c) out.push(`${what} symbol ${i + 1} belongs to a component that isn't in the file`);
+      else if (!p.parts[c.partId]?.units[y.unit]) out.push(`${what}: ${c.ref} is placed as unit ${y.unit + 1}, which its part doesn't have`);
+    });
+    s.wires.forEach((w, i) => seen(w.id, `${what} wire ${i + 1}`));
+    s.labels.forEach((l, i) => {
+      seen(l.id, `${what} label ${l.net}`);
+      if ((l.style === 'power' || l.style === 'gnd') && l.scope !== 'global') out.push(`${what}: the power symbol ${l.net} must be global`);
+      if (!l.net.trim() || /\s/.test(l.net)) out.push(`${what} label ${i + 1}: "${l.net}" isn't a usable net name`);
+    });
+    s.noConnects.forEach((n, i) => seen(n.id, `${what} no-connect ${i + 1}`));
+  }
+  const placed = new Set(p.schematic.sheets.flatMap((s) => s.symbols.map((y) => y.componentId)));
+  for (const c of Object.values(p.components)) if (!placed.has(c.id)) out.push(`component ${c.ref} isn't placed on any sheet`);
+  return out;
+}
+
+function validate(p) {
+  const problems = projectProblems(p);
+  if (!problems.length) return;
+  const shown = problems.slice(0, 6).map((x) => `• ${x}`).join('\n');
+  const more = problems.length > 6 ? `\n…and ${problems.length - 6} more.` : '';
+  throw new ProjectFileError(`This project file is damaged, so it wasn't opened:\n${shown}${more}`);
 }

@@ -119,14 +119,10 @@ test('per-Component override and clearing it', () => {
   assert.ok(p.fieldStyles.styles['stacked-right'], 'styles in use are copied into the Project');
 });
 
-test('a version-1 Project without field styles opens with Classic', () => {
-  const p = newProject();
-  const old = JSON.parse(serialize(p));
-  old.version = 1; delete old.fieldStyles;
-  const back = deserialize(JSON.stringify(old));
-  assert.equal(back.version, VERSION);
-  assert.equal(back.fieldStyles.default, 'classic');
-  assert.ok(back.fieldStyles.styles.classic);
+test('before 1.0, a Project from an earlier format version is refused with a clear message (ADR-0014)', () => {
+  const old = JSON.parse(serialize(newProject()));
+  old.version = VERSION - 1;
+  assert.throws(() => deserialize(JSON.stringify(old)), /earlier development version[\s\S]*Before version 1\.0/);
 });
 
 test('field style files: export/import round trip, fills gaps, refuses bad ones', () => {

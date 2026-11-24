@@ -50,7 +50,7 @@ set('Value', '1k');
 check('value', app.project.components[a.comp.id].value === '1k' && depth() === d + 2);
 const fp = insp().querySelector('select[data-role="footprint"]');
 fp.value = [...fp.options].find((o) => o.textContent === 'LED_0805_2012Metric').value; fp.dispatchEvent(new Event('change'));
-check('footprint', app.project.components[a.comp.id].footprint.footprint?.name === 'LED_0805_2012Metric' && depth() === d + 3);
+check('footprint', app.project.footprints[app.project.components[a.comp.id].footprint.fpKey]?.footprint.name === 'LED_0805_2012Metric' && depth() === d + 3, app.project.components[a.comp.id].footprint);
 set('Y (mm)', '63.5');
 check('moved', app.project.schematic.sheets[0].symbols.find((y) => y.id === a.sym.id).at[1] === 50 * G);
 document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));

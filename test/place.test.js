@@ -90,7 +90,7 @@ test('rotate and mirror selected Symbols; delete removes them and their Componen
   deleteSymbols(p, [a.sym.id]);
   assert.deepEqual(s.symbols.map((y) => y.id), [b.sym.id]);
   assert.deepEqual(Object.values(p.components).map((c) => c.ref), ['D1']);
-  assert.deepEqual(Object.keys(p.parts), ['mini-led'], 'unused Parts are dropped too');
+  assert.deepEqual(Object.keys(p.parts), ['builtin-mini/led@1'], 'unused Parts are dropped too; Parts are keyed by Library origin');
 });
 
 test('symbol bounds follow rotation and cover the Pins', () => {

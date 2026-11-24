@@ -1,11 +1,11 @@
 {
  "format": "electrocad",
- "version": 2,
+ "version": 3,
  "id": "p1",
  "name": "LED indicator",
  "parts": {
-  "mini-capacitor": {
-   "id": "mini-capacitor",
+  "builtin-mini/capacitor@1": {
+   "id": "builtin-mini/capacitor@1",
    "name": "Capacitor",
    "prefix": "C",
    "defaultValue": "100n",
@@ -23,30 +23,12 @@
      "graphics": [
       {
        "type": "line",
-       "pts": [
-        [
-         -508000,
-         -2032000
-        ],
-        [
-         -508000,
-         2032000
-        ]
-       ],
+       "pts": [[-508000, -2032000], [-508000, 2032000]],
        "width": 2
       },
       {
        "type": "line",
-       "pts": [
-        [
-         508000,
-         -2032000
-        ],
-        [
-         508000,
-         2032000
-        ]
-       ],
+       "pts": [[508000, -2032000], [508000, 2032000]],
        "width": 2
       }
      ],
@@ -54,10 +36,7 @@
       {
        "number": "1",
        "name": "~",
-       "at": [
-        -3810000,
-        0
-       ],
+       "at": [-3810000, 0],
        "dir": "R",
        "length": 3302000,
        "type": "passive"
@@ -65,29 +44,12 @@
       {
        "number": "2",
        "name": "~",
-       "at": [
-        3810000,
-        0
-       ],
+       "at": [3810000, 0],
        "dir": "L",
        "length": 3302000,
        "type": "passive"
       }
-     ],
-     "fields": {
-      "reference": {
-       "at": [
-        0,
-        -3302000
-       ]
-      },
-      "value": {
-       "at": [
-        0,
-        3302000
-       ]
-      }
-     }
+     ]
     }
    ],
    "footprints": {
@@ -96,51 +58,25 @@
      "pads": [
       {
        "number": "1",
-       "at": [
-        -912500,
-        0
-       ],
+       "at": [-912500, 0],
        "shape": "roundrect",
-       "size": [
-        1025000,
-        1400000
-       ],
-       "layers": [
-        "F.Cu",
-        "F.Paste",
-        "F.Mask"
-       ]
+       "size": [1025000, 1400000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
       },
       {
        "number": "2",
-       "at": [
-        912500,
-        0
-       ],
+       "at": [912500, 0],
        "shape": "roundrect",
-       "size": [
-        1025000,
-        1400000
-       ],
-       "layers": [
-        "F.Cu",
-        "F.Paste",
-        "F.Mask"
-       ]
+       "size": [1025000, 1400000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
       }
      ],
      "graphics": [
       {
        "type": "rect",
        "layer": "F.CrtYd",
-       "a": [
-        -1680000,
-        -950000
-       ],
-       "b": [
-        1680000,
-        950000
-       ]
+       "a": [-1680000, -950000],
+       "b": [1680000, 950000]
       }
      ]
     }
@@ -152,8 +88,8 @@
     }
    }
   },
-  "mini-resistor": {
-   "id": "mini-resistor",
+  "builtin-mini/resistor@1": {
+   "id": "builtin-mini/resistor@1",
    "name": "Resistor",
    "prefix": "R",
    "defaultValue": "10k",
@@ -171,14 +107,8 @@
      "graphics": [
       {
        "type": "rect",
-       "a": [
-        -2540000,
-        -1016000
-       ],
-       "b": [
-        2540000,
-        1016000
-       ],
+       "a": [-2540000, -1016000],
+       "b": [2540000, 1016000],
        "fill": "background"
       }
      ],
@@ -186,10 +116,7 @@
       {
        "number": "1",
        "name": "~",
-       "at": [
-        -5080000,
-        0
-       ],
+       "at": [-5080000, 0],
        "dir": "R",
        "length": 2540000,
        "type": "passive"
@@ -197,29 +124,12 @@
       {
        "number": "2",
        "name": "~",
-       "at": [
-        5080000,
-        0
-       ],
+       "at": [5080000, 0],
        "dir": "L",
        "length": 2540000,
        "type": "passive"
       }
-     ],
-     "fields": {
-      "reference": {
-       "at": [
-        0,
-        -2540000
-       ]
-      },
-      "value": {
-       "at": [
-        0,
-        2540000
-       ]
-      }
-     }
+     ]
     }
    ],
    "footprints": {
@@ -228,51 +138,25 @@
      "pads": [
       {
        "number": "1",
-       "at": [
-        -912500,
-        0
-       ],
+       "at": [-912500, 0],
        "shape": "roundrect",
-       "size": [
-        1025000,
-        1400000
-       ],
-       "layers": [
-        "F.Cu",
-        "F.Paste",
-        "F.Mask"
-       ]
+       "size": [1025000, 1400000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
       },
       {
        "number": "2",
-       "at": [
-        912500,
-        0
-       ],
+       "at": [912500, 0],
        "shape": "roundrect",
-       "size": [
-        1025000,
-        1400000
-       ],
-       "layers": [
-        "F.Cu",
-        "F.Paste",
-        "F.Mask"
-       ]
+       "size": [1025000, 1400000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
       }
      ],
      "graphics": [
       {
        "type": "rect",
        "layer": "F.CrtYd",
-       "a": [
-        -1680000,
-        -950000
-       ],
-       "b": [
-        1680000,
-        950000
-       ]
+       "a": [-1680000, -950000],
+       "b": [1680000, 950000]
       }
      ]
     }
@@ -284,8 +168,8 @@
     }
    }
   },
-  "mini-led": {
-   "id": "mini-led",
+  "builtin-mini/led@1": {
+   "id": "builtin-mini/led@1",
    "name": "LED",
    "prefix": "D",
    "defaultValue": "LED",
@@ -303,109 +187,36 @@
      "graphics": [
       {
        "type": "poly",
-       "pts": [
-        [
-         -1270000,
-         -1270000
-        ],
-        [
-         1270000,
-         0
-        ],
-        [
-         -1270000,
-         1270000
-        ],
-        [
-         -1270000,
-         -1270000
-        ]
-       ],
+       "pts": [[-1270000, -1270000], [1270000, 0], [-1270000, 1270000], [-1270000, -1270000]],
        "fill": "background"
       },
       {
        "type": "line",
-       "pts": [
-        [
-         1270000,
-         -1270000
-        ],
-        [
-         1270000,
-         1270000
-        ]
-       ],
+       "pts": [[1270000, -1270000], [1270000, 1270000]],
        "width": 1.5
       },
       {
        "type": "line",
-       "pts": [
-        [
-         -254000,
-         -1778000
-        ],
-        [
-         762000,
-         -2794000
-        ]
-       ]
+       "pts": [[-254000, -1778000], [762000, -2794000]]
       },
       {
        "type": "line",
-       "pts": [
-        [
-         254000,
-         -2794000
-        ],
-        [
-         762000,
-         -2794000
-        ],
-        [
-         762000,
-         -2286000
-        ]
-       ]
+       "pts": [[254000, -2794000], [762000, -2794000], [762000, -2286000]]
       },
       {
        "type": "line",
-       "pts": [
-        [
-         635000,
-         -1778000
-        ],
-        [
-         1651000,
-         -2794000
-        ]
-       ]
+       "pts": [[635000, -1778000], [1651000, -2794000]]
       },
       {
        "type": "line",
-       "pts": [
-        [
-         1143000,
-         -2794000
-        ],
-        [
-         1651000,
-         -2794000
-        ],
-        [
-         1651000,
-         -2286000
-        ]
-       ]
+       "pts": [[1143000, -2794000], [1651000, -2794000], [1651000, -2286000]]
       }
      ],
      "pins": [
       {
        "number": "2",
        "name": "A",
-       "at": [
-        -3810000,
-        0
-       ],
+       "at": [-3810000, 0],
        "dir": "R",
        "length": 2540000,
        "type": "passive"
@@ -413,29 +224,12 @@
       {
        "number": "1",
        "name": "K",
-       "at": [
-        3810000,
-        0
-       ],
+       "at": [3810000, 0],
        "dir": "L",
        "length": 2540000,
        "type": "passive"
       }
-     ],
-     "fields": {
-      "reference": {
-       "at": [
-        0,
-        -4064000
-       ]
-      },
-      "value": {
-       "at": [
-        0,
-        2794000
-       ]
-      }
-     }
+     ]
     }
    ],
    "footprints": {
@@ -444,51 +238,25 @@
      "pads": [
       {
        "number": "1",
-       "at": [
-        -912500,
-        0
-       ],
+       "at": [-912500, 0],
        "shape": "roundrect",
-       "size": [
-        1025000,
-        1400000
-       ],
-       "layers": [
-        "F.Cu",
-        "F.Paste",
-        "F.Mask"
-       ]
+       "size": [1025000, 1400000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
       },
       {
        "number": "2",
-       "at": [
-        912500,
-        0
-       ],
+       "at": [912500, 0],
        "shape": "roundrect",
-       "size": [
-        1025000,
-        1400000
-       ],
-       "layers": [
-        "F.Cu",
-        "F.Paste",
-        "F.Mask"
-       ]
+       "size": [1025000, 1400000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
       }
      ],
      "graphics": [
       {
        "type": "rect",
        "layer": "F.CrtYd",
-       "a": [
-        -1680000,
-        -950000
-       ],
-       "b": [
-        1680000,
-        950000
-       ]
+       "a": [-1680000, -950000],
+       "b": [1680000, 950000]
       }
      ]
     }
@@ -504,7 +272,7 @@
  "components": {
   "c1": {
    "id": "c1",
-   "partId": "mini-capacitor",
+   "partId": "builtin-mini/capacitor@1",
    "ref": "C1",
    "value": "100n",
    "mpn": null,
@@ -515,7 +283,7 @@
   },
   "c2": {
    "id": "c2",
-   "partId": "mini-resistor",
+   "partId": "builtin-mini/resistor@1",
    "ref": "R1",
    "value": "330",
    "mpn": {
@@ -531,54 +299,39 @@
   },
   "c3": {
    "id": "c3",
-   "partId": "mini-led",
+   "partId": "builtin-mini/led@1",
    "ref": "D1",
    "value": "LED",
    "mpn": null,
    "footprint": {
-    "library": "User",
-    "footprint": {
-     "name": "LED_1206",
-     "pads": [
-      {
-       "number": "1",
-       "at": [
-        -1600000,
-        0
-       ],
-       "shape": "roundrect",
-       "size": [
-        1000000,
-        1700000
-       ],
-       "layers": [
-        "F.Cu",
-        "F.Paste",
-        "F.Mask"
-       ]
-      },
-      {
-       "number": "2",
-       "at": [
-        1600000,
-        0
-       ],
-       "shape": "roundrect",
-       "size": [
-        1000000,
-        1700000
-       ],
-       "layers": [
-        "F.Cu",
-        "F.Paste",
-        "F.Mask"
-       ]
-      }
-     ]
-    }
+    "fpKey": "User/LED_1206"
    },
    "fields": {},
    "fieldStyle": "rkm"
+  }
+ },
+ "footprints": {
+  "User/LED_1206": {
+   "library": "User",
+   "footprint": {
+    "name": "LED_1206",
+    "pads": [
+     {
+      "number": "1",
+      "at": [-1600000, 0],
+      "shape": "roundrect",
+      "size": [1000000, 1700000],
+      "layers": ["F.Cu", "F.Paste", "F.Mask"]
+     },
+     {
+      "number": "2",
+      "at": [1600000, 0],
+      "shape": "roundrect",
+      "size": [1000000, 1700000],
+      "layers": ["F.Cu", "F.Paste", "F.Mask"]
+     }
+    ]
+   }
   }
  },
  "schematic": {
@@ -591,10 +344,7 @@
       "id": "y1",
       "componentId": "c1",
       "unit": 0,
-      "at": [
-       25400000,
-       25400000
-      ],
+      "at": [25400000, 25400000],
       "rot": 90,
       "mirror": false
      }
@@ -603,10 +353,7 @@
     "labels": [
      {
       "id": "l1",
-      "at": [
-       25400000,
-       21590000
-      ],
+      "at": [25400000, 21590000],
       "rot": 0,
       "net": "+3V3",
       "scope": "global",
@@ -614,10 +361,7 @@
      },
      {
       "id": "l2",
-      "at": [
-       25400000,
-       29210000
-      ],
+      "at": [25400000, 29210000],
       "rot": 0,
       "net": "GND",
       "scope": "global",
@@ -634,27 +378,18 @@
       "id": "y2",
       "componentId": "c2",
       "unit": 0,
-      "at": [
-       25400000,
-       25400000
-      ],
+      "at": [25400000, 25400000],
       "rot": 0,
       "mirror": false,
       "fieldPins": {
-       "value": [
-        0,
-        3810000
-       ]
+       "value": [0, 3810000]
       }
      },
      {
       "id": "y3",
       "componentId": "c3",
       "unit": 0,
-      "at": [
-       40640000,
-       25400000
-      ],
+      "at": [40640000, 25400000],
       "rot": 0,
       "mirror": false
      }
@@ -662,23 +397,14 @@
     "wires": [
      {
       "id": "w1",
-      "a": [
-       30480000,
-       25400000
-      ],
-      "b": [
-       36830000,
-       25400000
-      ]
+      "a": [30480000, 25400000],
+      "b": [36830000, 25400000]
      }
     ],
     "labels": [
      {
       "id": "l3",
-      "at": [
-       20320000,
-       25400000
-      ],
+      "at": [20320000, 25400000],
       "rot": 0,
       "net": "+3V3",
       "scope": "global",
@@ -686,10 +412,7 @@
      },
      {
       "id": "l4",
-      "at": [
-       33020000,
-       25400000
-      ],
+      "at": [33020000, 25400000],
       "rot": 0,
       "net": "LED_A",
       "scope": "global",
@@ -697,10 +420,7 @@
      },
      {
       "id": "l5",
-      "at": [
-       44450000,
-       25400000
-      ],
+      "at": [44450000, 25400000],
       "rot": 0,
       "net": "GND",
       "scope": "global",
@@ -708,10 +428,7 @@
      },
      {
       "id": "l6",
-      "at": [
-       33020000,
-       38100000
-      ],
+      "at": [33020000, 38100000],
       "rot": 180,
       "net": "SPARE",
       "scope": "local",
@@ -767,19 +484,8 @@
     },
     "valueFormat": "as-typed",
     "placement": {
-     "horizontal": [
-      "split",
-      "above",
-      "below",
-      "right",
-      "left"
-     ],
-     "vertical": [
-      "right",
-      "left",
-      "above",
-      "below"
-     ]
+     "horizontal": ["split", "above", "below", "right", "left"],
+     "vertical": ["right", "left", "above", "below"]
     }
    },
    "rkm": {
@@ -802,19 +508,8 @@
     "id": "rkm",
     "name": "RKM values",
     "placement": {
-     "horizontal": [
-      "split",
-      "above",
-      "below",
-      "right",
-      "left"
-     ],
-     "vertical": [
-      "right",
-      "left",
-      "above",
-      "below"
-     ]
+     "horizontal": ["split", "above", "below", "right", "left"],
+     "vertical": ["right", "left", "above", "below"]
     }
    }
   }

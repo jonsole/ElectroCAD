@@ -1,35 +1,38 @@
-# The ElectroCAD Project file (`.ecad`), version 2
+# The ElectroCAD Project file (`.ecad`), version 3
 
 A Project is one JSON file, the Native format ([ADR-0004](../adr/0004-native-format-is-json-foreign-formats-are-lossy-converters.md)). This page describes every key the app writes today, for review and for anyone writing a tool that reads or writes `.ecad` files.
 
-- **Schema:** [`ecad.schema.json`](ecad.schema.json) (JSON Schema 2020-12).
+- **Schema:** [`ecad.schema.json`](ecad.schema.json) (JSON Schema 2020-12), generated from `src/renderer/core/ecad-schema.js`, which the app also uses to check every file it opens.
 - **Example:** [`example.ecad`](example.ecad), an LED indicator on two Sheets that uses every feature below.
-- **Kept honest by tests:** `test/formats.test.js` checks the example and freshly built Projects against the schema. The schema is strict, so a key the app starts writing fails the tests until it is documented here. Regenerate the example with `node tools/write-format-example.js`.
+- **Kept honest by tests:** `test/formats.test.js` checks the example and freshly built Projects against the schema. The schema is strict, so a key the app starts writing fails the tests until it is documented here. Regenerate the example and the schema copy with `node tools/write-format-example.js`.
 - **Code:** `src/renderer/core/project.js` (factories, `serialize`, `deserialize`, migrations).
 
 ## Conventions
 
 | What | Rule |
 | --- | --- |
-| Encoding | UTF-8 JSON, indented one space, newline at the end. Key order carries no meaning. |
+| Encoding | UTF-8 JSON, indented one space, newline at the end. Short lists of plain values (points, layer lists) are written on one line, so a moved point is a one-line diff. Key order carries no meaning. |
 | Lengths and coordinates | Integer **nanometres** ([ADR-0003](../adr/0003-integer-nanometre-coordinates.md)). 1 mm = 1,000,000; 1 mil = 25,400; the schematic grid (50 mil) = 1,270,000. |
 | Axes | +X right, **+Y down** (screen and KiCad convention). |
 | Points | `[x, y]`. |
-| Rotation | Degrees, counter-clockwise **on screen**. The Schematic uses 0, 90, 180, 270. |
+| Rotation | Degrees, counter-clockwise **on screen**. The Schematic uses 0, 90, 180, 270; Board Footprints any angle in [0, 360), to 0.01° (the only non-integer geometry). |
 | Mirror | A left-right flip (x → −x) in the object's own frame, applied **before** rotation. |
 | Placing local points | `world = rotate(mirror(local), rot) + at`. For 90° CCW on screen, `(x, y) → (y, −x)`. Code: `place()` / `unplace()` in `core/geom.js`. |
-| Ids | Strings, unique within the Project. The app makes random ones with a one-letter prefix: `p` Project, `s` Sheet, `c` Component, `y` Symbol, `w` Wire, `l` label. Built-in Part ids are readable (`mini-resistor`). |
-| References | By id: a Symbol's `componentId`, a Component's `partId`. The Board will refer to **Nets by name** (see [Board](#board)). |
+| Ids | Strings, unique within the Project. The app makes random ones with a one-letter prefix: `p` Project, `s` Sheet, `c` Component, `y` Symbol, `w` Wire, `l` label. Parts are keyed by Library origin (`builtin-mini/resistor@1`), table Footprints by `library/name`. |
+| References | By id or key: a Symbol's `componentId`, a Component's `partId` and `footprint`. Board objects refer to **Nets by name** ([ADR-0015](../adr/0015-board-objects-in-the-native-format.md)). |
 | Not stored | Anything derived: Nets and their names, Junction dots, field positions (unless pinned), connected-pin marks, wire hops. |
 
 ## Versions and compatibility
 
-- `format` is always `"electrocad"`. `version` is the format version, currently **2**.
-- **Opening an older file:** it is migrated step by step (`MIGRATIONS` in `project.js`). Version 1 → 2 adds `fieldStyles` (Classic).
-- **Opening a newer file:** refused with a message asking the user to update ElectroCAD. Nothing is guessed.
-- **Unknown keys:** readers ignore them and the app keeps them when it saves, so a file edited by a newer app survives a round trip through an older one, as long as the version didn't change.
-- **When the version goes up:** whenever an older reader would *misread* a file, not merely miss a feature. Optional keys an older app can safely ignore have been added without a bump; see [Review points](#review-points).
-- **What opening checks** (`validate()`): the top-level structure, that every Sheet has its four lists, that Symbols point at existing Components and Components at existing Parts, the shape and kind of each label, a 2- or 4-layer stack, the Board's lists, and the Field styles. It does not check every value against the schema.
+- `format` is always `"electrocad"`. `version` is the format version, currently **3**.
+- **Before 1.0 there is no compatibility** ([ADR-0014](../adr/0014-no-file-compatibility-before-1-0.md)). `version` goes up with every format change, and a file of any other version is refused with a message saying which version wrote it. There are no migrations.
+- **Opening is strict.** The file is checked against the schema, and then against what a schema can't express (`projectProblems()` in `project.js`):
+  - ids unique across the file, Reference designators unique, Sheet names unique regardless of case;
+  - every `partId`, `componentId`, `fpId`, `fpKey`, `fieldStyle` and `unit` points at something that exists;
+  - Power symbols are global, and net names are non-empty with no spaces;
+  - every Component is placed on some Sheet.
+
+  Unknown keys are refused. A file with problems is not opened; the message lists them in plain words (`sheet "Indicator" symbol 1.rot: 45 is not one of [0,90,180,270]`).
 
 ## Project (top level)
 
@@ -39,8 +42,9 @@ A Project is one JSON file, the Native format ([ADR-0004](../adr/0004-native-for
 | `version` | `2` | Format version. |
 | `id` | string | The Project's id; also its key in the Project store. |
 | `name` | string | Shown on the home screen and in the title bar. |
-| `parts` | `{ [partId]: Part }` | A frozen copy of every Part in use ([ADR-0004](../adr/0004-native-format-is-json-foreign-formats-are-lossy-converters.md)). Parts nothing uses are removed. |
+| `parts` | `{ [partKey]: Part }` | A frozen copy of every Part in use ([ADR-0004](../adr/0004-native-format-is-json-foreign-formats-are-lossy-converters.md)), keyed by Library origin `library/partId@version` so Parts from different Libraries never clash. A Part with no origin (made in the Project) uses its own id. Parts nothing uses are removed. |
 | `components` | `{ [componentId]: Component }` | The Components: one per Reference designator. |
+| `footprints` | `{ [fpKey]: { library, footprint } }` | Footprints Components use that are not one of their Part's Preferred footprints, each stored once (`library/name`, with `~2`… if two differ). Unused ones are removed. |
 | `schematic` | `{ sheets: [Sheet] }` | At least one Sheet, in display order. |
 | `board` | Board | The PCB. Only the layer stack and rules are written today. |
 | `fieldStyles` | `{ default, styles }` | `default` is a key in `styles`; `styles` holds every Field style the Project uses ([ADR-0012](../adr/0012-fields-are-placed-automatically-by-field-styles.md)). |
@@ -51,12 +55,12 @@ A generic Part ([ADR-0005](../adr/0005-generic-multi-unit-parts.md)): its Symbol
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `id` | string | Key in `parts`. |
+| `id` | string | Same as its key in `parts`. |
 | `name` | string | Shown in the Part picker and inspector. |
 | `prefix` | string | Reference designator prefix: `R`, `C`, `D`, `U`… |
 | `defaultValue` | string? | The Value a new Component gets. |
 | `keywords` | string? | Space-separated words for the picker's search. |
-| `origin` | `{ library, partId, version }`? | Library origin, for Update from Library (#39). |
+| `origin` | `{ library, partId, version }`? | Library origin: the Part's key, and Update from Library (#39). Omitted for a Part made in the Project. |
 | `units` | `[Unit]` | At least one. Unit *n* of a Component is placed as a Symbol with `unit: n`. |
 | `footprints` | `{ [fpId]: Footprint }`? | Preferred footprints. |
 | `pinMap` | `{ [fpId]: { [pinNumber]: padNumber } }`? | Pin → Pad per Preferred footprint. A missing entry means Pin *n* → Pad *n*. |
@@ -69,7 +73,8 @@ A generic Part ([ADR-0005](../adr/0005-generic-multi-unit-parts.md)): its Symbol
 | `hidePinNumbers`, `hidePinNames` | boolean? | Drawing switches. |
 | `graphics` | `[Shape]` | The body. |
 | `pins` | `[Pin]` | See below. |
-| `fields` | `{ reference: { at }, value: { at } }`? | Library hint only. Field styles place fields; this is kept for import and export. |
+
+A Unit says nothing about where fields go: Field styles place them ([ADR-0012](../adr/0012-fields-are-placed-automatically-by-field-styles.md)).
 
 **Pin:** `number` (string), `name` (`"~"` = none), `at` (the connection tip, on the 50 mil grid), `dir` (`L`/`R`/`U`/`D`, from the tip into the body), `length` (nm), `type` (`passive`, `input`, `output`, `bidirectional`, `tri_state`, `power_in`, `power_out`, `open_collector`, `open_emitter`, `unspecified`, `no_connect`; used by ERC, #11).
 
@@ -81,6 +86,7 @@ A generic Part ([ADR-0005](../adr/0005-generic-multi-unit-parts.md)): its Symbol
 | `line` | `pts` (a polyline, at least 2 points) |
 | `poly` | `pts` (closed when it has a fill) |
 | `circle` | `c` (centre), `r` (radius, nm) |
+| `arc` | `start`, `mid` (any point on the arc), `end`: three points, so no angles are stored and the ends meet the next segment exactly |
 
 Every shape may have `fill` (`none`, `background` = the theme's symbol fill, `outline` = filled with the line colour), `width` (a **multiplier** on the standard line width, not nm) and, in Footprints, `layer` (`F.SilkS`, `F.CrtYd`, `F.Fab`…).
 
@@ -95,7 +101,7 @@ Every shape may have `fill` (`none`, `background` = the theme's symbol fill, `ou
 | `ref` | string | Reference designator. Unique in the Project, no spaces. |
 | `value` | string | **As typed.** A Field style's Value format (RKM, SI) changes only how it is drawn. |
 | `mpn` | `{ manufacturer, number }` or `null` | Ordering details. |
-| `footprint` | `{ fpId }`, `{ library, footprint }` or `null` | A Preferred footprint (by key in the Part's `footprints`), or any other Footprint embedded in full; the latter maps Pin *n* → Pad *n* ([ADR-0008](../adr/0008-footprint-is-a-live-component-property.md)). |
+| `footprint` | `{ fpId }`, `{ fpKey }` or `null` | `fpId`: a Preferred footprint, key in the Part's `footprints`, Pins mapped by its `pinMap`. `fpKey`: any other Footprint, key in the Project's `footprints`, Pin *n* → Pad *n* ([ADR-0008](../adr/0008-footprint-is-a-live-component-property.md)). |
 | `fields` | `{ [name]: string }` | Custom fields (the inspector's Custom fields). |
 | `fieldStyle` | string? | Key in `fieldStyles.styles`. Absent means the Project default. |
 
@@ -108,7 +114,7 @@ Every shape may have `fill` (`none`, `background` = the theme's symbol fill, `ou
 | `symbols` | `[Symbol]` | Placed Units. |
 | `wires` | `[Wire]` | |
 | `labels` | `[Label]` | Net labels, Global labels and Power symbols. |
-| `noConnects` | `[{ id, at }]` | Reserved for #11; always empty today. |
+| `noConnects` | `[{ id, at }]` | No-connect markers on Pin tips (#11); always empty today. |
 
 **Symbol** (one placed Unit):
 
@@ -139,26 +145,21 @@ How Nets are built from these (not stored): see [DESIGN.md §4](../DESIGN.md#4-c
 
 ## Board
 
-Written today:
+The shapes are fixed by [ADR-0015](../adr/0015-board-objects-in-the-native-format.md). Only `stack`, `preset` and `rules` have content today; the lists fill in as the Board tickets land.
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `stack` | `{ copper: 2 \| 4, thickness }` | Layer stack. Copper layers are `F.Cu`, `B.Cu`, plus `In1.Cu`, `In2.Cu` for 4 layers. |
+| `stack` | `{ copper: 2 \| 4, thickness }` | Layer stack. Copper layers: `F.Cu`, `B.Cu`, plus `In1.Cu`, `In2.Cu` for 4 layers. |
 | `preset` | string | Fab preset id (`generic` today; #24). |
 | `rules` | `{ clearance, trackWidth, viaDrill, viaDiameter, minHole, annularRing, edgeClearance }` | Design rules, all nm. |
-| `outline`, `footprints`, `tracks`, `vias`, `zones` | arrays | Always empty today. |
-| `netClasses` | object | Always empty today. |
+| `outline` | `[Shape]` | Edge.Cuts: lines and arcs forming closed loops (#15). |
+| `footprints` | `[{ id, componentId, at, rot, side, locked }]` | Where each Component sits (#17). `rot` is any angle (degrees, [0, 360), to 0.01°); `side` is `F` or `B`. Pads and graphics come from the Component's footprint, not copied. |
+| `tracks` | `[{ id, a, b, width, layer, net }]` | Straight copper segments (#20). `layer` a copper layer, `net` a Net name. |
+| `vias` | `[{ id, at, drill, diameter, from, to, net }]` | v1 has through vias only: `from: "F.Cu"`, `to: "B.Cu"` (#21). |
+| `zones` | `[{ id, layer, net, outline, priority, clearance, thermal: { gap, spoke } }]` | Copper pours (#23). `outline` has at least 3 points. The fill is **not stored**; it is recomputed. |
+| `netClasses` | `{ [name]: { trackWidth, clearance, viaDrill, viaDiameter, nets } }` | `nets` is a list of Net names (#24). |
 
-**Planned** (from [DESIGN.md §3](../DESIGN.md#3-data-model-native-format); these will be specified here, with a version bump if needed, when their tickets land):
-
-```js
-outline:    [ Shape ]                                                    // #15, Edge.Cuts
-footprints: [ { id, componentId, at, rot, side: 'F' | 'B', locked } ]   // #17, rot any angle
-tracks:     [ { id, a, b, width, layer, net } ]                          // #20, net = Net name
-vias:       [ { id, at, drill, diameter, from: 'F.Cu', to: 'B.Cu', net } ] // #21
-zones:      [ { id, layer, net, outline: [points], priority, clearance, thermal } ] // #23
-netClasses: { [name]: { trackWidth, clearance, viaDrill, viaDiameter, nets: [names] } } // #24
-```
+Board objects refer to Nets **by name**, matched regardless of case. Nets themselves are never stored: the Schematic is their source ([ADR-0002](../adr/0002-schematic-is-the-source-of-truth-for-nets.md)).
 
 ## Field style
 
@@ -174,17 +175,19 @@ Embedded in `fieldStyles.styles`, and the body of a Field style file (below).
 | `valueFormat` | `as-typed` / `rkm` / `si` | Display only. |
 | `placement` | `{ horizontal: [slot], vertical: [slot] }` | Slots to try in order, for horizontal and vertical Symbols: `split` (Reference above, Value below), `above`, `below`, `right`, `left`. |
 
-## Review points
+## Review history
 
-Things noticed while writing this page, for the format review. None changes behaviour today.
+Format version 3 resolved the points raised in the first review of version 2:
 
-1. **Readability of diffs.** One-space pretty printing puts every number of every point on its own line: [`example.ecad`](example.ecad) is 823 lines for three parts. Writing each point on one line (`[1270000, 0]`) cuts that to about 620 lines (14% fewer bytes), and a moved point becomes a one-line change in a diff. It is still plain JSON, so readers are unaffected.
-2. **When to bump the version.** `fieldPins` (#53) and the label keys (#7) were added as optional keys without a bump, because version-2 readers can ignore them safely. That policy should be written down, here or in an ADR.
-3. **Checking on open.** `validate()` checks structure only. A hand-edited file with `rot: 45`, a duplicate `ref` or a non-integer coordinate opens without complaint. Opening could check against the schema and report what's wrong.
-4. **Part keys can collide.** Parts are keyed by their Library id (`mini-resistor`). Two Libraries with the same Part id would clash when both are used in one Project. Keying by `origin` (library + partId + version), or giving each embedded copy its own id, would avoid that before user Libraries (#13) and imports (#32, #35) arrive.
-5. **Embedded Footprints repeat.** A Footprint that is not Preferred is copied into each Component that uses it, so 50 parts on the same custom Footprint store it 50 times. A Project-level `footprints` table, referenced by key, would store it once.
-6. **`Unit.fields` is unused** for drawing, since Field styles place fields. Keep it as an import/export hint, or drop it.
-7. **Board planned shapes need decisions** before #15–#24, especially whether Tracks keep `net` as a name (the current plan, so forward annotation can rename it) and how Footprint rotation (any angle) is stored.
+| Point | Resolution |
+| --- | --- |
+| Every coordinate on its own line made files long and diffs noisy | Short lists are written on one line; the example went from 823 to 517 lines. |
+| No rule for when the version goes up | [ADR-0014](../adr/0014-no-file-compatibility-before-1-0.md): every change, no compatibility before 1.0. |
+| Opening only checked the structure | Opening checks the full schema plus cross-references, and lists every problem. |
+| Parts keyed by Library id could clash | Keyed by Library origin (`library/partId@version`). |
+| Non-preferred Footprints copied into every Component | The Project `footprints` table, referenced by `fpKey`. |
+| `Unit.fields` unused | Removed. |
+| Board object shapes undecided | [ADR-0015](../adr/0015-board-objects-in-the-native-format.md), and in the schema. |
 
 ## Other files
 

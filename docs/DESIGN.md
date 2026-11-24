@@ -63,7 +63,7 @@ Every object has a stable string `id`. Coordinates are integer nm with +Y down (
 
 ```js
 Project {
-  format: 'electrocad', version: 2, id, name,
+  format: 'electrocad', version: 3, id, name,
   parts:      { [partId]: Part },        // frozen embedded copies of every Part used (ADR-0004)
   components: { [componentId]: Component },
   schematic:  { sheets: [ Sheet ] },

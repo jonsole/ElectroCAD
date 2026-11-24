@@ -78,19 +78,17 @@ export function drawUnit(ctx, toScreen, scale, part, unitIndex, sym, fields, C, 
       ctx.fillText(pin.name, inward[0], inward[1]);
     }
   }
-  // Fields stay upright whatever the rotation (as in KiCad). Horizontal Symbols keep the
-  // Part's field positions (above/below the body); vertical ones stack them beside it.
-  if (fields && unit.fields && scale * TEXT > 4) {
+  // The placing ghost's fields ("R?", the default Value): above and below the body, upright.
+  // Placed Symbols get their fields from the Field style placer instead (drawFields).
+  if (fields && scale * TEXT > 4) {
     ctx.font = `${Math.max(8, TEXT * scale)}px "Segoe UI", system-ui, sans-serif`;
-    ctx.textBaseline = 'middle';
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+    const h = bodyHalfHeight(unit) + TEXT;
     const vertical = (sym.rot || 0) % 180 !== 0;
-    const side = vertical ? bodyHalfHeight(unit) + mm(1) : 0;
-    for (const [key, color, dy] of [['reference', C.reference, -0.65], ['value', C.value, 0.65]]) {
-      const f = unit.fields[key];
-      if (!f || !fields[key]) continue;
-      let x, y;
-      if (vertical) { [x, y] = toScreen([sym.at[0] + side, sym.at[1] + dy * TEXT * 1.1]); ctx.textAlign = 'left'; }
-      else { [x, y] = P(f.at); ctx.textAlign = 'center'; }
+    for (const [key, color, dir] of [['reference', C.reference, -1], ['value', C.value, 1]]) {
+      if (!fields[key]) continue;
+      const [x, y] = vertical ? toScreen([sym.at[0] + h + TEXT * 1.5, sym.at[1] + dir * TEXT * 0.7]) : toScreen([sym.at[0], sym.at[1] + dir * h]);
+      if (vertical) ctx.textAlign = 'left';
       ctx.fillStyle = color;
       ctx.fillText(fields[key], x, y);
     }

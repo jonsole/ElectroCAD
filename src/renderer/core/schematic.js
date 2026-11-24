@@ -1,6 +1,6 @@
 // Schematic editing commands (DOM-free). Each is a mutation the editor runs inside one
 // History transaction, so every user action is exactly one undo step.
-import { addComponent, partOf, pruneOrphans, uid, pinPositions, nextRef, newSheet } from './project.js';
+import { addComponent, partOf, pruneOrphans, uid, pinPositions, nextRef, newSheet, addFootprint } from './project.js';
 import { compareRefs } from './netlist.js';
 import { labelBounds } from './labels.js';
 import { place, eq, distToSegment2, onSegment, rot90 } from './geom.js';
@@ -270,15 +270,17 @@ export function moveSelection(project, sheet, ids, delta) {
 export function copySelection(project, sheet, ids) {
   const sel = new Set(ids);
   const symbols = sheet.symbols.filter((y) => sel.has(y.id)).map((y) => structuredClone(y));
-  const components = {}, parts = {};
+  const components = {}, parts = {}, footprints = {};
   for (const y of symbols) {
     const c = project.components[y.componentId];
     components[c.id] = structuredClone(c);
     parts[c.partId] = structuredClone(project.parts[c.partId]);
+    const k = c.footprint?.fpKey;
+    if (k && project.footprints?.[k]) footprints[k] = structuredClone(project.footprints[k]);
   }
   const wires = sheet.wires.filter((w) => sel.has(w.id)).map((w) => structuredClone(w));
   const labels = (sheet.labels || []).filter((l) => sel.has(l.id)).map((l) => structuredClone(l));
-  return { kind: 'electrocad-schematic-clip', symbols, wires, labels, components, parts };
+  return { kind: 'electrocad-schematic-clip', symbols, wires, labels, components, parts, footprints };
 }
 
 /**
@@ -295,6 +297,9 @@ export function pasteClip(project, sheet, clip, delta) {
     if (!newComp.has(src.id)) {
       const prefix = project.parts[src.partId].prefix;
       const c = { ...structuredClone(src), id: uid('c'), ref: nextRef(project, prefix) };
+      // a table Footprint comes along; the key can differ if this Project has another of that name
+      const k = src.footprint?.fpKey;
+      if (k && clip.footprints?.[k]) c.footprint = { fpKey: addFootprint(project, clip.footprints[k].library, clip.footprints[k].footprint) };
       project.components[c.id] = c;
       newComp.set(src.id, c);
     }
