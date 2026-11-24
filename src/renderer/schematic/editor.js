@@ -82,10 +82,6 @@ export class SchematicEditor {
     search.addEventListener('input', () => { this.query = search.value; this.renderTiles(); });
     search.addEventListener('keydown', (e) => e.stopPropagation());
     this.panel = h('div', { class: 'side-panel picker', 'aria-label': 'Part picker' },
-      h('div', { class: 'side-tools', style: { gridTemplateColumns: 'repeat(3, 1fr)' } },
-        this.netlistBtn = h('button', { class: 'side-tool', type: 'button', title: 'Show the Netlist', onClick: () => this.toggleNetlist() }, icon('netlist', 20), h('span', {}, 'Netlist')),
-        h('button', { class: 'side-tool', type: 'button', title: 'ERC (coming in #11)', disabled: true }, icon('erc', 20), h('span', {}, 'ERC')),
-        this.sheetsBtn = h('button', { class: 'side-tool', type: 'button', title: 'Sheets: add, rename, reorder and delete', onClick: () => this.toggleSheets() }, icon('sheets', 20), h('span', {}, 'Sheets'))),
       h('div', { class: 'side-filter' }, h('select', { class: 'select', disabled: true, title: 'Part categories (coming in #12)' }, h('option', {}, 'All parts'))),
       h('div', { class: 'side-search' }, icon('search', 16), search),
       this.grid,
@@ -152,9 +148,14 @@ export class SchematicEditor {
       mirror: button({ icon: 'mirror', title: 'Mirror (X)', onClick: () => this.mirror() }),
       fields: button({ label: 'Fields', icon: 'ltext', title: 'Field style for the selected parts', onClick: (e) => this.fieldsMenu(e.currentTarget) }),
     };
+    // the cards over the canvas: Sheets, Netlist and (with #11) ERC; icons only, lit while open
+    this.sheetsBtn = button({ icon: 'sheets', title: 'Sheets: add, rename, reorder and delete', onClick: () => this.toggleSheets() });
+    this.netlistBtn = button({ icon: 'netlist', title: 'Netlist', onClick: () => this.toggleNetlist() });
+    const erc = later({ icon: 'erc', title: 'Electrical rule check' }, 11);
     return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }),
       this.btn.copy, this.btn.paste, this.btn.dup, this.btn.del, h('span', { class: 'sep' }),
-      this.btn.rotate, this.btn.mirror, h('span', { class: 'sep' }), this.btn.fields];
+      this.btn.rotate, this.btn.mirror, h('span', { class: 'sep' }), this.btn.fields, h('span', { class: 'sep' }),
+      this.sheetsBtn, this.netlistBtn, erc];
   }
 
   /** The left tool palette: Select and Wire are live; the rest name their tickets. */

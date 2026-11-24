@@ -24,7 +24,6 @@ function schematic(app) {
     grid: SCH_GRID,
     frame: { x0: 0, y0: 0, x1: mm(297), y1: mm(210) }, // A4 landscape sheet
     toolbar: [...editor.toolbar(), spacer(),
-      later({ label: 'ERC', icon: 'erc', title: 'Electrical rule check' }, 11),
       later({ label: 'Print', icon: 'print', title: 'Print or export to PDF/SVG' }, 14)],
     hint: '',
     tools: editor.tools(toolButton),

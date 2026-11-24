@@ -62,7 +62,7 @@ The Schematic's right-hand panel works like the fork's **3D Design shape panel**
 
 ![DabbleCAD fork, 3D Design shape panel (reference)](images/dabblecad-3d-reference.png)
 
-- **Top row of tool buttons** (`.side-tools`, like Workplane / Ruler / Notes): **Netlist**, **ERC** and **Sheets**. Each opens a floating panel over the canvas; active means accent.
+- **Sheets, Netlist and ERC** are not in the picker: they are a group of icon-only buttons on the toolbar, after Fields. Each opens a floating card over the canvas; a lit button means its card is open.
 - **Category select** (`.side-filter`): All, Passives, Semiconductors, Connectors, ICs, Power, then one entry per user Library ("My parts").
 - **Search** (`.side-search`): matches Part name, keywords and Value. It searches all categories when "All" is chosen.
 - **Tile grid** (`.shape-grid` / `.shape-tile`, 3 columns): each tile is a thumbnail of the Part's Symbol (Unit A) drawn from its graphics, with the Part name underneath. Hovering highlights it in accent; a multi-Unit Part shows a small Unit count badge.
@@ -97,7 +97,7 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 - Text stays readable: Net and Global labels turned 180° or 270° read left-to-right or bottom-to-top, sitting on the other side of their point. Power symbols turn freely with upright text.
 - Labels select, move, copy, rotate and delete with everything else. A label sitting on a Wire that moves goes with it. Double-click a label to rename it. The inspector edits the name, whether it joins on this sheet only or every sheet, and its rotation.
 - Net names: Power symbol beats Global label beats Net label beats the generated `Net-(R1-Pad2)`. Local labels named alike on two Sheets are two Nets, shown as `Sheet 1/EN` and `Sheet 2/EN`. Two different names on one Net are kept for ERC (#11).
-- **Sheets** are flat. The bottom bar has a chip per Sheet (click to switch, double-click to rename) and a + to add one after the current Sheet. The Sheets button above the parts opens a card listing them with rename, move up/down and delete (the last Sheet stays). Each is one undo step; deleting a Sheet takes its parts with it and says so in a toast.
+- **Sheets** are flat. The bottom bar has a chip per Sheet (click to switch, double-click to rename) and a + to add one after the current Sheet. The Sheets icon on the toolbar opens a card listing them with rename, move up/down and delete (the last Sheet stays). Each is one undo step; deleting a Sheet takes its parts with it and says so in a toast.
 
 ## Selecting and moving
 
