@@ -10,6 +10,7 @@ export const HIGHLIGHT_STYLES = [
   ['colour', 'Colour', 'The selected things are drawn in the selection colour'],
   ['box', 'Box', 'A dashed box around each selected thing'],
   ['fade', 'Fade the rest', 'Everything else fades back, so the selection stands out'],
+  ['brighten', 'Brighten', 'The selected things are drawn brighter in their own colours (deeper on light themes)'],
 ];
 export const DEFAULT_HIGHLIGHT = 'glow';
 
@@ -56,6 +57,19 @@ export function highlight(ctx, C, style, drawOnly, boxes = []) {
     drawOnly(ctx, C);
     return;
   }
+  if (style === 'brighten') {
+    // the selection redrawn in its own colours, brighter (on a dark canvas) or deeper (on a light one)
+    const [img, x] = layer(ctx);
+    drawOnly(x, { ...C, symbolFill: 'rgba(0,0,0,0)' }); // lines and text only: bodies keep their fill
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.filter = isLight(C.background) ? 'saturate(1.9) brightness(0.72) contrast(1.2)' : 'brightness(1.75) saturate(1.35)';
+    ctx.drawImage(img, 0, 0);
+    // a hair thicker, so thin lines read as brighter too
+    const d = 0.6 * (ctx.getTransform().a || 1);
+    ctx.globalAlpha = 0.6; ctx.drawImage(img, d, 0); ctx.drawImage(img, 0, d);
+    ctx.restore();
+    return;
+  }
   const S = selectionColours(C);
   if (style === 'colour') { drawOnly(ctx, S); return; }
   // glow: the selection's shapes, blurred into a halo, under a crisp redraw in their own colours
@@ -95,4 +109,12 @@ export function revealBox(cv, b, margin = 40) {
     v.pan((R + cv.w) / 2 - (x0 + x1) / 2, (R + cv.h) / 2 - (y0 + y1) / 2);
   }
   cv.invalidate();
+}
+
+/** Is a #rrggbb colour light (a light canvas)? */
+function isLight(hex) {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(String(hex || ''));
+  if (!m) return false;
+  const [r, g, b] = m.slice(1).map((v) => parseInt(v, 16) / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55;
 }
