@@ -88,4 +88,18 @@ box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
 check('dblclick-dup-refused', !!document.querySelector('.field-edit') && /already used/.test(document.querySelector('.field-edit-tip').textContent));
 box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 check('esc-cancels', !document.querySelector('.field-edit') && app.history.undoStack.length === depth2 + 1);
+// a part placed where the inspector card appears is not left under it: the view pans it clear
+{
+  const sws = app.workspace('schematic'), sed = sws.editor;
+  const ir0 = sed.inspector.el.getBoundingClientRect(), cr = sws.view.canvas.getBoundingClientRect();
+  const under = sws.view.view.toWorld([ (ir0.left > cr.left ? ir0.left - cr.left : sws.view.w - 150) + 60, 90 ]);
+  const R = sed.parts.find((x) => x.name === 'Resistor');
+  sed.beginPlace(R); sed.placing.at = sed.snapG(under); const r = sed.commitPlace(); sed.endPlace();
+  const bb = window.electrocadLib.schematic.symbolBounds(app.project, r.sym);
+  const [sx0, sy0] = sws.view.view.toScreen([bb.x0, bb.y0]), [sx1, sy1] = sws.view.view.toScreen([bb.x1, bb.y1]);
+  const ir = sed.inspector.el.getBoundingClientRect();
+  const a = { x0: cr.left + sx0, y0: cr.top + sy0, x1: cr.left + sx1, y1: cr.top + sy1 };
+  const hidden = a.x0 < ir.right && a.x1 > ir.left && a.y0 < ir.bottom && a.y1 > ir.top;
+  check('placed-not-hidden', sed.inspector.el.childElementCount > 0 && !hidden, [a, { l: ir.left, t: ir.top, r: ir.right, b: ir.bottom }]);
+}
 return { fails };

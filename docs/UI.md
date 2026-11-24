@@ -209,6 +209,8 @@ Output is drawn by the editor's own drawing code through vector back ends (`prin
 
 The inspector is a floating card at the top right of the canvas, like the fork's 3D Design inspector. It stacks above the Netlist panel when both are open, and hides when nothing is selected.
 
+It never hides what you just added. When a part you place, or something you paste or duplicate, would land under the inspector or another open card, the view pans the least distance that clears it, keeping it on screen.
+
 - **One part selected:**
   - the title shows the Reference designator and the Part name;
   - **Reference** must be unique, with no spaces; a clash is refused with an inline message;

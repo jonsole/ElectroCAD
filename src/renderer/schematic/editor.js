@@ -13,6 +13,7 @@ import { shapeHandles, hitHandle, dragHandle, snapPoint } from '../core/handles.
 import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { snapToGrid, gridLabel, SCHEMATIC_GRIDS, setGridStep } from '../core/grid.js';
 import { watchAlt } from '../ui/grid.js';
+import { RULER } from '../view/canvas2d.js';
 import { hitDrawing, drawingDefaults, paperRect, titleBlockLayout, PAPER_SIZES, TITLE_FIELDS, LINE_STYLES } from '../core/drawings.js';
 import { pinPositions, nextRef, partOf } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
@@ -817,7 +818,37 @@ export class SchematicEditor {
     }
     this.selection = new Set([res.sym.id]);
     this.refresh();
+    this.keepClearOfCards([res.sym.id]);
     return res;
+  }
+
+  /**
+   * After placing or pasting, the inspector (or another card over the canvas) must not hide what
+   * was just added: pan the view the least distance that clears it, keeping it on screen.
+   */
+  keepClearOfCards(ids) {
+    const ws = this.ws;
+    if (!ws || !ids.length) return;
+    const b = itemsBounds(this.project, this.sheet, ids);
+    if (!b) return;
+    const v = ws.view.view, pad = SCH_GRID * 2; // room for the Reference and Value around the body
+    const [ax, ay] = v.toScreen([b.x0 - pad, b.y0 - pad]), [bx, by] = v.toScreen([b.x1 + pad, b.y1 + pad]);
+    const cr = ws.view.canvas.getBoundingClientRect();
+    const item = { x0: ax, y0: ay, x1: bx, y1: by };
+    const cards = [this.inspector?.el, this.sheetsEl, this.ercEl, this.netlistEl]
+      .filter((el) => el && el.offsetParent && el.childElementCount && getComputedStyle(el).display !== 'none')
+      .map((el) => { const r = el.getBoundingClientRect(); return { x0: r.left - cr.left, y0: r.top - cr.top, x1: r.right - cr.left, y1: r.bottom - cr.top }; });
+    const hits = (a, c) => a.x0 < c.x1 && a.x1 > c.x0 && a.y0 < c.y1 && a.y1 > c.y0;
+    const over = cards.filter((c) => hits(item, c));
+    if (!over.length) return;
+    const m = 12, view = { x0: RULER, y0: RULER, x1: ws.view.w, y1: ws.view.h };
+    const moved = (dx, dy) => ({ x0: item.x0 + dx, y0: item.y0 + dy, x1: item.x1 + dx, y1: item.y1 + dy });
+    const fits = (r) => r.x0 >= view.x0 && r.y0 >= view.y0 && r.x1 <= view.x1 && r.y1 <= view.y1 && !cards.some((c) => hits(r, c));
+    const options = over.flatMap((c) => [[c.x0 - m - item.x1, 0], [c.x1 + m - item.x0, 0], [0, c.y0 - m - item.y1], [0, c.y1 + m - item.y0]])
+      .sort((p, q) => Math.hypot(...p) - Math.hypot(...q));
+    const best = options.find(([dx, dy]) => fits(moved(dx, dy))) || options[0];
+    v.pan(best[0], best[1]);
+    ws.view.invalidate();
   }
 
   /** Enter or Space on a tile: drop the Part in the middle of the view. */
@@ -828,7 +859,37 @@ export class SchematicEditor {
     const res = this.app.edit(`Place ${part.name}`, (p) => placeSymbol(p, this._S(p), part, at, { unit, component: componentId ? p.components[componentId] : undefined, footprint: this.footprintFor(part) || undefined }));
     this.selection = new Set([res.sym.id]);
     this.refresh();
+    this.keepClearOfCards([res.sym.id]);
     return res;
+  }
+
+  /**
+   * After placing or pasting, the inspector (or another card over the canvas) must not hide what
+   * was just added: pan the view the least distance that clears it, keeping it on screen.
+   */
+  keepClearOfCards(ids) {
+    const ws = this.ws;
+    if (!ws || !ids.length) return;
+    const b = itemsBounds(this.project, this.sheet, ids);
+    if (!b) return;
+    const v = ws.view.view, pad = SCH_GRID * 2; // room for the Reference and Value around the body
+    const [ax, ay] = v.toScreen([b.x0 - pad, b.y0 - pad]), [bx, by] = v.toScreen([b.x1 + pad, b.y1 + pad]);
+    const cr = ws.view.canvas.getBoundingClientRect();
+    const item = { x0: ax, y0: ay, x1: bx, y1: by };
+    const cards = [this.inspector?.el, this.sheetsEl, this.ercEl, this.netlistEl]
+      .filter((el) => el && el.offsetParent && el.childElementCount && getComputedStyle(el).display !== 'none')
+      .map((el) => { const r = el.getBoundingClientRect(); return { x0: r.left - cr.left, y0: r.top - cr.top, x1: r.right - cr.left, y1: r.bottom - cr.top }; });
+    const hits = (a, c) => a.x0 < c.x1 && a.x1 > c.x0 && a.y0 < c.y1 && a.y1 > c.y0;
+    const over = cards.filter((c) => hits(item, c));
+    if (!over.length) return;
+    const m = 12, view = { x0: RULER, y0: RULER, x1: ws.view.w, y1: ws.view.h };
+    const moved = (dx, dy) => ({ x0: item.x0 + dx, y0: item.y0 + dy, x1: item.x1 + dx, y1: item.y1 + dy });
+    const fits = (r) => r.x0 >= view.x0 && r.y0 >= view.y0 && r.x1 <= view.x1 && r.y1 <= view.y1 && !cards.some((c) => hits(r, c));
+    const options = over.flatMap((c) => [[c.x0 - m - item.x1, 0], [c.x1 + m - item.x0, 0], [0, c.y0 - m - item.y1], [0, c.y1 + m - item.y0]])
+      .sort((p, q) => Math.hypot(...p) - Math.hypot(...q));
+    const best = options.find(([dx, dy]) => fits(moved(dx, dy))) || options[0];
+    v.pan(best[0], best[1]);
+    ws.view.invalidate();
   }
 
   /** "U1B", or "U2A" for a new Component (the next free Reference designator): what the next click places. */
@@ -1563,6 +1624,7 @@ export class SchematicEditor {
     const ids = this.app.edit('Paste', (p) => pasteClip(p, this._S(p), clip, delta));
     this.selection = new Set(ids);
     this.refresh();
+    this.keepClearOfCards(ids);
   }
 
   duplicate() {
