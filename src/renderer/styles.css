@@ -447,7 +447,7 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .picker-filter .select { flex: 1; min-width: 0; }
 .picker-view { height: 34px; min-width: 34px; padding: 0; flex: none; }
 .picker-grid.view-small, .picker-grid.view-list, .picker-grid.view-details { align-content: start; }
-.picker-grid.view-small { grid-template-columns: 1fr 1fr; gap: 4px; }
+.picker-grid.view-small { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px; }
 .picker-grid.view-list, .picker-grid.view-details { grid-template-columns: 1fr; gap: 1px; }
 .view-small .part-tile, .view-list .part-tile { flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; padding: 3px 8px 3px 3px; }
 .view-small .part-tile img { width: 36px; height: 36px; margin: 0; flex: none; }
@@ -650,7 +650,9 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .parts-card { display: flex; flex-direction: column; min-height: 0; }
 .float-stack-parts .parts-card { height: min(640px, calc(100vh - 260px)); flex: 0 0 auto; }
 .parts-card .parts-body { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
-.parts-card .shape-grid { flex: 1; min-height: 80px; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); }
+.parts-card .shape-grid { flex: 1; min-height: 80px; }
+/* large icons fill the card's width; the Small icons, List and Details views keep their own columns */
+.parts-card .shape-grid:not(.view-small):not(.view-list):not(.view-details) { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); }
 .parts-card .fp-head b { flex: 1; }
 .parts-card .fp-head .icon { color: var(--accent); }
 
