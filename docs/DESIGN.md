@@ -197,7 +197,7 @@ Converters live in `io/kicad/*` and `io/eagle/*`, and each one returns `{ projec
 | M5 | Fab output | Gerber/Excellon/BOM/PnP plus the Gerber viewer; golden-file tests — **first orderable board** |
 | M6 | Push-and-shove | Shove mode (default) for Tracks and Vias, drag existing Tracks, spring-back |
 | M7 | Interchange | KiCad (read 6+, write 9) and Eagle XML import/export of libraries, then schematics and boards, with loss reports |
-| M8 | Polish | 3D preview (three.js, a 2D | 3D switch on the Board toolbar), Back annotation, "Update from Library" diff, Electron packaging like DabbleCAD |
+| M8 | Polish | 3D preview (three.js, a 2D \| 3D switch on the Board toolbar), Back annotation, "Update from Library" diff, Electron packaging like DabbleCAD |
 
 ## 12. Open questions
 
