@@ -235,6 +235,38 @@ The Part picker draws each part on the Schematic colour theme's paper colour, so
 - **Right-click menu** (as in DabbleCAD): a right-click that doesn't pan opens Copy, Paste, Duplicate, Delete, Rotate, Mirror and Re-apply style for what's under the cursor, or Paste, Select all and Fit on empty canvas. Right-drag still pans.
 - **Crowded spots:** a field that can't find a free spot gets a small amber triangle, a note in the hint bar, and an ERC warning ("R7 fields overlap C3").
 
+## Board: layer stack and Outline
+
+The Board tab (#15) edits the board's layer stack and its Outline. Footprints, Tracks and Zones come with their tickets.
+
+- **LAYERS section.**
+  - At the top: a **2 layers | 4 layers** segmented control and a board-thickness select (0.8–2.0 mm).
+  - Going back to 2 layers is refused, with a toast, while Tracks or Zones are on In1.Cu or In2.Cu.
+  - One row per layer, using KiCad names: copper (F.Cu, In1.Cu, In2.Cu, B.Cu), then silk, mask, paste, courtyard and fab for each side, then Edge.Cuts.
+  - Each row has a coloured chip, the layer's name, and an eye button that shows or hides the layer.
+  - Click a row to make that layer the **active layer**. The active layer is always shown.
+  - **Show all** and **Only active** set every layer's visibility at once.
+  - Layer colours come from the Board colour theme (Settings → Colours).
+  - Visibility is remembered per browser.
+- **Bottom chips:** the copper layers and Edge; click one to make it the active layer.
+- **Outline tools** (on the palette, below the routing tools). Picking one makes Edge.Cuts the active layer. Everything snaps to the 0.5 mm grid.
+  - **O, Outline rectangle:** click two corners. **Corner radius** in PROPERTIES rounds the corners of new rectangles; a rounded rectangle is stored as four lines and four arcs.
+  - **P, Outline polygon:** click each corner. **A** makes the next side an arc: click a point it passes through, then where it ends. **Backspace** removes the last corner. Clicking the first corner closes the polygon; a ring marks it under the cursor.
+  - **C, Circle:** click the centre, then the edge. Use it for a round board or a mounting hole.
+  - The shape follows the cursor as a dashed preview. **Esc** cancels it, and a second Esc returns to Select.
+- **M, Measure:** click two points. A label shows the distance and dx/dy in mm.
+- **Select (V):**
+  - Click an outline shape to select it; Shift-click adds to the selection.
+  - Drag to move the selection, or nudge it 0.5 mm with the arrow keys.
+  - **Del** deletes it.
+  - PROPERTIES shows the selected shape: width and height for a rectangle, diameter for a circle, end points for a line or arc.
+- **Outline state** is always shown at the bottom of PROPERTIES:
+  - when closed: "Outline closed · 50 × 40 mm · 1 cut-out";
+  - when not: a red note saying where it is open. Each loose end gets a red ring on the canvas.
+  - A loop inside another loop is a **cut-out**, and the board is shaded inside its loops, leaving cut-outs clear.
+- **Home** fits the board once there is an Outline.
+- Each tab keeps its own pan and zoom.
+
 ## Workspaces
 
 There are four workspace tabs: **Schematic · Board · Gerber · Library**. Each keeps its own pan/zoom and selection when you switch away and back.

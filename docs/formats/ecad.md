@@ -46,7 +46,7 @@ A Project is one JSON file, the Native format ([ADR-0004](../adr/0004-native-for
 | `components` | `{ [componentId]: Component }` | The Components: one per Reference designator. |
 | `footprints` | `{ [fpKey]: { library, footprint } }` | Footprints Components use that are not one of their Part's Preferred footprints, each stored once (`library/name`, with `~2`… if two differ). Unused ones are removed. |
 | `schematic` | `{ sheets: [Sheet] }` | At least one Sheet, in display order. |
-| `board` | Board | The PCB. Only the layer stack and rules are written today. |
+| `board` | Board | The PCB: the layer stack, the Outline and rules today. |
 | `fieldStyles` | `{ default, styles }` | `default` is a key in `styles`; `styles` holds every Field style the Project uses ([ADR-0012](../adr/0012-fields-are-placed-automatically-by-field-styles.md)). |
 | `titleBlock` | `{ title, company, author, revision, date, comment }` | The title block on every Sheet (#59); an empty title shows the Project name. Sheet name and number are filled in per Sheet. |
 
@@ -159,14 +159,14 @@ How Nets are built from these (not stored): see [DESIGN.md §4](../DESIGN.md#4-c
 
 ## Board
 
-The shapes are fixed by [ADR-0015](../adr/0015-board-objects-in-the-native-format.md). Only `stack`, `preset` and `rules` have content today; the lists fill in as the Board tickets land.
+The shapes are fixed by [ADR-0015](../adr/0015-board-objects-in-the-native-format.md). `stack`, `preset`, `outline` and `rules` have content today; the lists fill in as the Board tickets land.
 
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `stack` | `{ copper: 2 \| 4, thickness }` | Layer stack. Copper layers: `F.Cu`, `B.Cu`, plus `In1.Cu`, `In2.Cu` for 4 layers. |
 | `preset` | string | Fab preset id (`generic` today; #24). |
 | `rules` | `{ clearance, trackWidth, viaDrill, viaDiameter, minHole, annularRing, edgeClearance }` | Design rules, all nm. |
-| `outline` | `[Shape]` | Edge.Cuts: lines and arcs forming closed loops (#15). |
+| `outline` | `[Shape]` | Edge.Cuts (#15): `rect` and `circle` shapes, and `line` (two points) and `arc` (start, mid, end) segments that must form closed loops. Segment ends must meet **exactly**, to the nanometre. A rounded rectangle or a polygon is stored as lines and arcs. A loop inside another loop's extents is a cut-out. Layer visibility and the active layer are per-browser settings and are not saved here. |
 | `footprints` | `[{ id, componentId, at, rot, side, locked }]` | Where each Component sits (#17). `rot` is any angle (degrees, [0, 360), to 0.01°); `side` is `F` or `B`. Pads and graphics come from the Component's footprint, not copied. |
 | `tracks` | `[{ id, a, b, width, layer, net }]` | Straight copper segments (#20). `layer` a copper layer, `net` a Net name. |
 | `vias` | `[{ id, at, drill, diameter, from, to, net }]` | v1 has through vias only: `from: "F.Cu"`, `to: "B.Cu"` (#21). |

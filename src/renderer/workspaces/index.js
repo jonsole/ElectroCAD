@@ -4,17 +4,11 @@
 import { h, button, icon } from '../ui/dom.js';
 import { Workspace, later, sep, spacer, section, segmented, toolButton } from './workspace.js';
 import { SCH_GRID, mm } from '../core/units.js';
-import { copperLayers } from '../core/project.js';
+import { BoardEditor, BOARD_GRID } from '../board/editor.js';
 import { SchematicEditor } from '../schematic/editor.js';
 import { LibraryEditor } from '../libedit/editor.js';
 import { openPrintDialog } from '../print/dialog.js';
 
-
-const editTools = () => [ // Board, Gerber and Library editing arrives with their tickets
-  later({ icon: 'undo', title: 'Undo (Ctrl+Z)' }, 4), later({ icon: 'redo', title: 'Redo (Ctrl+Shift+Z)' }, 4), sep(),
-  later({ icon: 'copy', title: 'Copy (Ctrl+C)' }, 8), later({ icon: 'paste', title: 'Paste (Ctrl+V)' }, 8),
-  later({ icon: 'duplicate', title: 'Duplicate (Ctrl+D)' }, 8), later({ icon: 'trash', title: 'Delete (Del)' }, 8),
-];
 
 function schematic(app) {
   const editor = new SchematicEditor(app);
@@ -40,38 +34,28 @@ function schematic(app) {
 }
 
 function board(app) {
-  const layers = () => [...copperLayers(app.project.board.stack.copper), 'F.SilkS', 'B.SilkS', 'Edge.Cuts'];
-  const layerColor = (name) => app.canvasColors('board')[name] || '#888';
-  const layerRow = (name, i) => h('div', { class: 'll-row' + (i === 0 ? ' on' : ''), title: name },
-    h('span', { class: 'll-chip', style: { background: layerColor(name) } }, name === 'Edge.Cuts' ? 'Edge' : name.replace('.Cu', '').replace('.SilkS', ' silk')),
-    h('span', { class: 'll-name' }, name),
-    h('input', { type: 'checkbox', checked: true, title: 'Visible', 'aria-label': `${name} visible` }));
-  const layerList = h('div', { class: 'layer-list' });
-  const side = h('div', { class: 'side-panel' },
-    section('Layers', layerList),
-    section('Properties', h('p', { class: 'side-note' }, 'Nothing selected.')),
-    section('Net classes', h('p', { class: 'side-note' }, 'Default · track 0.25 mm · clearance 0.2 mm')),
-    section('DRC', h('p', { class: 'side-note' }, 'Not run yet.')));
-  return new Workspace({
+  const editor = new BoardEditor(app);
+  const ws = new Workspace({
     colors: () => app.canvasColors('board'),
-    onRefresh: () => layerList.replaceChildren(...layers().map(layerRow)),
-    id: 'board', label: 'Board', icon: 'board', title: 'Board: place Footprints, route Tracks and pour Zones',
-    grid: mm(0.5), home: { x0: -10e6, y0: -10e6, x1: 110e6, y1: 90e6 },
-    toolbar: [...editTools(), sep(),
+    draw: (ctx, view, C) => editor.draw(ctx, view, C),
+    onRefresh: () => editor.refresh(),
+    id: 'board', label: 'Board', icon: 'board', title: 'Board: draw the Outline, place Footprints, route Tracks and pour Zones',
+    grid: BOARD_GRID, home: { x0: -10e6, y0: -10e6, x1: 110e6, y1: 90e6 },
+    toolbar: [...editor.toolbar(), sep(),
       later({ label: 'Annotate', icon: 'annotate', title: 'Forward annotation: bring Schematic changes onto the Board' }, 16),
       later({ label: 'DRC', icon: 'erc', title: 'Design rule check' }, 25), spacer(),
       h('div', { class: 'mode-group', title: 'Routing mode' },
         later({ label: 'Shove', title: 'Shove routing mode' }, 29), later({ label: 'Walkaround', title: 'Walkaround routing mode' }, 22), later({ label: 'Free', title: 'Free routing mode' }, 20)),
       sep(), segmented([['2d', '2D', 'twoD', '2D board view'], ['3d', '3D', 'cube', '3D board preview', 40]], '2d')],
-    hint: 'No board yet. Draw an Outline, then use Annotate to bring Components over from the Schematic.',
-    tools: [toolButton('select', 'Select (V)', { active: true }), toolButton('route', 'Route (X)', { ticket: 20 }),
-      toolButton('dragTrack', 'Drag track (D)', { ticket: 31 }), toolButton('via', 'Via', { ticket: 21 }),
-      toolButton('zone', 'Zone', { ticket: 23 }), toolButton('outline', 'Outline', { ticket: 15 }), null,
-      toolButton('ltext', 'Text', { ticket: 15 }), toolButton('ruler', 'Measure', { ticket: 15 })],
-    side,
-    chips: () => copperLayers(app.project.board.stack.copper).map((name, i) => h('button', { class: 'chip' + (i === 0 ? ' on' : ''), type: 'button', title: `${name} (active layer)`, style: { background: layerColor(name) } }, name.replace('.Cu', ''))),
-    status: () => `${app.project.board.stack.copper}-layer · ${app.project.board.footprints.length} footprints · grid 0.5 mm`,
+    hint: '',
+    tools: editor.tools(later),
+    side: editor.buildSide(),
+    chips: () => editor.chips(),
+    status: () => editor.status(),
   });
+  ws.editor = editor;
+  editor.attach(ws);
+  return ws;
 }
 
 function gerber(app) {
