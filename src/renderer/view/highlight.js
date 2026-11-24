@@ -58,9 +58,8 @@ export function highlight(ctx, C, style, drawOnly, boxes = []) {
     return;
   }
   if (style === 'brighten') {
-    // the selection redrawn in its own colours made vivid: brighter on a dark canvas; on a light
-    // one more saturated and a little deeper, greys taking the selection colour's hue
-    const B = vividColours(C, isLight(C.background));
+    // the selection redrawn in its own colours, more saturated and lighter (as Eagle does)
+    const B = vividColours(C);
     const [img, x] = layer(ctx);
     drawOnly(x, { ...B, symbolFill: 'rgba(0,0,0,0)' }); // lines and text only: bodies keep their fill
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -112,13 +111,6 @@ export function revealBox(cv, b, margin = 40) {
   cv.invalidate();
 }
 
-/** Is a #rrggbb colour light (a light canvas)? */
-function isLight(hex) {
-  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(String(hex || ''));
-  if (!m) return false;
-  const [r, g, b] = m.slice(1).map((v) => parseInt(v, 16) / 255);
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55;
-}
 
 // ---------------------------------------------------------------- colour maths for Brighten
 
@@ -140,21 +132,20 @@ function toHsl([r, g, b]) {
 }
 const hsl = (h, s, l) => `hsl(${Math.round(h)}, ${Math.round(s * 100)}%, ${Math.round(l * 100)}%)`;
 
-/** Every colour of the theme made vivid for Brighten (backgrounds and fills kept). */
-export function vividColours(C, light) {
-  const sel = parse(C.selection || '#29c5ff');
-  const selHue = sel ? toHsl(sel)[0] : 200;
+/**
+ * Every colour of the theme made brighter for Brighten, the same on dark and light canvases (as
+ * Eagle does): more saturated and lighter. Greys can't be saturated, so they only get lighter.
+ * Backgrounds and fills are kept.
+ */
+export function vividColours(C) {
   const out = {};
   for (const [k, v] of Object.entries(C)) {
     const rgb = typeof v === 'string' && !KEEP.has(k) ? parse(v) : null;
     if (!rgb) { out[k] = v; continue; }
     let [h, s, l] = toHsl(rgb);
-    const grey = (Math.max(...rgb) - Math.min(...rgb)) / 255 < 0.16; // little colour, however 'saturated' a pale tint reads
-    if (light) {
-      if (grey) { h = selHue; s = 0.9; l = 0.4; } // a grey or black line: a strong tint of the selection hue
-      else { s = Math.max(s, Math.min(1, s * 1.6 + 0.3)); l = Math.min(Math.max(l, 0.3), 0.42); }
-    } else if (grey) l = l + (1 - l) * 0.6; // greys go towards white
-    else { s = Math.min(1, s * 1.4 + 0.2); l = Math.min(0.66, l + 0.14); } // colours go vivid, not pastel
+    const grey = (Math.max(...rgb) - Math.min(...rgb)) / 255 < 0.16;
+    if (!grey) s = Math.min(1, s * 1.35 + 0.2);
+    l = l + (1 - l) * (grey ? 0.55 : 0.4);
     out[k] = hsl(h, s, l);
   }
   return out;
