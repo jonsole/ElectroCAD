@@ -81,6 +81,18 @@ _Avoid_: Instance, element, part (when you mean the placed one)
 The unique, human-facing name of a Component, such as R1, U3 or J2.
 _Avoid_: Refdes (fine in code), name, label
 
+**Field**:
+A piece of text a placed Symbol shows about its Component: the Reference designator, the Value, the Footprint or the MPN.
+_Avoid_: Label (that word means Net label), attribute, text
+
+**Field style**:
+A named set of rules for how a Component's fields look and where they go: the preferred positions in order for horizontal and vertical Symbols, which fields show, the text size and spacing, and the Value format. A Project has a default Field style, and a Component may use another.
+_Avoid_: Label style, text template, attribute layout
+
+**Pinned field**:
+A field the user has moved by hand. It keeps its position relative to its Symbol and is skipped by automatic placement until the style is re-applied.
+_Avoid_: Locked label, fixed text
+
 **Value**:
 The free-text electrical value of a Component, such as 10k or 100nF.
 

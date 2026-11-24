@@ -136,6 +136,25 @@ The Ratsnest is recomputed incrementally, as a minimum spanning tree per Net ove
 
 **Cross-probing** (M3): selecting a Component or Net in one editor highlights it in the other. If the other editor is visible in a split view, it scrolls to show the selection.
 
+**Fields and Field styles** ([ADR-0012](adr/0012-fields-are-placed-automatically-by-field-styles.md)):
+- **Data model:** `Project.fieldStyles = { default: styleId, styles: { [id]: FieldStyle } }`, plus an optional `Component.fieldStyle` override. A pinned field is stored on its Symbol as `sym.fields[key] = { at: [dx, dy], pinned: true }`; fields without an entry are placed automatically.
+- **FieldStyle:**
+  - `placement`: separate ordered candidate lists for horizontal and vertical Symbols. Each candidate is `above | below | right | left | inside` plus an arrangement (`reference-over-value` or `one-line`).
+  - `show`: which fields to draw (reference, value, footprint, mpn), with `hideValueIfPartName`.
+  - `text`: `{ size, bold, italic, gap }`.
+  - `valueFormat`: `as-typed`, `rkm` (4k7, 2R2, 100n) or `si` (4.7k, 100nF).
+- **Placement:** `core/fields.js` is DOM-free and unit-tested.
+  - For each unpinned field it measures text with a pluggable text-width function and tries the candidates in order. It scores each by its overlap with occupied boxes: other fields (already placed or pinned), Symbol bodies, Pins, and Wire segments inflated by half a grid.
+  - Placement is greedy and in a stable order (by Reference designator), so it is deterministic.
+  - It runs incrementally for Symbols near an edit, and fully on load.
+  - When no candidate is free, the field takes the least-overlapping one and is flagged, which shows an amber marker and a "Field overlaps" warning in the ERC panel.
+- **Value parsing:** `core/values.js` parses engineering values (`4k7`, `4.7k`, `4700`, `100n`, `0.1u`, `2R2`). It is used for display formatting and BOM grouping; the stored Value is never rewritten.
+- **Built-in styles:**
+  - **Classic:** KiCad-like. Horizontal: reference above, value below. Vertical: both stacked to the right. Values as typed.
+  - **Compact:** smaller text, "R1 10k" on one line beside the body, and the value hidden when it equals the Part name.
+  - **Stacked right:** reference over value to the right, at any rotation.
+  - **RKM values:** Classic placement with RKM values.
+
 **Colour themes:** the Schematic and Board renderers never hard-code colours. They read named colour tokens from the active **Colour theme** for their kind (`core/themes.js`: built-ins, validation, and import/export as JSON; custom themes live in settings). See `docs/UI.md`, "Canvas colours and colour themes".
 
 ## 6. Layer stack (2 or 4 layers)

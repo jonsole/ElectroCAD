@@ -75,6 +75,17 @@ The Schematic's right-hand panel works like the fork's **3D Design shape panel**
 - **Footprint row** (above the footer): selecting or hovering a tile shows the Part's Preferred footprints as chips, such as `0402 · 0603 · 0805 · 1206 · THT`, with a small pad preview on hover. The chosen chip applies to the next drop and is remembered per Part. The default is the one used last for that Part, otherwise the Part's first Preferred footprint. "Other…" opens a footprint search that can choose any Footprint, which then uses the identity Pin map.
 - **Footer** (`.side-foot`): **Import** (KiCad/Eagle libraries) and **New part** (opens the Library tab with an empty Part).
 
+## Field styles
+
+- **Where styles are chosen:**
+  - **Picker footer:** a **Field style** select sets the Project default. New Components use it, and so do existing Components that have no style of their own.
+  - **Inspector:** selecting Components and picking a style there applies it to just those Components. "Project default" clears the override.
+- **Managing styles:** Settings → Field styles has the same duplicate, edit, import and export flow as Colour themes.
+  - The editor has a placement list you can reorder for horizontal and for vertical Symbols, checkboxes for which fields show, text size, bold, italic and gap, and the Value format.
+  - A live preview shows a few parts in a crowded group.
+- **Placing fields:** they move automatically as you work. Dragging a field pins it, shown with a small pin glyph while it is selected. **Re-apply style** (in the toolbar and the context menu) unpins the selected Components' fields.
+- **Crowded spots:** a field that can't find a free spot gets a small amber triangle and an ERC-panel warning, "R7 Value overlaps C3".
+
 ## Workspaces
 
 There are four workspace tabs: **Schematic · Board · Gerber · Library**. Each keeps its own pan/zoom and selection when you switch away and back.
