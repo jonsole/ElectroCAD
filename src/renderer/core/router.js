@@ -36,10 +36,68 @@ export function cornerPath(a, b, corner = '45', posture = 'a') {
   return [elbow, b];
 }
 
-/** Start routing from a point (a pad's centre) on a layer, for a Net: width from its Net class. */
-export function startRoute(project, at, layer, net, { corner = '45', posture = 'a', chamfer = 0, pair = null } = {}) {
+/**
+ * How far a pad reaches from its centre along an axis direction `dir` ([±1, 0] or [0, ±1]): half
+ * its size across that way. Null for a pad turned off the 90° steps (no square way out of it).
+ */
+export function padReach(pad, dir) {
+  if (!pad?.size) return null;
+  const rot = (((pad.rot || 0) % 360) + 360) % 360;
+  if (Math.abs(rot - Math.round(rot / 90) * 90) > 0.01) return null;
+  const [w, h] = Math.round(rot / 90) % 2 ? [pad.size[1], pad.size[0]] : pad.size;
+  return dir[0] ? w / 2 : h / 2;
+}
+
+const unit = (v) => [Math.sign(v[0]), Math.sign(v[1])];
+const major = (d) => (Math.abs(d[0]) >= Math.abs(d[1]) ? [Math.sign(d[0]), 0] : [0, Math.sign(d[1])]);
+const minor = (d) => (Math.abs(d[0]) >= Math.abs(d[1]) ? [0, Math.sign(d[1])] : [Math.sign(d[0]), 0]);
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1];
+const along = (p, dir, n) => [Math.round(p[0] + dir[0] * n), Math.round(p[1] + dir[1] * n)];
+
+/** Drop repeated points and the points in the middle of straight runs. */
+function straighten(pts) {
+  const out = [];
+  for (const p of pts) {
+    const q = out[out.length - 1];
+    if (q && q[0] === p[0] && q[1] === p[1]) continue;
+    if (out.length >= 2) {
+      const a = out[out.length - 2];
+      const u = unit([q[0] - a[0], q[1] - a[1]]), v = unit([p[0] - q[0], p[1] - q[1]]);
+      if ((q[0] - a[0]) * (p[1] - q[1]) === (q[1] - a[1]) * (p[0] - q[0]) && u[0] === v[0] && u[1] === v[1]) { out[out.length - 1] = p; continue; }
+    }
+    out.push(p);
+  }
+  return out;
+}
+
+/**
+ * The corner points from `a` to `b` (not including a), as cornerPath, but leaving the pad `from`
+ * (at a) and entering the pad `to` (at b) square to the pad, never at 45°: the run at a pad goes
+ * straight along one of its axes past its edge (by `stand`, a track width, so the copper meets the
+ * pad square) before it bends. Posture 'a' leaves along the way's major axis, 'b' along its minor
+ * one. 90° and any-angle routing are left as they are.
+ */
+export function routePath(a, b, corner = '45', posture = 'a', from = null, to = null, stand = 0) {
+  if (corner !== '45' || (!from && !to) || (a[0] === b[0] && a[1] === b[1])) return cornerPath(a, b, corner, posture);
+  let s = a, t = b;
+  if (from) {
+    const d = [b[0] - a[0], b[1] - a[1]];
+    const dir = posture === 'b' && (minor(d)[0] || minor(d)[1]) ? minor(d) : major(d);
+    const r = padReach(from, dir);
+    if (r != null) s = along(a, dir, r + stand);
+  }
+  if (to) {
+    const dir = major([b[0] - s[0], b[1] - s[1]]);
+    const r0 = padReach(to, [-dir[0], -dir[1]]), r = r0 == null ? null : r0 + stand;
+    if (r != null && dot([b[0] - s[0], b[1] - s[1]], dir) > r) t = along(b, dir, -r);
+  }
+  return straighten([a, s, ...cornerPath(s, t, '45', s === a ? posture : 'a'), b]).slice(1);
+}
+
+/** Start routing from a pad's centre (or a point) on a layer, for a Net: width from its Net class. */
+export function startRoute(project, at, layer, net, { corner = '45', posture = 'a', chamfer = 0, pair = null, pad = null } = {}) {
   const r = netRules(project.board, net);
-  return { net, layer, width: r.trackWidth, points: [at], corner, posture, chamfer, runs: [], vias: [], pair: pair || defaultPair(project.board, layer), via: { drill: r.viaDrill, diameter: r.viaDiameter } };
+  return { net, layer, width: r.trackWidth, points: [at], from: pad ? { size: pad.size, rot: pad.rot || 0 } : null, corner, posture, chamfer, runs: [], vias: [], pair: pair || defaultPair(project.board, layer), via: { drill: r.viaDrill, diameter: r.viaDiameter } };
 }
 
 /** The layer pairs a via can join while routing (through vias: any two copper layers). */
@@ -108,27 +166,32 @@ function obstaclesFor(project, state, index, margin = 0) {
  * style's path in Free mode; in Walkaround mode a clear path round other Nets' copper, which
  * stops short (`blocked`) when there is no way round.
  */
-export function tentative(project, state, cursor, mode = 'free', index = null) {
+export function tentative(project, state, cursor, mode = 'free', index = null, to = null) {
   const last = state.points[state.points.length - 1];
-  const finish = (p) => cornerPath(p, cursor, state.corner, state.posture);
+  const from = state.points.length === 1 && !state.runs?.length ? state.from : null; // still at the start pad
+  const finish = (p) => routePath(p, cursor, state.corner, state.posture, p === last ? from : null, to, state.width);
   if (mode !== 'walkaround' || !index) return { tail: finish(last), blocked: false };
+  const exit = from && state.corner === '45' ? (dir) => { const r = padReach(from, dir); return r == null ? null : r + state.width; } : null;
   let obs = obstaclesFor(project, state, index);
-  let w = walkPath(obs, last, cursor, { corner: state.corner, finish });
+  let w = walkPath(obs, last, cursor, { corner: state.corner, finish, exit });
   if (state.chamfer > 0) {
     // a chamfer cuts the inside of a bend, towards what the path hugs: widen the berth and look again
     const pts = chamferPath([...state.points, ...w.path.slice(1)], state.chamfer);
     const from = Math.max(0, chamferPath(state.points, state.chamfer).length - 2);
     if (!obs.pathClear(pts.slice(from))) {
       obs = obstaclesFor(project, state, index, Math.ceil(state.chamfer * Math.SQRT1_2));
-      w = walkPath(obs, last, cursor, { corner: state.corner, finish });
+      w = walkPath(obs, last, cursor, { corner: state.corner, finish, exit });
     }
   }
   return { tail: w.path.slice(1), blocked: w.blocked };
 }
 
-/** The proposed copper for the cursor: the fixed segments, then the tentative ones to the cursor. */
-export function step(project, state, cursor, mode = 'free', index = null) {
-  const { tail, blocked } = tentative(project, state, cursor, mode, index);
+/**
+ * The proposed copper for the cursor: the fixed segments, then the tentative ones to the cursor.
+ * `to` is the pad under the cursor the track would finish on (entered square, not at 45°).
+ */
+export function step(project, state, cursor, mode = 'free', index = null, to = null) {
+  const { tail, blocked } = tentative(project, state, cursor, mode, index, to);
   const pts = chamferPath([...state.points, ...tail], state.chamfer);
   const nFixed = chamferPath(state.points, state.chamfer).length;
   const segments = [];
@@ -159,7 +222,7 @@ export function click(project, state, point, tail = null) {
   const last = state.points[state.points.length - 1];
   if (tail) return tail.length ? { ...state, points: [...state.points, ...tail] } : state;
   if (last[0] === point[0] && last[1] === point[1]) return state;
-  return { ...state, points: [...state.points, ...cornerPath(last, point, state.corner, state.posture)] };
+  return { ...state, points: [...state.points, ...tentative(project, state, point).tail] };
 }
 
 /** Take back the last fixed segment (the start stays); at a via, take the via back and return to the layer before. */

@@ -168,8 +168,10 @@ export function clearPrefix(obs, path) {
  *  - corner: '90' | '45' | 'any' (any-angle finishes with a straight segment from the last corner)
  *  - finish(from): the corner points from `from` to b the editor would draw (its posture), or null
  *  - step: lattice pitch, nm
+ *  - exit(dir): how far the first run must go straight along an axis direction (out of the start
+ *    pad, so it isn't left at 45°), or null for no such rule
  */
-export function walkPath(obs, a, b, { corner = '45', finish, step: pitch } = {}) {
+export function walkPath(obs, a, b, { corner = '45', finish, step: pitch, exit = null } = {}) {
   const fin = finish || ((p) => [b]);
   const tryFinish = (p) => { const tail = fin(p); return tail && obs.pathClear([p, ...tail]) ? tail : null; };
   // the straight way first
@@ -190,10 +192,21 @@ export function walkPath(obs, a, b, { corner = '45', finish, step: pitch } = {})
   const best = new Map();
   const heap = new Heap();
   const start = { x: 0, y: 0, d: -1, cost: 0, prev: null };
-  heap.push(H(0, 0), start);
-  best.set(key(0, 0, -1), 0);
-  let n = 0;
   const pt = (x, y) => [a[0] + x * g, a[1] + y * g];
+  const exits = exit ? dirs.map(([dx, dy], d) => ((dx && dy) ? null : { d, dx, dy, r: exit([dx, dy]) })).filter((e) => e && e.r != null) : [];
+  if (exits.length) {
+    // out of the start pad square: straight along an axis to its edge (on the lattice), then free
+    for (const e of exits) {
+      const k = Math.max(1, Math.ceil(e.r / g)), x = e.dx * k, y = e.dy * k;
+      if (!obs.clear(a, pt(x, y))) continue;
+      best.set(key(x, y, e.d), k * g);
+      heap.push(k * g + H(x, y), { x, y, d: e.d, cost: k * g, prev: start });
+    }
+  } else {
+    heap.push(H(0, 0), start);
+    best.set(key(0, 0, -1), 0);
+  }
+  let n = 0;
   const edgeOk = new Map();
   while (heap.size && n < MAX_NODES) {
     const node = heap.pop();

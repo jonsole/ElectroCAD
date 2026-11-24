@@ -777,7 +777,7 @@ export class BoardEditor {
       if (!hit.pad.net) { toast('That pad has no net yet: Update from Schematic (F8) first.', 'info', 2600); return; }
       const pairs = layerPairs(this.board.stack.copper);
       const pair = this.pair && pairs.some((q) => q.join('|') === this.pair.join('|')) ? this.pair : null;
-      this.route = startRoute(this.project, hit.pad.at, this.activeLayer, hit.pad.net, { corner: this.corner, chamfer: this.chamfer, pair });
+      this.route = startRoute(this.project, hit.pad.at, this.activeLayer, hit.pad.net, { corner: this.corner, chamfer: this.chamfer, pair, pad: hit.pad });
       this.routeIndex = copperIndex(this.project);
       this._routeMove();
       this.refresh();
@@ -799,7 +799,14 @@ export class BoardEditor {
 
   /** What the router proposes from the last fixed corner to `p` in the current mode. */
   _proposal(p) {
-    return routeStep(this.project, this.route, p, this.routeMode, this.routeIndex);
+    return routeStep(this.project, this.route, p, this.routeMode, this.routeIndex, this._targetPad(p));
+  }
+
+  /** A pad of the routed Net centred on `p` on the routing layer: the track goes into it square. */
+  _targetPad(p) {
+    const hit = this._padOnLayer(p);
+    if (!hit || hit.pad.net.toLowerCase() !== this.route.net.toLowerCase()) return null;
+    return hit.pad.at[0] === p[0] && hit.pad.at[1] === p[1] ? hit.pad : null;
   }
 
   /** Recompute the proposal for the pointer (live collisions with other Nets). */

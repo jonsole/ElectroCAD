@@ -104,3 +104,54 @@ test('a free cursor is the plain corner path, posture and all', () => {
   const w = walkPath(new Obstacles(p, new CopperIndex([]), 'F.Cu', 'SIG', mm(0.25)), [0, 0], [mm(3), 0]);
   assert.deepEqual(w.path, [[0, 0], [mm(3), 0]]);
 });
+
+// ---------------------------------------------------------------- square into and out of pads
+
+import { routePath, padReach } from '../src/renderer/core/router.js';
+
+const segsOf = (a, tail) => { const pts = [a, ...tail]; return pts.slice(1).map((b, i) => [pts[i], b]); };
+const square = ([a, b]) => a[0] === b[0] || a[1] === b[1];
+
+test('pad reach follows the pad size and rotation', () => {
+  const pad = { size: [mm(1.6), mm(0.9)], rot: 0 };
+  assert.equal(padReach(pad, [1, 0]), mm(0.8));
+  assert.equal(padReach(pad, [0, -1]), mm(0.45));
+  assert.equal(padReach({ ...pad, rot: 90 }, [1, 0]), mm(0.45));
+  assert.equal(padReach({ ...pad, rot: -270 }, [1, 0]), mm(0.45));
+  assert.equal(padReach({ ...pad, rot: 30 }, [1, 0]), null);
+});
+
+test('45° tracks leave and enter pads square, bending at the pad edge or beyond', () => {
+  const pad = { size: [mm(1), mm(1)], rot: 0 };
+  const a = [0, 0], b = [mm(5), mm(4)]; // nearly diagonal: the plain path would leave at 45°
+  const plain = segsOf(a, routePath(a, b, '45', 'b'));
+  assert.ok(!square(plain[0]));
+  for (const posture of ['a', 'b']) {
+    const segs = segsOf(a, routePath(a, b, '45', posture, pad, pad));
+    assert.ok(square(segs[0]), `leaves square (${posture})`);
+    assert.ok(square(segs[segs.length - 1]), `enters square (${posture})`);
+    assert.ok(Math.hypot(segs[0][1][0], segs[0][1][1]) >= mm(0.5), 'bends at the edge or beyond');
+    const [p, q] = segs[segs.length - 1];
+    assert.ok(Math.hypot(q[0] - p[0], q[1] - p[1]) >= mm(0.5));
+    for (const s of segs) { const dx = Math.abs(s[1][0] - s[0][0]), dy = Math.abs(s[1][1] - s[0][1]); assert.ok(!dx || !dy || dx === dy, 'octilinear'); }
+  }
+  // posture b leaves along the minor axis
+  assert.equal(routePath(a, b, '45', 'b', pad)[0][0], 0);
+  // a straight run stays one segment
+  assert.deepEqual(routePath(a, [mm(5), 0], '45', 'a', pad, pad), [[mm(5), 0]]);
+  // 90° and any-angle are left alone
+  assert.deepEqual(routePath(a, b, 'any', 'a', pad, pad), [b]);
+});
+
+test('walkaround leaves the start pad square too', () => {
+  const p = newProject('W');
+  const index = new CopperIndex([pad('p1', [mm(3), mm(2.5)], [mm(2), mm(2)])]);
+  const st = { ...startRoute(p, [0, 0], 'F.Cu', 'SIG', { pad: { size: [mm(1.2), mm(1.2)], rot: 0 } }) };
+  const v = step(p, st, [mm(6), mm(5)], 'walkaround', index, { size: [mm(1.2), mm(1.2)], rot: 0 });
+  assertLegal(p, index, v, 'SIG');
+  assert.deepEqual(v.end, [mm(6), mm(5)]);
+  const segs = v.segments;
+  assert.ok(step(p, st, [mm(6), mm(5)], 'free', index).collisions.length, 'the straight way is blocked');
+  assert.ok(square([segs[0].a, segs[0].b]), 'leaves square');
+  assert.ok(square([segs[segs.length - 1].a, segs[segs.length - 1].b]), 'enters square');
+});

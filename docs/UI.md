@@ -417,6 +417,10 @@ Selecting something in one editor highlights the same thing in the other (#18). 
 - **Start:** click a pad on the active copper layer. A through-hole pad is on every layer; pick the layer in Layers or with the bottom chips.
 - **Width and net:** the track takes the pad's Net and its Net class's width (or the default rule).
 - **Placing corners:** click to fix corners. Points snap to the grid, pad centres and handles.
+- **Square at pads:** with 45° corners a track never leaves or enters a pad at 45°. Its first run out of the start pad, and its last run into a pad of its Net under the pointer, go straight along the pad's axes. The bend sits a track width beyond the pad's edge.
+  - **/** chooses which axis it leaves along (the way's major axis, or its minor one).
+  - Walkaround keeps the rule.
+  - 90° corners are square anyway; Any angle is left free.
 - **Finishing:** click a pad of the same Net. Double-click or Enter ends the track where it is.
 - **Keys while routing:** **/** flips which way the bend goes, **Backspace** takes back the last corner, **Esc** cancels.
 - **Routing options** pop up in a strip at the top of the canvas while the Route tool is active, and hide with any other tool (remembered per browser):
