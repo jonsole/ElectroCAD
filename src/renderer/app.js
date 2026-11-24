@@ -1,9 +1,12 @@
 // Application shell: top bar, workspace tabs, theme and dialogs (layout per docs/UI.md,
 // modelled on DabbleCAD's app shell).
 import { APP_NAME, LOGO_SVG } from './brand.js';
-import { h, button, modal, popupMenu, toast, confirmDialog } from './ui/dom.js';
+import { h, button, modal, popupMenu, toast } from './ui/dom.js';
 import { platform } from './platform.js';
-import { newProject, serialize, deserialize, ProjectFileError, FILE_EXTENSION } from './core/project.js';
+import { newProject, serialize, deserialize, ProjectFileError } from './core/project.js';
+import { projectMeta, importProject, duplicateProject, exportFileName } from './core/store.js';
+import { renderThumbnail } from './view/thumbnail.js';
+import { ProjectsScreen } from './ui/projects.js';
 import { buildWorkspaces } from './workspaces/index.js';
 import { later, sep, spacer } from './workspaces/workspace.js';
 
@@ -15,10 +18,16 @@ export class App {
   async init() {
     this.settings = await platform.getSettings();
     this.applyTheme(this.settings.theme);
-    this.project = newProject('Untitled');
-    this.file = { name: null, path: null, dirty: false };
+    this.project = await this._startupProject();
+    this.save = { dirty: false, saving: false, timer: null, pending: null };
     this.workspaces = buildWorkspaces(this);
     this._build();
+    this.projects = new ProjectsScreen(this);
+    this._rememberLast();
+    platform.onBeforeClose(() => this.saveNow());
+    // browser: save when the tab is hidden or closed (autosave normally got there first)
+    window.addEventListener('pagehide', () => { if (this.save.dirty) this.saveNow(); });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && this.save.dirty) this.saveNow(); });
     this.setWorkspace(this.settings.workspace && this.workspaces.some((w) => w.id === this.settings.workspace) ? this.settings.workspace : 'schematic');
     this._keys();
     document.getElementById('boot')?.remove();
@@ -26,11 +35,11 @@ export class App {
 
   _build() {
     const root = document.getElementById('app');
-    const logo = h('button', { class: 'logo', type: 'button', title: `About ${APP_NAME}` },
+    const logo = h('button', { class: 'logo', type: 'button', title: 'Your projects' },
       h('span', { class: 'logo-mark', html: LOGO_SVG }),
       h('span', { class: 'logo-name' }, APP_NAME),
       h('span', { class: 'logo-commit', title: BUILD_TITLE }, BUILD.short));
-    logo.addEventListener('click', () => this.about());
+    logo.addEventListener('click', () => this.projects.show());
 
     this.nameInput = h('input', { class: 'design-name', type: 'text', spellcheck: false, title: 'Project name', value: this.project.name });
     this.nameInput.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter' || e.key === 'Escape') this.nameInput.blur(); });
@@ -40,7 +49,7 @@ export class App {
       if (name !== this.project.name) { this.project.name = name; this.markDirty(); }
     });
     this.saveState = h('span', { class: 'save-state' });
-    this.fileBtn = button({ label: 'File', icon: 'folder', title: 'New, open and save projects', onClick: () => this.fileMenu() });
+    this.fileBtn = button({ label: 'File', icon: 'folder', title: 'New project, Your projects, open and save files', onClick: () => this.fileMenu() });
     this.themeBtn = button({ icon: this.settings.theme === 'light' ? 'moon' : 'sun', title: 'Switch between dark and light mode', onClick: () => this.toggleTheme() });
 
     const topbar = h('div', { class: 'topbar', role: 'toolbar', 'aria-label': 'Project and app tools' },
@@ -68,77 +77,180 @@ export class App {
     this._showFileState();
   }
 
-  // ---------------------------------------------------------------- project files
+  // ---------------------------------------------------------------- Project store (ADR-0011)
 
-  /** Record that the Project has changed since it was last saved. */
+  async _startupProject() {
+    const last = this.settings.lastProject;
+    if (last) {
+      try { return deserialize(await platform.store.load(last)); } catch (err) { console.warn('Could not reopen the last project', err); }
+    }
+    // first run, or the last Project is gone: the newest stored one, else a new one
+    try {
+      const list = await platform.store.list();
+      list.sort((a, b) => (b.modified || 0) - (a.modified || 0));
+      for (const m of list) { try { return deserialize(await platform.store.load(m.id)); } catch { /* try the next */ } }
+    } catch (err) { console.warn('Project store unavailable', err); }
+    const p = newProject('Untitled');
+    this._firstSave = true;
+    return p;
+  }
+
+  _rememberLast() {
+    if (this.settings.lastProject !== this.project.id) { this.settings.lastProject = this.project.id; platform.setSettings({ lastProject: this.project.id }); }
+    if (this._firstSave) { this._firstSave = false; this.saveNow(); }
+  }
+
+  /** Record a change to the open Project; it autosaves ~1.5 s after the last change. */
   markDirty() {
-    if (!this.file.dirty) { this.file.dirty = true; this._showFileState(); }
+    this.save.dirty = true;
+    this._showFileState();
+    clearTimeout(this.save.timer);
+    this.save.timer = setTimeout(() => this.saveNow(), 1500);
+  }
+
+  /** Save the open Project to the store now (Ctrl+S, switching Project, closing). */
+  async saveNow() {
+    clearTimeout(this.save.timer);
+    if (this.save.pending) await this.save.pending; // one write at a time
+    const project = this.project;
+    const text = serialize(project);
+    this.save.dirty = false;
+    this.save.saving = true;
+    this._showFileState();
+    this.save.pending = (async () => {
+      try {
+        const meta = projectMeta(project, { modified: Date.now(), thumb: renderThumbnail(project) });
+        await platform.store.save(project.id, text, meta);
+        return true;
+      } catch (err) {
+        console.error(err);
+        if (this.project === project) this.save.dirty = true; // keep trying on the next change or Ctrl+S
+        toast(`Couldn't save "${project.name}": ${err.message || err}`, 'error', 7000);
+        return false;
+      } finally {
+        this.save.saving = false;
+        this.save.pending = null;
+        this._showFileState();
+      }
+    })();
+    return this.save.pending;
   }
 
   _showFileState() {
-    const f = this.file;
-    this.saveState.textContent = f.dirty ? 'Unsaved changes' : f.name ? 'Saved' : 'Not saved yet';
-    this.saveState.title = f.path || f.name || '';
-    document.title = `${f.dirty ? '• ' : ''}${this.project.name} · ${APP_NAME}`;
+    const st = this.save;
+    this.saveState.textContent = st.saving ? 'Saving…' : st.dirty ? 'Unsaved changes' : 'All changes saved';
+    document.title = `${this.project.name} · ${APP_NAME}`;
   }
 
-  /** Replace the open Project (after New or Open). Workspaces are rebuilt around it. */
-  setProject(project, file = { name: null, path: null }) {
+  /** Replace the open Project. Workspaces are rebuilt around it. */
+  setProject(project) {
     this.project = project;
-    this.file = { name: file.name, path: file.path, dirty: false };
+    this.save.dirty = false;
     this.nameInput.value = project.name;
     const active = this.active ? this.active.id : 'schematic';
     for (const w of this.workspaces) w.el.remove();
     this.workspaces = buildWorkspaces(this);
     this.tabBar.after(...this.workspaces.map((w) => w.el));
     this.setWorkspace(active);
+    this._rememberLast();
     this._showFileState();
   }
 
-  /** Ask before throwing away unsaved changes. Resolves true when it is fine to continue. */
-  async _okToDiscard(action) {
-    if (!this.file.dirty) return true;
-    return confirmDialog('Unsaved changes', `"${this.project.name}" has unsaved changes. ${action} anyway and lose them?`, action, true);
-  }
-
-  async newProject({ force = false } = {}) {
-    if (!force && !(await this._okToDiscard('Start a new project'))) return false;
+  async newProject() {
+    await this.saveNow();
     this.setProject(newProject('Untitled'));
+    await this.saveNow(); // so it appears in Your projects straight away
     return true;
   }
 
-  async openProject({ force = false } = {}) {
-    if (!force && !(await this._okToDiscard('Open another project'))) return false;
-    const file = await platform.openProject();
+  async openStored(id) {
+    if (id === this.project.id) return true;
+    await this.saveNow();
+    try {
+      this.setProject(deserialize(await platform.store.load(id)));
+      return true;
+    } catch (err) {
+      toast(`Couldn't open that project: ${err.message || err}`, 'error', 7000);
+      return false;
+    }
+  }
+
+  async _storedIds() { return new Set((await platform.store.list()).map((m) => m.id)); }
+
+  /** Open file…: bring an .ecad file into the store and open it. Bad files change nothing. */
+  async importFile() {
+    let file;
+    try { file = await platform.importFile(); } catch (err) {
+      toast(`Couldn't read that file: ${err.message || err}`, 'error', 7000);
+      return false;
+    }
     if (!file) return false;
     let project;
     try {
-      project = deserialize(file.text);
+      project = importProject(file.text, await this._storedIds());
     } catch (err) {
-      // the open Project stays exactly as it was
       toast(err instanceof ProjectFileError ? `Couldn't open ${file.name}: ${err.message}` : `Couldn't open ${file.name}.`, 'error', 7000);
       if (!(err instanceof ProjectFileError)) console.error(err);
       return false;
     }
-    this.setProject(project, file);
+    await this.saveNow();
+    this.setProject(project);
+    await this.saveNow();
+    this.projects?.hide();
     toast(`Opened ${file.name}`);
     return true;
   }
 
-  async saveProject({ as = false } = {}) {
-    const suggestedName = (this.file.name || `${this.project.name.replace(/[\\/:*?"<>|]+/g, '-') || 'Untitled'}.${FILE_EXTENSION}`);
-    let result;
+  /** Save as file…: write the open (or a stored) Project to an .ecad file on disk. */
+  async exportFile(project = this.project) {
     try {
-      result = await platform.saveProject({ path: as ? null : this.file.path, text: serialize(this.project), suggestedName });
+      const r = await platform.exportFile(exportFileName(project), serialize(project));
+      if (r) toast(platform.isDesktop ? `Saved ${r.name}` : `Downloaded ${r.name}`);
+      return !!r;
     } catch (err) {
-      console.error(err);
-      toast(`Couldn't save: ${err.message || err}`, 'error', 7000);
+      toast(`Couldn't save the file: ${err.message || err}`, 'error', 7000);
       return false;
     }
-    if (!result) return false;
-    this.file = { name: result.name, path: result.path, dirty: false };
-    this._showFileState();
-    toast(platform.isDesktop ? `Saved ${result.name}` : `Downloaded ${result.name}`);
+  }
+
+  async _loadStored(id) {
+    if (id === this.project.id) { await this.saveNow(); return this.project; }
+    return deserialize(await platform.store.load(id));
+  }
+
+  async exportStored(id) { return this.exportFile(await this._loadStored(id)); }
+
+  async duplicateStored(id) {
+    const src = await this._loadStored(id);
+    const names = (await platform.store.list()).map((m) => m.name);
+    const copy = duplicateProject(src, names);
+    await platform.store.save(copy.id, serialize(copy), projectMeta(copy, { thumb: renderThumbnail(copy) }));
+    return copy;
+  }
+
+  async renameStored(id, name) {
+    if (id === this.project.id) {
+      this.project.name = name;
+      this.nameInput.value = name;
+      return this.saveNow();
+    }
+    const p = deserialize(await platform.store.load(id));
+    p.name = name;
+    await platform.store.save(p.id, serialize(p), projectMeta(p, { thumb: renderThumbnail(p) }));
+    return true;
+  }
+
+  async deleteStored(id) {
+    await platform.store.delete(id);
+    if (id !== this.project.id) return true;
+    // the open Project was deleted: open the newest remaining one, or start a new one
+    const list = (await platform.store.list()).sort((a, b) => (b.modified || 0) - (a.modified || 0));
+    let next = null;
+    for (const m of list) { try { next = deserialize(await platform.store.load(m.id)); break; } catch { /* skip */ } }
+    clearTimeout(this.save.timer);
+    this.save.dirty = false;
+    this.setProject(next || newProject('Untitled'));
+    if (!next) await this.saveNow();
     return true;
   }
 
@@ -146,10 +258,10 @@ export class App {
     const mod = /Mac/.test(navigator.platform) ? '⌘' : 'Ctrl+';
     popupMenu([
       { label: 'New project', icon: 'plus', shortcut: mod + 'N', onClick: () => this.newProject() },
-      { label: 'Open…', icon: 'folder', shortcut: mod + 'O', onClick: () => this.openProject() },
+      { label: 'Your projects…', icon: 'list', onClick: () => this.projects.show() },
       'sep',
-      { label: platform.isDesktop ? 'Save' : 'Save (download)', icon: 'check', shortcut: mod + 'S', onClick: () => this.saveProject() },
-      { label: 'Save as…', icon: 'export', shortcut: mod + 'Shift+S', onClick: () => this.saveProject({ as: true }) },
+      { label: 'Open file…', icon: 'folder', shortcut: mod + 'O', onClick: () => this.importFile() },
+      { label: platform.isDesktop ? 'Save as file…' : 'Download as file', icon: 'export', shortcut: mod + 'Shift+S', onClick: () => this.exportFile() },
     ], this.fileBtn);
   }
 
@@ -185,12 +297,12 @@ export class App {
   _keys() {
     const order = ['schematic', 'board', 'gerber', 'library'];
     document.addEventListener('keydown', (e) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || document.querySelector('.modal-backdrop')) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || document.querySelector('.modal-backdrop') || this.projects?.isOpen) return;
       const mod = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
       if (mod && /^[1-4]$/.test(e.key)) { this.setWorkspace(order[+e.key - 1]); e.preventDefault(); }
-      else if (mod && k === 's') { e.preventDefault(); this.saveProject({ as: e.shiftKey }); }
-      else if (mod && k === 'o') { e.preventDefault(); this.openProject(); }
+      else if (mod && k === 's') { e.preventDefault(); if (e.shiftKey) this.exportFile(); else this.saveNow(); }
+      else if (mod && k === 'o') { e.preventDefault(); this.importFile(); }
       else if (mod && k === 'n') { e.preventDefault(); this.newProject(); }
       else if (e.key === '?') this.help();
     });
@@ -208,7 +320,7 @@ export class App {
   help() {
     if (document.querySelector('.modal-backdrop')) return;
     const m = modal({ title: 'Shortcuts', width: 440 });
-    const rows = [['New project', 'Ctrl+N'], ['Open', 'Ctrl+O'], ['Save', 'Ctrl+S'], ['Save as', 'Ctrl+Shift+S'], ['Pan', 'Middle- or right-drag'], ['Zoom', 'Scroll wheel'], ['Fit the view', 'Home'], ['Schematic · Board · Gerber · Library', 'Ctrl+1 … Ctrl+4'], ['This help', '?']];
+    const rows = [['New project', 'Ctrl+N'], ['Open file (import)', 'Ctrl+O'], ['Save now', 'Ctrl+S'], ['Save as file', 'Ctrl+Shift+S'], ['Pan', 'Middle- or right-drag'], ['Zoom', 'Scroll wheel'], ['Fit the view', 'Home'], ['Schematic · Board · Gerber · Library', 'Ctrl+1 … Ctrl+4'], ['This help', '?']];
     m.body.append(h('div', { class: 'shortcut-group' }, h('h4', {}, 'Every workspace'),
       ...rows.map(([a, b]) => h('div', { class: 'shortcut-row' }, h('span', {}, a), h('span', { class: 'kbd' }, b)))));
   }

@@ -10,10 +10,13 @@ import { toMm } from '../core/units.js';
 export const RULER = 22;
 
 // Canvas colours, from the Laser workspace's palette (docs/UI.md, "Canvas colours").
-const COLORS = {
+export const COLORS = {
   dark: { bg: '#14161b', paper: '#1b1e25', minor: '#232831', major: '#2f3542', edge: '#6b7890', text: '#9aa5b6', ruler: '#1e2128', origin: '#e5484d', sel: '#29c5ff' },
   light: { bg: '#e4e9f0', paper: '#ffffff', minor: '#eef2f6', major: '#d3dbe6', edge: '#8b98aa', text: '#445063', ruler: '#f3f6fa', origin: '#e5484d', sel: '#0a84ff' },
 };
+
+/** Canvas colours for the current UI theme (Colour themes, #51, will replace this lookup). */
+export const canvasColors = () => COLORS[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
 
 export class Canvas2D {
   /**
@@ -116,7 +119,7 @@ export class Canvas2D {
     this.raf = requestAnimationFrame(() => { this.raf = 0; this.draw(); });
   }
 
-  colors() { return COLORS[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark']; }
+  colors() { return canvasColors(); }
 
   draw() {
     const ctx = this.ctx, v = this.view, C = this.colors();

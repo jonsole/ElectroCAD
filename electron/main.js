@@ -11,11 +11,12 @@ const argValue = (name) => {
   return hit.includes('=') ? hit.slice(hit.indexOf('=') + 1) : true;
 };
 const SMOKE = argValue('smoke');
+const USER_DATA = argValue('user-data');
 const SHOT = argValue('shot');
 const DEV_URL = argValue('dev-url');
 
 // Keep test runs away from the user's real settings.
-if (SMOKE) app.setPath('userData', path.join(os.tmpdir(), 'electrocad-smoke-' + process.pid));
+if (SMOKE) app.setPath('userData', typeof USER_DATA === 'string' ? USER_DATA : path.join(os.tmpdir(), 'electrocad-smoke-' + process.pid));
 // Software rendering for headless test machines (and as a user escape hatch).
 if (argValue('software')) app.disableHardwareAcceleration();
 
@@ -36,46 +37,89 @@ function saveSettings() {
 ipcMain.handle('settings:get', () => ({ ...settings, platform: process.platform, version: app.getVersion(), smoke: !!SMOKE }));
 ipcMain.handle('settings:set', (_e, patch) => {
   if (!patch || typeof patch !== 'object') return settings;
-  const allowed = ['theme', 'units', 'workspace'];
+  const allowed = ['theme', 'units', 'workspace', 'lastProject'];
   for (const k of allowed) if (k in patch) settings[k] = patch[k];
   if ('theme' in patch) nativeTheme.themeSource = settings.theme === 'light' ? 'light' : 'dark';
   saveSettings();
   return settings;
 });
 
-// ---------------------------------------------------------------- project files
-// The renderer may only write to paths the user picked in a dialog (or opened) this session.
-const trustedPaths = new Set();
+// ---------------------------------------------------------------- Project store (ADR-0011)
+// Every Project lives in <userData>/projects as <id>.ecad, with index.json holding the
+// card metadata. The renderer addresses Projects by id only, so it can't touch other files.
+const projectsDir = () => path.join(app.getPath('userData'), 'projects');
+const indexFile = () => path.join(projectsDir(), 'index.json');
+const SAFE_ID = /^[a-z0-9]{6,40}$/i;
+const projectPath = (id) => {
+  if (typeof id !== 'string' || !SAFE_ID.test(id)) throw new Error('Bad project id');
+  return path.join(projectsDir(), id + '.ecad');
+};
+function readIndex() {
+  try { return JSON.parse(fs.readFileSync(indexFile(), 'utf8')); } catch { return {}; }
+}
+function writeIndex(index) {
+  fs.mkdirSync(projectsDir(), { recursive: true });
+  const tmp = indexFile() + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(index));
+  fs.renameSync(tmp, indexFile());
+}
+function writeAtomic(file, text) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, text);
+  fs.renameSync(tmp, file);
+}
+
+ipcMain.handle('store:list', () => {
+  const index = readIndex();
+  // only list Projects whose file still exists
+  return Object.values(index).filter((m) => { try { return fs.existsSync(projectPath(m.id)); } catch { return false; } });
+});
+ipcMain.handle('store:load', (_e, id) => fs.readFileSync(projectPath(id), 'utf8'));
+ipcMain.handle('store:save', (_e, id, text, meta) => {
+  if (typeof text !== 'string') throw new Error('Nothing to save');
+  writeAtomic(projectPath(id), text);
+  const index = readIndex();
+  index[id] = { ...(meta || {}), id };
+  writeIndex(index);
+  return true;
+});
+ipcMain.handle('store:delete', (_e, id) => {
+  const file = projectPath(id);
+  if (fs.existsSync(file)) fs.rmSync(file);
+  const index = readIndex();
+  delete index[id];
+  writeIndex(index);
+  return true;
+});
+ipcMain.handle('store:folder', () => { fs.mkdirSync(projectsDir(), { recursive: true }); shell.openPath(projectsDir()); });
+
+// ---------------------------------------------------------------- .ecad files on disk (import / export)
 const PROJECT_FILTERS = [{ name: 'ElectroCAD project', extensions: ['ecad'] }, { name: 'All files', extensions: ['*'] }];
 const smokeDialogs = []; // smoke tests queue dialog answers here instead of clicking
 
-async function pickOpenPath() {
-  if (SMOKE) return smokeDialogs.shift() || null;
-  const r = await dialog.showOpenDialog(win, { title: 'Open project', filters: PROJECT_FILTERS, properties: ['openFile'] });
-  return r.canceled || !r.filePaths.length ? null : r.filePaths[0];
-}
-async function pickSavePath(suggestedName) {
-  if (SMOKE) return smokeDialogs.shift() || null;
-  const r = await dialog.showSaveDialog(win, { title: 'Save project', defaultPath: suggestedName, filters: PROJECT_FILTERS });
-  if (r.canceled || !r.filePath) return null;
-  return /\.ecad$/i.test(r.filePath) ? r.filePath : r.filePath + '.ecad';
-}
-
-ipcMain.handle('project:open', async () => {
-  const file = await pickOpenPath();
+ipcMain.handle('file:import', async () => {
+  let file;
+  if (SMOKE) file = smokeDialogs.shift() || null;
+  else {
+    const r = await dialog.showOpenDialog(win, { title: 'Open project file', filters: PROJECT_FILTERS, properties: ['openFile'] });
+    file = r.canceled || !r.filePaths.length ? null : r.filePaths[0];
+  }
   if (!file) return null;
-  const text = fs.readFileSync(file, 'utf8');
-  trustedPaths.add(file);
-  return { name: path.basename(file), path: file, text };
+  return { name: path.basename(file), text: fs.readFileSync(file, 'utf8') };
 });
-ipcMain.handle('project:save', async (_e, { path: target, text, suggestedName } = {}) => {
+ipcMain.handle('file:export', async (_e, suggestedName, text) => {
   if (typeof text !== 'string') throw new Error('Nothing to save');
-  let file = typeof target === 'string' && trustedPaths.has(target) ? target : null;
-  if (!file) file = await pickSavePath(suggestedName || 'Untitled.ecad');
+  let file;
+  if (SMOKE) file = smokeDialogs.shift() || null;
+  else {
+    const r = await dialog.showSaveDialog(win, { title: 'Save project as file', defaultPath: suggestedName, filters: PROJECT_FILTERS });
+    file = r.canceled || !r.filePath ? null : r.filePath;
+  }
   if (!file) return null;
+  if (!/\.ecad$/i.test(file)) file += '.ecad';
   fs.writeFileSync(file, text);
-  trustedPaths.add(file);
-  return { name: path.basename(file), path: file };
+  return { name: path.basename(file) };
 });
 ipcMain.handle('smoke:dialog', (_e, answer) => { if (SMOKE) smokeDialogs.push(answer); return !!SMOKE; });
 
@@ -131,12 +175,21 @@ function createWindow() {
     return { action: 'deny' };
   });
 
-  win.on('close', () => {
+  // Let the renderer finish saving the open Project before the window goes away.
+  let closing = false, closeTimer = null;
+  win.on('close', (event) => {
     if (SMOKE) return;
     const b = win.getNormalBounds();
     settings.window = { width: b.width, height: b.height, maximized: win.isMaximized() };
     saveSettings();
+    event.preventDefault();
+    if (closing) return;
+    closing = true;
+    win.webContents.send('app:before-close');
+    closeTimer = setTimeout(() => { if (win && !win.isDestroyed()) win.destroy(); }, 4000);
   });
+  ipcMain.removeAllListeners('app:close-ready');
+  ipcMain.on('app:close-ready', () => { clearTimeout(closeTimer); if (win && !win.isDestroyed()) win.destroy(); });
   win.on('closed', () => { win = null; });
 
   if (SMOKE) runSmoke();

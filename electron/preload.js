@@ -7,8 +7,15 @@ const call = (channel) => (...args) => ipcRenderer.invoke(channel, ...args);
 contextBridge.exposeInMainWorld('electroNative', {
   getSettings: call('settings:get'),
   setSettings: call('settings:set'),
-  openProject: call('project:open'),
-  saveProject: call('project:save'),
+  listProjects: call('store:list'),
+  loadProject: call('store:load'),
+  storeProject: call('store:save'),
+  deleteProject: call('store:delete'),
+  openProjectsFolder: call('store:folder'),
+  importFile: call('file:import'),
+  exportFile: call('file:export'),
+  onBeforeClose: (fn) => ipcRenderer.on('app:before-close', () => fn()),
+  closeReady: () => ipcRenderer.send('app:close-ready'),
   smokeShot: call('smoke:shot'),
   smokeDialog: call('smoke:dialog'),
 });

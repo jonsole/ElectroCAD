@@ -12,12 +12,18 @@ const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
 const shots = fs.mkdtempSync(path.join(os.tmpdir(), 'electrocad-shots-'));
 const suites = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-const list = suites.length ? suites : ['smoke-boot.js', 'smoke-save.js'];
+// Suites joined with '+' run one after another on the same app data (to test restarts).
+const list = suites.length ? suites : ['smoke-boot.js', 'smoke-store.js+smoke-store-restart.js'];
 
 let failed = false;
-for (const suite of list) {
+const runs = [];
+for (const group of list) {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'electrocad-userdata-'));
+  for (const suite of group.split('+')) runs.push({ suite, userData });
+}
+for (const { suite, userData } of runs) {
   console.log(`\n=== ${suite} (offline) ===`);
-  const args = [root, '--smoke=' + path.join(__dirname, suite), '--shot=' + path.join(shots, suite.replace(/\.js$/, '.png')), '--software', '--offline'];
+  const args = [root, '--smoke=' + path.join(__dirname, suite), '--shot=' + path.join(shots, suite.replace(/\.js$/, '.png')), '--software', '--offline', '--user-data=' + userData];
   // Chromium refuses to run as root without --no-sandbox (CI containers often run as root).
   if (process.platform === 'linux' && process.getuid && process.getuid() === 0) args.push('--no-sandbox');
   let cmd = electron, cmdArgs = args;

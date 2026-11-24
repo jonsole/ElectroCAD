@@ -227,3 +227,21 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .about-name { font-size: 19px; font-weight: 700; }
 .shortcut-group h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
 .shortcut-row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
+
+/* ---------- Your projects (from DabbleCAD's dashboard) ---------- */
+.dashboard { position: fixed; inset: 0; z-index: 80; background: var(--bg); display: none; flex-direction: column; }
+.dashboard.open { display: flex; }
+.dash-head { display: flex; align-items: center; gap: 12px; padding: 14px 28px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.dash-body { flex: 1; overflow: auto; padding: 26px 28px 40px; }
+.dash-title { font-size: 20px; font-weight: 700; margin: 0 0 16px; }
+.dash-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; }
+.dash-card { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; cursor: pointer; display: flex; flex-direction: column; transition: transform .12s, border-color .12s; }
+.dash-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.dash-card.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.dash-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dash-thumb { aspect-ratio: 4 / 3; background: var(--panel-2) center / cover no-repeat; }
+.dash-new { align-items: center; justify-content: center; gap: 8px; min-height: 220px; border-style: dashed; color: var(--accent); font-weight: 600; }
+.dash-meta { display: flex; align-items: center; padding: 8px 6px 8px 12px; gap: 6px; }
+.dash-meta div { flex: 1; min-width: 0; }
+.dash-meta b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-meta small { color: var(--muted); }
