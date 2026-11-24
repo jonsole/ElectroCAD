@@ -100,9 +100,34 @@ There are four workspace tabs: **Schematic · Board · Gerber · Library**. Each
   - "Remember on this device" (browser only, with its warning).
   When no key is set, the chat window shows a one-click "Set up AI" prompt instead of the input.
 
-## Canvas colours
+## Canvas colours and colour themes
 
-The canvas background is `--bg`. Grid lines and the paper/board frame use the Laser workspace's grid colours, and selection uses `--select`. Layer colours are fixed per layer and theme-aware:
+Canvas colours come from a **Colour theme**, chosen separately for the **Schematic** and the **Board** in Settings → Colours. The UI's dark/light theme only styles the chrome.
+
+- **Who uses which theme:**
+  - the Library tab's Symbol editor uses the Schematic theme;
+  - its Footprint editor uses the Board theme;
+  - the Gerber tab uses the Board theme's layer colours.
+- **Built-in themes:**
+  - **Match app** (the default for both): the ElectroCAD Dark colours when the UI is dark and ElectroCAD Light when it is light, shown in the tables below.
+  - **Classic paper** (Schematic only): a white sheet with a light grey grid, dark-red Symbol bodies on a pale yellow fill, green Wires, blue Net labels and black text. This is the traditional printed-schematic look, and it stays light even in a dark UI.
+- **Custom themes:**
+  - **Duplicate** any theme, then change any colour with a colour picker. A live preview canvas shows the change.
+  - **Rename**, **Delete**, and **Reset** a colour to the theme you duplicated from.
+  - **Export** a theme to a `.json` file and **Import** one to share it.
+  - Custom themes are stored with the app settings (desktop `settings.json`, browser storage), never in the Project file.
+  - Built-in themes are read-only; editing one starts by duplicating it.
+- **Settings → Colours layout:** two theme selects (Schematic, Board) with Duplicate / Edit / Import / Export buttons. The editor is a fork-style modal: a list of the theme's colours grouped as below, each with a swatch, and the preview on the right.
+
+**Schematic theme colours:** background, paper, grid minor, grid major, sheet edge and title block, Wire, Junction, Symbol body line, Symbol body fill, Pin, Pin number, Pin name, Reference designator, Value, Net label, Global label, Power symbol, No-connect, selection, highlight (Cross-probing), ERC error, ERC warning.
+
+**Board theme colours:**
+- background, grid minor, grid major, Ratsnest, selection, highlight, DRC error;
+- one colour per layer: F.Cu, In1.Cu, In2.Cu, B.Cu, F/B.SilkS, F/B.Mask, F/B.Paste, F/B.CrtYd, F/B.Fab, Edge.Cuts;
+- Via, through-hole Pad, drill hole;
+- Zone fill opacity and inactive-layer dimming.
+
+ElectroCAD Dark values (the "Match app" default in a dark UI):
 
 | Layer | Dark theme | Note |
 |---|---|---|
@@ -114,7 +139,7 @@ The canvas background is `--bg`. Grid lines and the paper/board frame use the La
 | Edge.Cuts | `#f2c94c` | |
 | Ratsnest | `--muted` | thin |
 
-In the schematic, Wires use the accent green `#46a758`, Symbol bodies use `--text` with a `--panel-2` fill, Pins use `--muted`, and labels use the accent colour. The light theme uses darker shades of the same hues.
+In the schematic, Wires use the accent green `#46a758`, Symbol bodies use `--text` with a `--panel-2` fill, Pins use `--muted`, and labels use the accent colour. ElectroCAD Light uses darker shades of the same hues.
 
 ## Logo
 

@@ -140,6 +140,10 @@ _Avoid_: Edge cuts (KiCad's layer name), dimension
 
 ### Rules and output
 
+**Colour theme**:
+A named set of canvas colours for either the Schematic or the Board (per element or per layer), chosen independently of the app's dark/light UI theme. It belongs to the user's settings, not to a Project.
+_Avoid_: Colour scheme, palette, skin
+
 **Design rules**:
 The manufacturing constraints of a Board, such as minimum clearance, track width and drill size.
 

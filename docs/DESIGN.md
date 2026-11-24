@@ -136,6 +136,8 @@ The Ratsnest is recomputed incrementally, as a minimum spanning tree per Net ove
 
 **Cross-probing** (M3): selecting a Component or Net in one editor highlights it in the other. If the other editor is visible in a split view, it scrolls to show the selection.
 
+**Colour themes:** the Schematic and Board renderers never hard-code colours. They read named colour tokens from the active **Colour theme** for their kind (`core/themes.js`: built-ins, validation, and import/export as JSON; custom themes live in settings). See `docs/UI.md`, "Canvas colours and colour themes".
+
 ## 6. Layer stack (2 or 4 layers)
 
 | Layer | 2-layer | 4-layer |
