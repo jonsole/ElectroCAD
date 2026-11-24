@@ -381,3 +381,5 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .net-opt { padding: 4px 10px; border-radius: 5px; font: 600 12.5px "Segoe UI", system-ui, sans-serif; cursor: pointer; white-space: nowrap; }
 .net-opt:hover, .net-opt.hi { background: var(--accent-soft); color: var(--accent); }
 .net-opt.current::after { content: ' ✓'; color: var(--muted); font-weight: 400; }
+.insp-row-btns { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 2px 0 6px; } /* as in DabbleCAD */
+.insp-row-btns .btn { height: 30px; }

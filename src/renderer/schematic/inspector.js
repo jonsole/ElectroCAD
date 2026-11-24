@@ -5,7 +5,7 @@
 import { h, button, toast } from '../ui/dom.js';
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
 import { moveSelection, rotateSymbols, mirrorSymbols, cleanupWires } from '../core/schematic.js';
-import { setComponentFieldStyle, styleFor } from '../core/fields.js';
+import { setComponentFieldStyle, styleFor, hasPinnedFields } from '../core/fields.js';
 import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { partOf } from '../core/project.js';
 import { validateLabelName, isPower, netNameChoices, canonicalNetName } from '../core/labels.js';
@@ -106,6 +106,12 @@ export class SchematicInspector {
     rows.push(h('div', { class: 'param param-wide' }, h('label', {}, 'Footprint'), fpSel));
 
     rows.push(this._fieldStyle([comp.id]));
+    if (hasPinnedFields(sym)) {
+      const n = Object.keys(sym.fieldPins).length;
+      rows.push(h('div', { class: 'insp-row-btns' },
+        h('span', { class: 'insp-note', style: { flex: 1, margin: 0 } }, `${n} field${n === 1 ? '' : 's'} moved by hand`),
+        button({ icon: 'wand', label: 'Re-apply style', cls: 'btn-outline', title: 'Let the Field style place these fields again', onClick: () => this.ed.reapplyStyle() })));
+    }
 
     // position, rotation, mirror
     const posInput = (axis) => {

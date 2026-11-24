@@ -129,8 +129,18 @@ export function measureText(text, sizeNm) {
   return Math.round((measureCtx.measureText(String(text)).width / 100) * sizeNm);
 }
 
+/** A small push-pin glyph whose point is at `at` (screen px). */
+function drawPin(ctx, [x, y], color, size) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = Math.max(1, size / 7); ctx.lineCap = 'round';
+  const r = size * 0.32;
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + size * 0.45, y - size * 0.45); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x + size * 0.62, y - size * 0.62, r, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
 /** Draw placed fields (from core/fields.js placeFields) upright, plus a marker on flagged ones. */
-function drawFields(ctx, view, C, project, sheet, placement) {
+function drawFields(ctx, view, C, project, sheet, placement, selection = new Set()) {
   for (const sym of sheet.symbols) {
     const r = placement.get(sym.id);
     if (!r || !r.items.length) continue;
@@ -144,6 +154,15 @@ function drawFields(ctx, view, C, project, sheet, placement) {
       ctx.fillStyle = it.keys.includes('reference') ? C.reference : C.value;
       const [x, y] = view.toScreen([it.x, it.y]);
       ctx.fillText(it.text, x, y);
+      // a pinned field of a selected part shows a small pin at its top-right corner
+      if (it.pinned && selection.has(sym.id)) {
+        drawPin(ctx, view.toScreen([it.box.x1, it.box.y0]), C.selection, Math.max(7, px * 0.6));
+        // a faint dashed tether to its part, so a field moved far away still shows whose it is
+        const [sx, sy] = view.toScreen(sym.at);
+        ctx.save(); ctx.strokeStyle = C.selection; ctx.globalAlpha = 0.45; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.moveTo(x, y + (it.box.y1 - it.box.y0) * view.scale * (sy > y ? 0.5 : -0.5)); ctx.lineTo(sx, sy); ctx.stroke();
+        ctx.restore();
+      }
     }
     if (r.flagged) {
       const b = r.items[0].box;
@@ -253,7 +272,7 @@ export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(),
     }
   }
   drawLabels(ctx, view, C, sheet.labels || [], { selection });
-  drawFields(ctx, view, C, project, sheet, placement || placeFields(project, sheet, { measure: measureText }));
+  drawFields(ctx, view, C, project, sheet, placement || placeFields(project, sheet, { measure: measureText }), selection);
   // Junction dots, derived from the Wires and Pins
   ctx.fillStyle = C.junction;
   const jr = Math.max(2.5, JUNCTION * view.scale);

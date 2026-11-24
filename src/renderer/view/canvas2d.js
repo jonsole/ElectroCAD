@@ -51,7 +51,7 @@ export class Canvas2D {
     c.addEventListener('pointerdown', (e) => {
       c.focus({ preventScroll: true });
       if (e.button === 1 || e.button === 2) {
-        pan = { x: e.clientX, y: e.clientY, id: e.pointerId };
+        pan = { x: e.clientX, y: e.clientY, id: e.pointerId, button: e.button, moved: 0 };
         c.setPointerCapture(e.pointerId);
         c.style.cursor = 'grabbing';
         e.preventDefault();
@@ -59,12 +59,19 @@ export class Canvas2D {
     });
     c.addEventListener('pointermove', (e) => {
       if (pan && e.pointerId === pan.id) {
+        pan.moved += Math.abs(e.clientX - pan.x) + Math.abs(e.clientY - pan.y);
         this.view.pan(e.clientX - pan.x, e.clientY - pan.y);
         pan.x = e.clientX; pan.y = e.clientY;
       }
       this.setCursor(this.local(e));
     });
-    const end = (e) => { if (pan && e.pointerId === pan.id) { pan = null; c.style.cursor = ''; } };
+    const end = (e) => {
+      if (!pan || e.pointerId !== pan.id) return;
+      // a right-click that didn't pan opens the workspace's context menu (as in DabbleCAD)
+      const menu = e.type === 'pointerup' && pan.button === 2 && pan.moved < 5 && this.onContextMenu;
+      pan = null; c.style.cursor = '';
+      if (menu) this.onContextMenu(e);
+    };
     c.addEventListener('pointerup', end);
     c.addEventListener('pointercancel', end);
     c.addEventListener('pointerleave', () => { this.cursor = null; this.coords.textContent = ''; });

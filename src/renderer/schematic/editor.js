@@ -15,7 +15,7 @@ const mm127 = mm(1.27);
 import { drawSheet, symbolThumbnail, measureText } from './render.js';
 import { SchematicInspector } from './inspector.js';
 import { makeDraggable } from '../ui/draggable.js';
-import { placeFields, fieldWarnings, setDefaultFieldStyle, setComponentFieldStyle, hitField, styleFor } from '../core/fields.js';
+import { placeFields, fieldWarnings, setDefaultFieldStyle, setComponentFieldStyle, hitField, styleFor, pinField, unpinFields, hasPinnedFields } from '../core/fields.js';
 import { validateRef, updateComponent } from '../core/components.js';
 import { hitLabel, labelBounds, labelShape, labelFrame, validateLabelName, isPower, netNameChoices, filterNetNames, canonicalNetName } from '../core/labels.js';
 
@@ -113,7 +113,62 @@ export class SchematicEditor {
       { label: 'Project default', checked: one === null, onClick: () => this.app.edit('Field style: project default', (p) => setComponentFieldStyle(p, comps, null)) },
       'sep',
       ...allFieldStyles(this.app).map((s) => ({ label: s.name, checked: one === s.id, onClick: () => this.app.edit(`Field style: ${s.name}`, (p) => setComponentFieldStyle(p, comps, s)) })),
+      'sep',
+      this._reapplyItem(),
     ], anchor);
+  }
+
+  /** Selected Symbols that have fields dragged by hand. */
+  _pinnedSelection() { return this.sheet.symbols.filter((y) => this.selection.has(y.id) && hasPinnedFields(y)).map((y) => y.id); }
+
+  _reapplyItem() {
+    const ids = this._pinnedSelection();
+    return { label: 'Re-apply style', icon: 'wand', disabled: !ids.length, onClick: () => this.reapplyStyle() };
+  }
+
+  /** Re-apply style: unpin the selected parts' fields so their Field style places them again (one undo step). */
+  reapplyStyle() {
+    const ids = this._pinnedSelection();
+    if (!ids.length) return;
+    this.app.edit('Re-apply field style', (p) => unpinFields(p, ids));
+    this.refresh();
+  }
+
+  /** Right-click on the canvas (DabbleCAD's context menu): commands for what's under the cursor or selected. */
+  contextMenu(e) {
+    if (this.placing || this.tool !== 'select') { if (this.placing) this.endPlace(); else this.setTool('select'); return; }
+    const v = this.ws.view;
+    const world = v.view.toWorld(v.local(e));
+    const tol = 4 / v.view.scale;
+    const f = this.placement && hitField(this.project, this.placement, world, tol / 2, measureText);
+    const hit = hitLabel(this.sheet, world, tol / 2, measureText) || hitSymbol(this.project, this.sheet, world, 3 / v.view.scale)
+      || (f && this.sheet.symbols.find((y) => y.id === f.symbolId)) || hitWire(this.sheet, world, tol);
+    if (hit && !this.selection.has(hit.id)) this.selection = new Set([hit.id]);
+    else if (!hit) this.selection = new Set();
+    this.refresh();
+    const at = { x: e.clientX, y: e.clientY };
+    if (!this.selection.size) {
+      popupMenu([
+        { label: 'Paste', icon: 'paste', shortcut: 'Ctrl+V', disabled: !this.clipboard, onClick: () => this.paste() },
+        { label: 'Select all', icon: 'select', shortcut: 'Ctrl+A', onClick: () => this.selectAll() },
+        'sep',
+        { label: 'Fit the sheet in view', icon: 'fit', shortcut: 'Home', onClick: () => v.fitHome() },
+      ], at);
+      return;
+    }
+    const anySym = this.sheet.symbols.some((y) => this.selection.has(y.id));
+    const anyLabel = (this.sheet.labels || []).some((l) => this.selection.has(l.id));
+    popupMenu([
+      { label: 'Copy', icon: 'copy', shortcut: 'Ctrl+C', onClick: () => this.copy() },
+      { label: 'Paste', icon: 'paste', shortcut: 'Ctrl+V', disabled: !this.clipboard, onClick: () => this.paste() },
+      { label: 'Duplicate', icon: 'duplicate', shortcut: 'Ctrl+D', onClick: () => this.duplicate() },
+      { label: 'Delete', icon: 'trash', shortcut: 'Del', onClick: () => this.deleteSelection() },
+      'sep',
+      { label: 'Rotate', icon: 'rotate', shortcut: 'R', disabled: !anySym && !anyLabel, onClick: () => this.rotate() },
+      { label: 'Mirror', icon: 'mirror', shortcut: 'X', disabled: !anySym, onClick: () => this.mirror() },
+      anySym ? 'sep' : null,
+      anySym ? this._reapplyItem() : null,
+    ], at);
   }
 
   renderTiles() {
@@ -252,6 +307,16 @@ export class SchematicEditor {
       if (LABEL_TOOLS[this.tool]) { e.preventDefault(); this._labelClick(snapPt(world, SCH_GRID)); return; } // keep focus in the name box
       const tol = 4 / ws.view.view.scale;
       const fieldHit = this.placement && hitField(this.project, this.placement, world, tol / 2, measureText);
+      // pressing on a field and dragging moves that field by hand (it becomes pinned, #53)
+      if (fieldHit && !e.shiftKey && !hitSymbol(this.project, this.sheet, world, 0)) {
+        this.selection = new Set([fieldHit.symbolId]);
+        const b = fieldHit.item.box;
+        const centre = fieldHit.item.pinned ? [fieldHit.item.x, fieldHit.item.y] : [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2];
+        this.fieldDrag = { symbolId: fieldHit.symbolId, key: fieldHit.key, grab: [centre[0] - world[0], centre[1] - world[1]], startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.project), moved: false, at: null };
+        c.setPointerCapture(e.pointerId);
+        this.refresh();
+        return;
+      }
       const hit = hitLabel(this.sheet, world, tol / 2, measureText) || hitSymbol(this.project, this.sheet, world, 3 / ws.view.view.scale)
         || (fieldHit && this.sheet.symbols.find((y) => y.id === fieldHit.symbolId)) || hitWire(this.sheet, world, tol);
       if (e.shiftKey && hit) { if (this.selection.has(hit.id)) this.selection.delete(hit.id); else this.selection.add(hit.id); this.refresh(); return; }
@@ -277,6 +342,18 @@ export class SchematicEditor {
     });
     c.addEventListener('pointerup', (e) => {
       if (e.button !== 0) return;
+      if (this.fieldDrag) {
+        const d = this.fieldDrag;
+        this.fieldDrag = null; this.preview = null;
+        if (d.moved && d.at) {
+          const comp = this.project.components[this.sheet.symbols.find((y) => y.id === d.symbolId)?.componentId];
+          const what = d.key === 'reference' ? 'reference' : d.key;
+          this.app.edit(`Move ${comp?.ref || ''} ${what}`, (p) => pinField(p, d.symbolId, d.key, d.at));
+        }
+        ws.view.canvas.style.cursor = '';
+        this.refresh();
+        return;
+      }
       if (this.drag) {
         const d = this.drag;
         this.drag = null; this.preview = null;
@@ -296,7 +373,16 @@ export class SchematicEditor {
       const world = ws.view.view.toWorld(ws.view.local(e));
       this.cursor = snapPt(world, SCH_GRID);
       if (this.tool !== 'select') ws.view.invalidate();
-      if (this.drag && (e.buttons & 1)) {
+      if (this.fieldDrag && (e.buttons & 1)) {
+        const d = this.fieldDrag;
+        if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < DRAG_START_PX) return;
+        d.moved = true;
+        const pv = structuredClone(d.snapshot);
+        d.at = pinField(pv, d.symbolId, d.key, [world[0] + d.grab[0], world[1] + d.grab[1]]);
+        this.preview = pv;
+        ws.view.canvas.style.cursor = 'move';
+        ws.view.invalidate();
+      } else if (this.drag && (e.buttons & 1)) {
         const d = this.drag;
         if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 4) return;
         d.moved = true;
@@ -318,7 +404,7 @@ export class SchematicEditor {
         this.selection = new Set([...(m.add ? m.base : []), ...itemsInRect(this.project, this.sheet, r, mode)]);
         this.refresh();
       }
-      if (!this.drag && ws.view.canvas.style.cursor === 'move') ws.view.canvas.style.cursor = '';
+      if (!this.drag && !this.fieldDrag && ws.view.canvas.style.cursor === 'move') ws.view.canvas.style.cursor = '';
     });
     // the floating Netlist panel lives over the canvas, like DabbleCAD's inspector card
     // floating cards over the canvas, top right: the inspector, then the Netlist
@@ -340,6 +426,7 @@ export class SchematicEditor {
     }
     this.renderNetlist();
     this.renderSheets();
+    ws.view.onContextMenu = (e) => this.contextMenu(e);
     c.addEventListener('pointerleave', () => { if (this.placing && !this.placing.drag) { this.placing.at = null; ws.view.invalidate(); } });
   }
 

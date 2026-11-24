@@ -156,7 +156,11 @@ The Part picker draws each part on the Schematic colour theme's paper colour, so
 - **Managing styles:** Settings → Field styles has the same duplicate, edit, import and export flow as Colour themes.
   - The editor has a placement list you can reorder for horizontal and for vertical Symbols, checkboxes for which fields show, text size, bold, italic and gap, and the Value format.
   - A live preview shows a few parts in a crowded group.
-- **Placing fields:** they move automatically as you work. Dragging a field pins it, shown with a small pin glyph while it is selected. **Re-apply style** (in the toolbar and the context menu) unpins the selected Components' fields.
+- **Placing fields:** they move automatically as you work. Dragging a field (press on its text, not the part) moves just that field and pins it, snapped to a quarter grid, one undo step per drag. In a one-line style the half you grab comes out on its own.
+  - A pinned field keeps its place relative to its part when the part moves, rotates or mirrors; the text stays upright. Other fields keep clear of it.
+  - While its part is selected, a pinned field shows a small pin glyph and a faint dashed line to the part. The inspector says how many fields were moved by hand.
+  - **Re-apply style** (in the Fields menu, the inspector and the right-click menu) unpins the selected parts' fields so the style places them again.
+- **Right-click menu** (as in DabbleCAD): a right-click that doesn't pan opens Copy, Paste, Duplicate, Delete, Rotate, Mirror and Re-apply style for what's under the cursor, or Paste, Select all and Fit on empty canvas. Right-drag still pans.
 - **Crowded spots:** a field that can't find a free spot gets a small amber triangle and an ERC-panel warning, "R7 Value overlaps C3".
 
 ## Workspaces

@@ -7,8 +7,8 @@
 // bodies and Pins, Wires (inflated by half a grid), and fields already placed. If every slot
 // overlaps, it takes the one with the least overlap and flags it.
 import { labelBounds } from './labels.js';
-import { mm, SCH_GRID } from './units.js';
-import { place } from './geom.js';
+import { mm, SCH_GRID, snapPt } from './units.js';
+import { place, unplace } from './geom.js';
 import { partOf } from './project.js';
 import { compareRefs } from './netlist.js';
 import { formatValue } from './values.js';
@@ -69,6 +69,39 @@ export function setComponentFieldStyle(project, componentIds, style) {
     if (!c) continue;
     if (style) c.fieldStyle = style.id; else delete c.fieldStyle;
   }
+}
+
+// ---------------------------------------------------------------- pinned fields (#53)
+//
+// A field dragged by hand is pinned: its text centre is stored on the Symbol in the Symbol's own
+// frame (sym.fieldPins[key] = [x, y]), so it follows the Symbol when it moves, rotates or mirrors,
+// while the text itself stays upright. The placer never moves it, and it is an obstacle for others.
+
+const findSymbol = (project, id) => project.schematic.sheets.flatMap((s) => s.symbols).find((y) => y.id === id);
+
+/** Pin a field's text centre at world point `at`, snapped to a quarter grid. */
+export function pinField(project, symbolId, key, at) {
+  const sym = findSymbol(project, symbolId);
+  if (!sym) return null;
+  const w = snapPt(at, SCH_GRID / 4);
+  sym.fieldPins = { ...(sym.fieldPins || {}), [key]: unplace(w, sym.at, sym.rot || 0, !!sym.mirror) };
+  return w;
+}
+
+/** Where a pinned field's text centre is in the world, or null when it isn't pinned. */
+export function pinnedFieldAt(sym, key) {
+  const local = sym.fieldPins && sym.fieldPins[key];
+  return local ? place(local, sym.at, sym.rot || 0, !!sym.mirror) : null;
+}
+
+export const hasPinnedFields = (sym) => !!(sym.fieldPins && Object.keys(sym.fieldPins).length);
+
+/** Re-apply style: unpin every field of these Symbols so the Field style places them again. */
+export function unpinFields(project, symbolIds) {
+  const want = new Set(symbolIds);
+  let n = 0;
+  for (const s of project.schematic.sheets) for (const y of s.symbols) if (want.has(y.id) && y.fieldPins) { n += Object.keys(y.fieldPins).length; delete y.fieldPins; }
+  return n;
 }
 
 // ---------------------------------------------------------------- placement
@@ -171,13 +204,31 @@ export function placeFields(project, sheet, { measure, wires = sheet.wires } = {
   for (const l of sheet.labels || []) { const b = labelBounds(l, measure); fixed.push(box(b.x0, b.y0, b.x1, b.y1, 'label')); }
   const placed = [];
   const out = new Map();
+  // pinned fields first: they never move, and every other field keeps clear of them
+  const pinnedItems = new Map();
+  for (const sym of sheet.symbols) {
+    const g = geo.get(sym.id);
+    if (!g || !hasPinnedFields(sym)) continue;
+    const style = styleFor(project, g.comp);
+    const lh = Math.round(style.text.size * 1.25);
+    const items = [];
+    for (const line of fieldLines(project, g.comp, g.part, style, sym.unit || 0)) {
+      const at = pinnedFieldAt(sym, line.key);
+      if (!at) continue;
+      const w = measure(line.text, style.text.size);
+      items.push({ keys: [line.key], text: line.text, x: at[0], y: at[1], align: 'center', pinned: true, box: box(at[0] - w / 2, at[1] - lh / 2, at[0] + w / 2, at[1] + lh / 2) });
+    }
+    pinnedItems.set(sym.id, items);
+    for (const it of items) placed.push({ ...it.box, owner: sym.id });
+  }
   const order = [...sheet.symbols].filter((s) => geo.has(s.id))
     .sort((a, b) => compareRefs(geo.get(a.id).comp.ref, geo.get(b.id).comp.ref) || (a.unit || 0) - (b.unit || 0) || (a.id < b.id ? -1 : 1));
   for (const sym of order) {
     const g = geo.get(sym.id);
     const style = styleFor(project, g.comp);
-    const lines = fieldLines(project, g.comp, g.part, style, sym.unit || 0);
-    if (!lines.length) { out.set(sym.id, { items: [], slot: null, flagged: false }); continue; }
+    const pinned = pinnedItems.get(sym.id) || [];
+    const lines = fieldLines(project, g.comp, g.part, style, sym.unit || 0).filter((l) => !pinned.some((it) => it.keys[0] === l.key));
+    if (!lines.length) { out.set(sym.id, { items: pinned, slot: null, flagged: false }); continue; }
     const vertical = (sym.rot || 0) % 180 !== 0;
     const slots = (vertical ? style.placement.vertical : style.placement.horizontal).filter((s) => SLOTS.includes(s));
     let best = null;
@@ -186,14 +237,14 @@ export function placeFields(project, sheet, { measure, wires = sheet.wires } = {
       let score = 0, withWhom = null;
       for (const it of items) {
         for (const o of fixed) { if (o.owner === sym.id) continue; const a = overlap(it.box, o); if (a > 0) { score += a; withWhom ||= o.owner; } }
-        for (const o of placed) { const a = overlap(it.box, o); if (a > 0) { score += a; withWhom ||= o.owner; } }
+        for (const o of placed) { const a = overlap(it.box, o); if (a > 0) { score += a; withWhom ||= o.owner === sym.id ? 'own' : o.owner; } }
       }
       if (!best || score < best.score) best = { slot, items, score, withWhom };
       if (score === 0) break;
     }
     for (const it of best.items) placed.push({ ...it.box, owner: sym.id });
     const ownerRef = (owner) => (owner === 'wire' ? 'a wire' : geo.get(owner)?.comp.ref || null);
-    out.set(sym.id, { items: best.items, slot: best.slot, flagged: best.score > 0, overlapWith: best.score > 0 ? ownerRef(best.withWhom) : null });
+    out.set(sym.id, { items: [...pinned, ...best.items], slot: best.slot, flagged: best.score > 0, overlapWith: best.score > 0 ? ownerRef(best.withWhom) : null });
   }
   return out;
 }

@@ -23,6 +23,12 @@ export function rot90(p, rot = 0, mirror = false) {
 /** Local -> world for a placed symbol. */
 export const place = (p, at, rot, mirror) => add(rot90(p, rot, mirror), at);
 
+/** World -> local for a placed symbol (the inverse of place). */
+export function unplace(p, at, rot = 0, mirror = false) {
+  const [x, y] = rot90(sub(p, at), (360 - (((rot % 360) + 360) % 360)) % 360);
+  return [mirror ? -x : x, y];
+}
+
 /** True when p lies on segment a-b (inclusive). Exact for integer, axis-aligned or diagonal segments. */
 export function onSegment(p, a, b) {
   const cross = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
