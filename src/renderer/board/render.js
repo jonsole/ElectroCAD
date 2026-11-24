@@ -77,6 +77,7 @@ export function drawBoard(ctx, view, C, board, opts = {}) {
   if (opts.project) {
     const view2 = { ...opts.project, board };
     drawFootprints(ctx, view, C, view2, board, hidden, opts.padsOnly, opts.padKeys);
+    if (!opts.only || opts.trackIds) drawTracks(ctx, view, C, board, hidden, opts.only ? opts.trackIds : null);
     // the Ratsnest: a thin line for each unrouted connection
     if (opts.rats?.length) {
       ctx.save(); ctx.strokeStyle = C.ratsnest || '#98a2b3'; ctx.lineWidth = 1;
@@ -256,6 +257,23 @@ export function drawPad(ctx, view, C, pad, cu) {
     ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.shadowColor = 'rgba(0,0,0,.8)'; ctx.shadowBlur = 2;
     ctx.font = `600 ${Math.min(13, small * 0.4)}px system-ui, sans-serif`; ctx.fillText(pad.number, 0, 0);
+  }
+  ctx.restore();
+}
+
+/** Tracks, bottom layers first, in their layer's colour with round ends. `ids`: only these (highlighting). */
+export function drawTracks(ctx, view, C, board, hidden = new Set(), ids = null) {
+  const order = ['B.Cu', 'In2.Cu', 'In1.Cu', 'F.Cu'];
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (const layer of order) {
+    if (hidden.has(layer)) continue;
+    ctx.strokeStyle = C[layer] || '#c33';
+    for (const t of board.tracks || []) {
+      if (t.layer !== layer || (ids && !ids.has(t.id))) continue;
+      const [x0, y0] = view.toScreen(t.a), [x1, y1] = view.toScreen(t.b);
+      ctx.lineWidth = Math.max(1, t.width * view.scale);
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    }
   }
   ctx.restore();
 }

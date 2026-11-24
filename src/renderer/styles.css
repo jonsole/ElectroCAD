@@ -682,3 +682,8 @@ body.resizing iframe, body.resizing canvas { pointer-events: none; }
 .card-head .btn { height: 28px; min-width: 28px; padding: 0 6px; flex: none; }
 .card-head .card-close { color: var(--muted); }
 .card-head .card-close:hover { color: var(--text); }
+/* routing options on the Board toolbar (#20) */
+.corner-seg .btn { height: 30px; padding: 0 10px; font-size: 12.5px; }
+.chamfer-box { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); flex-shrink: 0; margin-left: 6px; }
+.chamfer-box .input { width: 64px; height: 30px; padding: 0 6px; }
+.chamfer-box em { font-style: normal; }

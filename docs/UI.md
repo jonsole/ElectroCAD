@@ -411,6 +411,28 @@ Selecting something in one editor highlights the same thing in the other (#18). 
   - The choice is remembered.
 - Clearing the selection clears the highlight.
 
+## Routing tracks (Free mode)
+
+**Route (X)** draws Tracks (#20):
+- **Start:** click a pad on the active copper layer. A through-hole pad is on every layer; pick the layer in Layers or with the bottom chips.
+- **Width and net:** the track takes the pad's Net and its Net class's width (or the default rule).
+- **Placing corners:** click to fix corners. Points snap to the grid, pad centres and handles.
+- **Finishing:** click a pad of the same Net. Double-click or Enter ends the track where it is.
+- **Keys while routing:** **/** flips which way the bend goes, **Backspace** takes back the last corner, **Esc** cancels.
+- **Board toolbar controls** (remembered per browser):
+  - **90° | 45° | Any:** how tracks bend, as Eagle's bend styles.
+  - **Chamfer** (mm), as Eagle's mitre: every bend of 90° or sharper is cut back by that length on both sides and joined at 45°. Bends you click get it too; it shortens when a segment is too short. 0 for none.
+- **Routing mode:** **Free** is the live mode, and tracks go where you draw them. Walkaround (#22) and Shove (#29) come later.
+- **Collisions show live:**
+  - a faint band shows the clearance the track must keep;
+  - segments too close to another Net's copper (pads, tracks, vias) turn red, and the copper they hit is outlined in red.
+  - Clearance is the larger of the two Nets' classes. The collision engine (`core/collision.js`) is shared with DRC (#25).
+- **Committing:** a finished track is one undo step. Its Ratsnest line goes once the pads are joined.
+- **Track selection:**
+  - Select (V) picks a track (Shift adds); Del deletes; Esc deselects.
+  - A selected track's Net highlights its Wires on the Schematic (cross-probing).
+  - Moving and editing tracks comes with #21.
+
 ## Workspaces
 
 There are four workspace tabs: **Schematic · Board · Gerber · Library**. Each keeps its own pan/zoom and selection when you switch away and back.

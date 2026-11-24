@@ -16,6 +16,8 @@ import { drawBoard } from './render.js';
 import { openAnnotateDialog } from './annotate-dialog.js';
 import { hitPad, footprintOutline, placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation } from '../core/footprint.js';
 import { ratsnest } from '../core/ratsnest.js';
+import { copperIndex, pointSeg2 } from '../core/collision.js';
+import { CORNERS, startRoute, step as routeStep, click as routeClickAt, back as routeBack, flipPosture, commit as routeCommit } from '../core/router.js';
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
 import { allFootprints } from '../library/footprints.js';
 import { STARTER_LIBRARY } from '../library/starter.js';
@@ -32,6 +34,7 @@ const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
 /** The palette tools that work now: key, icon, title. */
 export const BOARD_TOOLS = {
   select: { icon: 'select', title: 'Select (V)', key: 'v' },
+  route: { icon: 'route', title: 'Route (X): click a pad to start a track on the active copper layer, click to place corners, click a pad of the same net to finish · / flips the bend · Backspace undoes a corner · Esc cancels', key: 'x' },
   outline: { icon: 'outline', title: 'Outline rectangle (B): click two corners. Round the corners with Corner radius in Properties', key: 'b' },
   polygon: { icon: 'lpolygon', title: 'Outline polygon (P): click corners; A makes the next side an arc; click the first point to close', key: 'p' },
   circle: { icon: 'lellipse', title: 'Round outline or hole (C): click the centre, then the edge', key: 'c' },
@@ -56,6 +59,10 @@ export class BoardEditor {
     this.selection = new Set(); // indices into board.outline
     this.fpSel = new Set();     // ids of selected board Footprints
     this.netSel = new Set();    // Net names (as on the Board) selected by double-clicking a pad
+    this.trackSel = new Set();  // ids of selected Tracks
+    this.corner = pref.get('boardCorner', '45');            // track bends: '90' | '45' | 'any'
+    this.chamfer = mm(pref.get('boardChamfer', 0));         // Eagle-style auto chamfer of 90° bends
+    this.route = null;          // the track being routed (router state), its copper index and proposal
     this.pts = null;            // points clicked so far by the drawing tools
     this.arcNext = false;       // polygon: the next side is an arc (a mid point, then the end)
     this.measure = null;        // { a, b, done }
@@ -107,14 +114,23 @@ export class BoardEditor {
       onPick: () => this.setTool('origin'),
     });
     this.buildCards();
-    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.del, this.btn.rotate, this.btn.flip, this.btn.lock, h('span', { class: 'sep' }), ...this.cards.buttons(), this.gridCard.button];
+    // how tracks bend (90°, 45°, any angle) and the auto chamfer, as Eagle's bend styles and mitre
+    this.cornerSeg = h('div', { class: 'segmented corner-seg', role: 'radiogroup', 'aria-label': 'Track corners' },
+      ...CORNERS.map(([id, label]) => h('button', { class: 'btn' + (id === this.corner ? ' active' : ''), type: 'button', role: 'radio', 'aria-checked': String(id === this.corner), dataset: { corner: id },
+        title: { 90: 'Tracks bend at 90°', 45: 'Tracks bend at 45°', any: 'Tracks go straight to the pointer, at any angle' }[id] + ' (/ flips which way the bend goes)', onClick: () => this.setCorner(id) }, label)));
+    this.chamferIn = h('input', { class: 'input', type: 'number', min: '0', max: '10', step: '0.05', value: fmt(this.chamfer), 'aria-label': 'Chamfer (mm)' });
+    this.chamferIn.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') this.chamferIn.blur(); });
+    this.chamferIn.addEventListener('change', () => { const v = parseFloat(this.chamferIn.value); if (Number.isFinite(v) && v >= 0) this.setChamfer(mm(v)); });
+    const chamfer = h('label', { class: 'chamfer-box', title: 'Auto chamfer (as Eagle\'s mitre): bends of 90° or sharper are cut back by this length and joined at 45°. 0 for none' }, h('span', {}, 'Chamfer'), this.chamferIn, h('em', {}, 'mm'));
+    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.del, this.btn.rotate, this.btn.flip, this.btn.lock, h('span', { class: 'sep' }), ...this.cards.buttons(), this.gridCard.button,
+      h('span', { class: 'sep' }), this.cornerSeg, chamfer];
   }
 
   tools(later) {
     this.toolBtn = {};
     for (const [id, t] of Object.entries(BOARD_TOOLS)) this.toolBtn[id] = button({ icon: t.icon, title: t.title, onClick: () => this.setTool(id) });
     const T = this.toolBtn;
-    return [T.select, later({ icon: 'route', title: 'Route (X)' }, 20), later({ icon: 'dragTrack', title: 'Drag track (D)' }, 31),
+    return [T.select, T.route, later({ icon: 'dragTrack', title: 'Drag track (D)' }, 31),
       later({ icon: 'via', title: 'Via' }, 21), later({ icon: 'zone', title: 'Zone' }, 23), null,
       T.outline, T.polygon, T.circle, null, later({ icon: 'ltext', title: 'Text' }, 19), T.measure, T.origin];
   }
@@ -289,12 +305,14 @@ export class BoardEditor {
     for (const i of [...this.selection]) if (i >= n) this.selection.delete(i);
     const ids = new Set(this.board.footprints.map((f) => f.id));
     for (const id of [...this.fpSel]) if (!ids.has(id)) this.fpSel.delete(id);
+    const tids = new Set((this.board.tracks || []).map((t) => t.id));
+    for (const id of [...this.trackSel]) if (!tids.has(id)) this.trackSel.delete(id);
     this._rats = ratsnest(this.project);
     if (!copperLayerNames(this.board.stack.copper).includes(this.activeLayer) && /^In\d/.test(this.activeLayer)) this.activeLayer = 'F.Cu';
     if (this.btn) {
       this.btn.undo.disabled = !this.app.history.canUndo;
       this.btn.redo.disabled = !this.app.history.canRedo;
-      this.btn.del.disabled = !this.selection.size;
+      this.btn.del.disabled = !this.selection.size && !this.trackSel.size;
       const anyFp = this.fpSel.size > 0;
       for (const k of ['rotate', 'flip', 'lock']) this.btn[k].disabled = !anyFp;
       const fs = this.board.footprints.filter((f) => this.fpSel.has(f.id));
@@ -329,6 +347,9 @@ export class BoardEditor {
         : this.arcNext ? (p.mid ? 'Arc: click where it ends' : 'Arc: click a point the side passes through · A for a straight side')
           : 'Outline polygon: click the next corner · A arc side · Backspace undo corner · click the first corner to close · Esc cancel'; break;
       case 'circle': t = p ? 'Circle: click a point on the edge' : 'Circle: click the centre (a round board, or a hole inside the board)'; break;
+      case 'route': t = this.route
+        ? `Routing ${this.route.net} on ${this.route.layer} (${fmt(this.route.width)} mm): click to place a corner · click a ${this.route.net} pad to finish · double-click or Enter ends here · / flips the bend · Backspace undoes a corner · Esc cancels${this.routeView?.collisions.length ? ' · red: too close to another net' : ''}`
+        : `Route: click a pad on ${this.activeLayer} to start a track (corners: ${this.corner === 'any' ? 'any angle' : this.corner + '°'}${this.chamfer ? `, chamfer ${fmt(this.chamfer)} mm` : ''})`; break;
       case 'origin': t = 'Grid origin: click where the grid, rulers and coordinates should measure from (outline corners attract it) · Esc back to Select'; break;
       case 'measure': t = this.measure && !this.measure.done ? 'Measure: click the second point' : 'Measure: click two points · Esc to stop'; break;
       default: t = this.fpSel.size
@@ -343,8 +364,10 @@ export class BoardEditor {
 
   setTool(t) {
     if (!BOARD_TOOLS[t]) return;
+    if (this.route && t !== 'route') this.finishRoute();
+    if (t === 'route' && !copperLayerNames(this.board.stack.copper).includes(this.activeLayer)) this.activeLayer = 'F.Cu';
     this.tool = t; this.pts = null; this.arcNext = false; this.measure = null;
-    if (t !== 'select') { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); }
+    if (t !== 'select') { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); this.trackSel.clear(); }
     if (['outline', 'polygon', 'circle'].includes(t)) this.activeLayer = 'Edge.Cuts'; // the Outline lives on Edge.Cuts
     if (this.ws) this.ws.view.canvas.style.cursor = t === 'select' ? '' : 'crosshair';
     this.refresh();
@@ -384,6 +407,11 @@ export class BoardEditor {
   }
 
   deleteSelection() {
+    if (this.trackSel.size) {
+      const del = new Set(this.trackSel); this.trackSel.clear();
+      this.app.edit(del.size === 1 ? 'Delete track' : `Delete ${del.size} tracks`, (p) => { p.board.tracks = p.board.tracks.filter((t) => !del.has(t.id)); });
+      return;
+    }
     if (this.fpSel.size && !this.selection.size) { toast('Footprints come from the Schematic: delete the part there, then Update from Schematic (F8).', 'info', 3500); return; }
     if (!this.selection.size) return;
     const del = new Set(this.selection);
@@ -433,6 +461,7 @@ export class BoardEditor {
       const w = world(e);
       this.setAlt(e.altKey);
       if (this.tool === 'origin') { this.placeOrigin(w); return; }
+      if (this.tool === 'route') { this.routeClick(w, e.detail >= 2); return; }
       if (this.tool === 'select') {
         const tol = 5 / ws.view.view.scale;
         const handle = this._handleAt(w, tol);
@@ -441,6 +470,14 @@ export class BoardEditor {
           try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
           return;
         }
+        const tr = this._hitTrack(w, tol);
+        if (tr) {
+          if (e.shiftKey) { if (this.trackSel.has(tr.id)) this.trackSel.delete(tr.id); else this.trackSel.add(tr.id); }
+          else { this.trackSel = new Set([tr.id]); this.fpSel.clear(); this.selection.clear(); this.netSel.clear(); }
+          this.refresh();
+          return;
+        }
+        if (!e.shiftKey) this.trackSel.clear();
         const fp = hitFootprint(this.project, w, { preferBack: this.activeLayer.startsWith('B.'), hidden: this.hidden });
         const hit = fp || this.hidden.has('Edge.Cuts') ? null : hitOutline(this.board.outline, w, tol);
         if (fp) {
@@ -504,6 +541,7 @@ export class BoardEditor {
         ws.view.invalidate();
       } else if (this.tool !== 'select') {
         if (this.measure && !this.measure.done) this.measure.b = this.cursor;
+        if (this.route) this._routeMove();
         ws.view.invalidate();
       }
     });
@@ -567,7 +605,7 @@ export class BoardEditor {
    * Highlight outline shapes `outlineSel`, whole Footprints `fpIds` and single pads `padKeys`
    * ("componentId:pad") in the style from Settings, in colour C2.selection.
    */
-  _highlightBoard(ctx, view, C, board, outlineSel, fpIds, padKeys, C2, noFade = false) {
+  _highlightBoard(ctx, view, C, board, outlineSel, fpIds, padKeys, C2, noFade = false, trackIds = new Set()) {
     padKeys ||= new Set();
     const comps = new Set([...padKeys].map((k) => k.slice(0, k.lastIndexOf(':'))));
     const partial = new Set(board.footprints.filter((f) => !fpIds.has(f.id) && comps.has(f.componentId)).map((f) => f.id));
@@ -575,20 +613,22 @@ export class BoardEditor {
     const nets = padNets(board), proj = { ...this.project, board };
     const boxes = [
       ...sub.outline.map((sh) => outlineBounds([sh])),
+      ...(board.tracks || []).filter((t) => trackIds.has(t.id)).map((t) => ({ x0: Math.min(t.a[0], t.b[0]) - t.width / 2, y0: Math.min(t.a[1], t.b[1]) - t.width / 2, x1: Math.max(t.a[0], t.b[0]) + t.width / 2, y1: Math.max(t.a[1], t.b[1]) + t.width / 2 })),
       ...sub.footprints.filter((f) => !partial.has(f.id)).map((f) => { const q = footprintOutline(proj, f); const xs = q.map((p) => p[0]), ys = q.map((p) => p[1]); return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }; }),
       ...sub.footprints.filter((f) => partial.has(f.id)).flatMap((f) => placedPads(proj, f, nets).filter((p) => padKeys.has(`${f.componentId}:${p.number}`)).map((p) => { const r = Math.max(...p.size) / 2; return { x0: p.at[0] - r, y0: p.at[1] - r, x1: p.at[0] + r, y1: p.at[1] + r }; })),
     ].filter(Boolean).map((b) => screenBox(view, b));
     const style = this.app.highlightStyle() === 'fade' && noFade ? 'glow' : this.app.highlightStyle();
-    highlight(ctx, C2, style, (c, Cx) => drawBoard(c, view, Cx, sub, { project: this.project, hidden: this.hidden, only: true, padsOnly: partial, padKeys }), boxes);
+    highlight(ctx, C2, style, (c, Cx) => drawBoard(c, view, Cx, sub, { project: this.project, hidden: this.hidden, only: true, padsOnly: partial, padKeys, trackIds }), boxes);
   }
 
   /** Tell the Schematic what is selected here (when this is the workspace being used). */
   _publishProbe() {
     if (this.app.active !== this.ws) return;
-    const sig = `${[...this.fpSel].sort().join()}|${[...this.netSel].join()}`;
+    const trackNets = (this.board.tracks || []).filter((t) => this.trackSel.has(t.id)).map((t) => t.net);
+    const sig = `${[...this.fpSel].sort().join()}|${[...this.netSel].join()}|${trackNets.join()}`;
     if (sig === this._probeSig) return;
     this._probeSig = sig;
-    this.app.setProbe('board', probeFromBoard(this.project, [...this.fpSel], [...this.netSel]));
+    this.app.setProbe('board', probeFromBoard(this.project, [...this.fpSel], [...this.netSel, ...trackNets]));
   }
 
   /** Bring the Schematic's probe into view on the Board. */
@@ -612,6 +652,79 @@ export class BoardEditor {
   _padPoints() {
     const nets = padNets(this.board);
     return this.board.footprints.flatMap((bf) => placedPads(this.project, bf, nets).map((p) => p.at));
+  }
+
+  // ---------------------------------------------------------------- routing (#20)
+
+  setCorner(id) {
+    this.corner = id; pref.set('boardCorner', id);
+    for (const b of this.cornerSeg.querySelectorAll('button')) { const on = b.dataset.corner === id; b.classList.toggle('active', on); b.setAttribute('aria-checked', String(on)); }
+    if (this.route) { this.route = { ...this.route, corner: id }; this._routeMove(); }
+  }
+
+  setChamfer(nm) {
+    this.chamfer = nm; pref.set('boardChamfer', nm / 1e6);
+    this.chamferIn.value = fmt(nm);
+    if (this.route) { this.route = { ...this.route, chamfer: nm }; this._routeMove(); }
+  }
+
+  /** The pad under `w` on the active copper layer (a through-hole pad is on every layer). */
+  _padOnLayer(w) {
+    const hit = hitPad(this.project, w, { preferBack: this.activeLayer.startsWith('B.') });
+    return hit && (hit.pad.layers.includes(this.activeLayer) || hit.pad.layers.includes('*.Cu')) ? hit : null;
+  }
+
+  /** Route tool click: start on a pad, place a corner, or finish on a pad of the same Net. */
+  routeClick(w, dbl) {
+    const p = this.snapAt(w);
+    if (!this.route) {
+      const hit = this._padOnLayer(w);
+      if (!hit) { toast(hitPad(this.project, w) ? `That pad isn't on ${this.activeLayer}: make its layer active (Layers, or the chips at the bottom).` : 'Start a track on a pad.', 'info', 2600); return; }
+      if (!hit.pad.net) { toast('That pad has no net yet: Update from Schematic (F8) first.', 'info', 2600); return; }
+      this.route = startRoute(this.project, hit.pad.at, this.activeLayer, hit.pad.net, { corner: this.corner, chamfer: this.chamfer });
+      this.routeIndex = copperIndex(this.project);
+      this._routeMove();
+      this.refresh();
+      return;
+    }
+    const end = this._padOnLayer(w);
+    if (end && end.pad.net.toLowerCase() === this.route.net.toLowerCase() && (end.pad.at[0] !== this.route.points[0][0] || end.pad.at[1] !== this.route.points[0][1] || this.route.points.length > 1)) {
+      this.route = routeClickAt(this.project, this.route, end.pad.at);
+      this.finishRoute();
+      return;
+    }
+    if (dbl) { this.finishRoute(); return; }
+    this.route = routeClickAt(this.project, this.route, p);
+    this._routeMove();
+    this.refresh();
+  }
+
+  /** Recompute the proposal for the pointer (live collisions with other Nets). */
+  _routeMove() {
+    if (!this.route) return;
+    const had = this.routeView?.collisions.length || 0;
+    this.routeView = routeStep(this.project, this.route, this.cursor || this.route.points[this.route.points.length - 1], 'free', this.routeIndex);
+    if (this.ws && !!had !== !!this.routeView.collisions.length) this._hint();
+    this.ws?.view.invalidate();
+  }
+
+  finishRoute() {
+    const st = this.route;
+    this.route = null; this.routeView = null; this.routeIndex = null;
+    if (st && st.points.length > 1) {
+      let n = 0;
+      this.app.edit(`Route ${st.net}`, (p) => { n = routeCommit(p, st).length; });
+      toast(`${n} track${n === 1 ? '' : 's'} on ${st.layer} (${st.net}).`, 'info', 1600);
+    } else this.refresh();
+  }
+
+  cancelRoute() { this.route = null; this.routeView = null; this.routeIndex = null; this.refresh(); }
+
+  /** The Track under `w` on a shown layer, front layers first. */
+  _hitTrack(w, tol) {
+    const order = ['F.Cu', 'In1.Cu', 'In2.Cu', 'B.Cu'];
+    const ts = (this.board.tracks || []).filter((t) => !this.hidden.has(t.layer)).sort((a, b) => order.indexOf(a.layer) - order.indexOf(b.layer));
+    return ts.find((t) => pointSeg2(w, t.a, t.b) <= (t.width / 2 + tol) ** 2) || null;
   }
 
   /** Forward annotation: list what the Schematic changes on the Board, then apply it in one step. */
@@ -687,19 +800,45 @@ export class BoardEditor {
     const board = { ...this.board, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints };
     drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: this._rats?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure });
     // the selection, highlighted in the style chosen in Settings (the same in every editor)
-    if (this.selection.size || this.fpSel.size || this.netSel.size) {
+    if (this.selection.size || this.fpSel.size || this.netSel.size || this.trackSel.size) {
       const t = this.netSel.size ? boardTargets({ ...this.project, board }, probeFromBoard(this.project, [], [...this.netSel])) : null;
-      this._highlightBoard(ctx, view, C, board, this.selection, this.fpSel, t?.pads, C);
+      this._highlightBoard(ctx, view, C, board, this.selection, this.fpSel, t?.pads, C, false, new Set([...this.trackSel, ...(t?.copper || [])]));
     }
     // the Schematic's selection (cross-probing), in the theme's Highlight colour
     const probe = this.app.probeFor('board');
     if (probe) {
       const t = boardTargets({ ...this.project, board }, probe);
       const fps = new Set([...t.footprints].filter((id) => !this.fpSel.has(id)));
-      if (fps.size || t.pads.size) this._highlightBoard(ctx, view, C, board, new Set(), fps, t.pads, { ...C, selection: C.highlight || C.selection }, this.selection.size || this.fpSel.size);
+      const copper = new Set([...t.copper].filter((id) => !this.trackSel.has(id)));
+      if (fps.size || t.pads.size || copper.size) this._highlightBoard(ctx, view, C, board, new Set(), fps, t.pads, { ...C, selection: C.highlight || C.selection }, this.selection.size || this.fpSel.size, copper);
     }
+    if (this.routeView) this._drawRoute(ctx, view, C);
     drawHandles(ctx, view, C, this._handles(), this.handleDrag?.key);
     drawSnapMark(ctx, view, C, this.snapMark);
+  }
+
+  /** The track being routed: its segments in the layer's colour, those too close to other Nets in the DRC colour, and what they hit outlined. */
+  _drawRoute(ctx, view, C) {
+    const { segments, collisions } = this.routeView, st = this.route;
+    const bad = C.drcError || '#ff3b6b';
+    ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    // the clearance it must keep, as a faint band, then the copper
+    for (const pass of ['band', 'copper']) {
+      for (const sg of segments) {
+        const [x0, y0] = view.toScreen(sg.a), [x1, y1] = view.toScreen(sg.b);
+        if (pass === 'band') { ctx.globalAlpha = sg.collides ? 0.4 : 0.18; ctx.strokeStyle = sg.collides ? bad : C.selection; ctx.lineWidth = Math.max(2, (st.width + 2 * this.board.rules.clearance) * view.scale); }
+        else { ctx.globalAlpha = sg.fixed ? 0.95 : 0.8; ctx.strokeStyle = sg.collides ? bad : C[st.layer] || '#c33'; ctx.lineWidth = Math.max(1, st.width * view.scale); }
+        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1; ctx.strokeStyle = bad; ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
+    for (const it of collisions) {
+      ctx.beginPath();
+      if (it.shape.type === 'poly') it.shape.pts.map((q) => view.toScreen(q)).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      else { const [x0, y0] = view.toScreen(it.shape.a), [x1, y1] = view.toScreen(it.shape.b); const r = it.shape.r * view.scale + 2; if (x0 === x1 && y0 === y1) ctx.arc(x0, y0, r, 0, Math.PI * 2); else { ctx.lineWidth = r * 2; ctx.globalAlpha = 0.35; ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); } }
+      ctx.closePath(); ctx.stroke(); ctx.lineWidth = 2; ctx.globalAlpha = 1;
+    }
+    ctx.restore();
   }
 
   // ---------------------------------------------------------------- keys
@@ -711,8 +850,14 @@ export class BoardEditor {
     if (e.key === 'Escape') {
       if (this.pts || (this.measure && !this.measure.done)) { this.pts = null; this.arcNext = false; this.measure = null; this.refresh(); }
       else if (this.tool !== 'select') this.setTool('select');
-      else if (this.selection.size || this.fpSel.size || this.netSel.size) { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); this.refresh(); }
+      else if (this.selection.size || this.fpSel.size || this.netSel.size || this.trackSel.size) { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); this.trackSel.clear(); this.refresh(); }
       return true;
+    }
+    if (this.route) {
+      if (e.key === 'Escape') { this.cancelRoute(); return true; }
+      if (e.key === '/') { this.route = flipPosture(this.route); this._routeMove(); return true; }
+      if (e.key === 'Backspace') { if (this.route.points.length > 1) { this.route = routeBack(this.route); this._routeMove(); } else this.cancelRoute(); return true; }
+      if (e.key === 'Enter') { this.finishRoute(); return true; }
     }
     if (this.tool === 'polygon' && this.pts) {
       if (k === 'a') { if (!this.pts.mid) this.arcNext = !this.arcNext; this.refresh(); return true; }
@@ -724,7 +869,7 @@ export class BoardEditor {
         return true;
       }
     }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && this.selection.size) { this.deleteSelection(); return true; }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && (this.selection.size || this.trackSel.size || this.fpSel.size)) { this.deleteSelection(); return true; }
     const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
     if (arrows[e.key] && (this.selection.size || this.fpSel.size)) { const [dx, dy] = arrows[e.key]; this.nudge(dx * this.board.grid.main, dy * this.board.grid.main); return true; }
     if (this.fpSel.size && this.tool === 'select') {
