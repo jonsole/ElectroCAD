@@ -375,3 +375,9 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 
 /* Part picker tiles show the part on the schematic's paper colour */
 .part-tile img { width: calc(100% - 6px); height: 76px; object-fit: contain; border-radius: 6px; margin-bottom: 4px; box-shadow: inset 0 0 0 1px var(--border); }
+
+/* the net name box's drop-down (every net, narrowed as you type) */
+.net-pick { position: absolute; z-index: 13; max-height: 220px; overflow-y: auto; padding: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); }
+.net-opt { padding: 4px 10px; border-radius: 5px; font: 600 12.5px "Segoe UI", system-ui, sans-serif; cursor: pointer; white-space: nowrap; }
+.net-opt:hover, .net-opt.hi { background: var(--accent-soft); color: var(--accent); }
+.net-opt.current::after { content: ' ✓'; color: var(--muted); font-weight: 400; }

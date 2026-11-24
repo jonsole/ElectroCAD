@@ -59,9 +59,16 @@ const bb = window.electrocadLib.labels.labelBounds(pl);
 { const r = ws.view.canvas.getBoundingClientRect(); const [x, y] = ws.view.view.toScreen([(bb.x0 + bb.x1) / 2, bb.y0 + (bb.y1 - bb.y0) * 0.2]);
   ws.view.canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: r.left + x, clientY: r.top + y, bubbles: true, cancelable: true })); }
 const pbox = document.querySelector('.field-edit.label-edit');
-check('power-dblclick-opens', !!pbox && pbox.value === '+5V' && !!document.getElementById(pbox.getAttribute('list'))?.querySelector('option[value="+3V3"]'));
-if (pbox) { pbox.value = '+3V3'; pbox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); }
-check('power-renamed', netOf('R2', '2')?.name === '+3V3');
+const opts = () => [...document.querySelectorAll('.net-pick .net-opt')].map((o) => o.dataset.net);
+check('power-dblclick-opens', !!pbox && pbox.value === '+5V' && opts().includes('+3V3') && opts().includes('VCC'), opts());
+// a new voltage typed on one power symbol…
+if (pbox) { pbox.value = '+2V5'; pbox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); }
+check('power-new-net', netOf('R2', '2')?.name === '+2V5');
+// …is offered on every other one, and picking from the list works
+ed.editLabel({ label: app.project.schematic.sheets[0].labels.find((l) => l.net === '+2V5') });
+check('new-net-offered', opts().includes('+2V5') && opts().includes('+5V') && opts().length > 5, opts());
+document.querySelector('.net-pick .net-opt[data-net="+3V3"]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+check('power-renamed', netOf('R2', '2')?.name === '+3V3' && !document.querySelector('.net-pick'));
 key('p');
 click(pin(c.sym, '1'));
 check('power-uses-last', netOf('R2', '1')?.name === '+3V3', netOf('R2', '1'));

@@ -17,7 +17,7 @@ import { SchematicInspector } from './inspector.js';
 import { makeDraggable } from '../ui/draggable.js';
 import { placeFields, fieldWarnings, setDefaultFieldStyle, setComponentFieldStyle, hitField, styleFor } from '../core/fields.js';
 import { validateRef, updateComponent } from '../core/components.js';
-import { hitLabel, labelBounds, labelShape, labelFrame, validateLabelName, POWER_NAMES, isPower } from '../core/labels.js';
+import { hitLabel, labelBounds, labelShape, labelFrame, validateLabelName, isPower, netNameChoices, filterNetNames } from '../core/labels.js';
 
 /** The label tools: what each one places. */
 const LABEL_TOOLS = {
@@ -644,17 +644,31 @@ export class SchematicEditor {
     const t = f.apply(sh.text.at);
     const [cx, cy] = v.toScreen([l.at[0] + t[0], l.at[1] + t[1]]);
     const px = Math.max(12, mm127 * v.scale);
-    const names = new Set(isPower(l) ? POWER_NAMES : []);
-    for (const s of this.project.schematic.sheets) for (const x of s.labels || []) if (isPower(x) === isPower(l) && x.style !== 'gnd') names.add(x.net);
-    const listId = `label-names-${Math.random().toString(36).slice(2)}`;
-    const list = h('datalist', { id: listId }, ...[...names].sort().map((n) => h('option', { value: n })));
-    const input = h('input', { class: 'field-edit label-edit', type: 'text', value: original, spellcheck: false, autocomplete: 'off', list: listId, 'aria-label': label ? 'Rename net' : 'Net name' });
+    // our own drop-down, not a <datalist>: a datalist hides every choice that doesn't match the
+    // text already in the box, so a power symbol showing +5V would offer only +5V
+    const names = netNameChoices(this.project, l);
+    const list = h('div', { class: 'net-pick', role: 'listbox', 'aria-label': 'Nets' });
+    const input = h('input', { class: 'field-edit label-edit', type: 'text', value: original, spellcheck: false, autocomplete: 'off', role: 'combobox', 'aria-label': label ? 'Rename net' : 'Net name' });
     const w = Math.max(110, measureText(original || 'NET', mm127) * v.scale + 40);
     const leftAligned = !(f.flip && !isPower(l)) && sh.text.align === 'left';
     Object.assign(input.style, { left: `${leftAligned ? cx - 6 : cx - w / 2}px`, top: `${cy - px * 0.85}px`, width: `${w}px`, height: `${px * 1.7}px`, fontSize: `${px}px` });
     const tip = h('div', { class: 'field-edit-tip' });
-    Object.assign(tip.style, { left: input.style.left, top: `${cy + px * 0.95}px` });
+    Object.assign(tip.style, { left: input.style.left, top: `${cy - px * 0.85 - 24}px` }); // above the box; the list goes below
     if (!label) { tip.textContent = 'Enter to place · Esc to cancel'; tip.classList.add('note'); }
+    Object.assign(list.style, { left: input.style.left, top: `${cy + px * 0.95}px`, minWidth: `${w}px` });
+    let shown = [], hi = -1;
+    const pick = (name) => { input.value = name; commit(); };
+    const renderList = () => {
+      shown = filterNetNames(names, input.value, original);
+      hi = Math.min(hi, shown.length - 1);
+      list.replaceChildren(...shown.map((n, i) => {
+        const opt = h('div', { class: 'net-opt' + (i === hi ? ' hi' : '') + (n === original ? ' current' : ''), role: 'option', 'aria-selected': String(i === hi), dataset: { net: n } }, n);
+        opt.addEventListener('pointerdown', (e) => { e.preventDefault(); pick(n); }); // preventDefault keeps focus in the box
+        return opt;
+      }));
+      list.style.display = shown.length ? '' : 'none';
+      list.querySelector('.hi')?.scrollIntoView({ block: 'nearest' });
+    };
     let done = false;
     const close = () => { if (done) return; done = true; input.remove(); tip.remove(); list.remove(); this.labelEdit = null; this.ws.view.canvas.focus({ preventScroll: true }); this.ws.view.invalidate(); };
     const commit = () => {
@@ -677,12 +691,16 @@ export class SchematicEditor {
     };
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
-      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (shown.length) { hi = (hi + (e.key === 'ArrowDown' ? 1 : -1) + shown.length + 1) % (shown.length + 1); if (hi === shown.length) hi = -1; renderList(); }
+      } else if (e.key === 'Enter') { e.preventDefault(); if (hi >= 0 && shown[hi]) pick(shown[hi]); else commit(); }
       else if (e.key === 'Escape') { e.preventDefault(); close(); }
     });
-    input.addEventListener('input', () => { input.classList.remove('bad'); tip.textContent = ''; });
+    input.addEventListener('input', () => { input.classList.remove('bad'); tip.textContent = ''; hi = -1; renderList(); });
     input.addEventListener('blur', () => { if (!done && !commit()) close(); });
-    this.ws.view.el.append(list, input, tip);
+    this.ws.view.el.append(input, list, tip);
+    renderList();
     input.focus();
     input.select();
     this.labelEdit = { input, commit, close };

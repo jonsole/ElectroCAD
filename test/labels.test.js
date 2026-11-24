@@ -136,3 +136,22 @@ test('labels and Sheets survive save and load; a damaged label is refused', () =
   s2.labels[0].style = 'weird';
   assert.throws(() => deserialize(serialize(p)), /unknown kind/);
 });
+
+import { netNameChoices, filterNetNames } from '../src/renderer/core/labels.js';
+
+test('every Power symbol is offered every power net, including new ones', () => {
+  const { p, s1, s2 } = twoSheets();
+  const a = addLabel(p, s1, { at: [G, G], net: '+5V', style: 'power' });
+  addLabel(p, s2, { at: [G, G], net: '+2V5', style: 'power' }); // a net typed by the user
+  addLabel(p, s1, { at: [G * 3, G], net: 'GND', style: 'gnd' });
+  addLabel(p, s1, { at: [G * 5, G], net: 'EN' });
+  const choices = netNameChoices(p, a);
+  assert.ok(choices.includes('+2V5') && choices.includes('+3V3') && choices.includes('VCC'));
+  assert.ok(!choices.includes('GND') && !choices.includes('EN'), 'no ground or signal nets');
+  assert.equal(new Set(choices).size, choices.length);
+  assert.ok(choices.indexOf('+2V5') < choices.indexOf('+12V'), 'natural order');
+  assert.deepEqual(netNameChoices(p, s1.labels[2]), ['EN'], 'labels offer label nets');
+  // the box opens showing all of them; typing narrows the list
+  assert.equal(filterNetNames(choices, '+5V', '+5V'), choices);
+  assert.deepEqual(filterNetNames(choices, '3v', '+5V'), ['+3V3']);
+});

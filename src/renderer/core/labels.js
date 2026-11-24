@@ -94,3 +94,24 @@ export function validateLabelName(name) {
   if (/\s/.test(n)) return 'Use no spaces in a net name (e.g. VIN or EN_3V3).';
   return null;
 }
+
+/**
+ * The net names a label's name box offers: for a Power symbol the common power nets plus every
+ * power net in the Project (so a new one, e.g. +3V3 typed once, is offered on every other Power
+ * symbol); for Net and Global labels every label net in the Project. Sorted naturally, no repeats.
+ */
+export function netNameChoices(project, label) {
+  const power = isPower(label);
+  const names = new Set(power ? POWER_NAMES : []);
+  for (const s of project.schematic.sheets) {
+    for (const x of s.labels || []) if (x.style !== 'gnd' && isPower(x) === power && x.net) names.add(x.net);
+  }
+  return [...names].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }) || a.localeCompare(b));
+}
+
+/** The choices to show for what is typed: all of them until the text changes, then those containing it. */
+export function filterNetNames(names, typed, original) {
+  const t = String(typed ?? '').trim().toLowerCase();
+  if (!t || t === String(original ?? '').trim().toLowerCase()) return names;
+  return names.filter((n) => n.toLowerCase().includes(t));
+}

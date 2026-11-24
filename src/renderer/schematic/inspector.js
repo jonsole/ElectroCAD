@@ -8,7 +8,7 @@ import { moveSelection, rotateSymbols, mirrorSymbols, cleanupWires } from '../co
 import { setComponentFieldStyle, styleFor } from '../core/fields.js';
 import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { partOf } from '../core/project.js';
-import { validateLabelName, isPower, POWER_NAMES } from '../core/labels.js';
+import { validateLabelName, isPower, netNameChoices } from '../core/labels.js';
 import { snap, SCH_GRID, mm } from '../core/units.js';
 
 const fmtMm = (nm) => String(+(nm / 1e6).toFixed(2));
@@ -186,13 +186,14 @@ export class SchematicInspector {
       if (l.style === 'power') this.ed.nextName.power = v.trim();
       return this._edit(`Rename ${l.net} to ${v.trim()}`, (p) => { this._find(p, l.id).net = v.trim(); });
     };
-    const name = this._text('Net name', l.net, rename);
-    if (isPower(l)) {
-      const input = name.querySelector('input');
-      input.setAttribute('list', 'insp-power-names');
-      name.append(h('datalist', { id: 'insp-power-names' }, ...['GND', ...POWER_NAMES].map((n) => h('option', { value: n }))));
-    }
-    rows.push(name);
+    if (isPower(l) && l.style !== 'gnd') {
+      // a real list of every power net (a <datalist> would only show the one already typed)
+      const sel = h('select', { class: 'select', 'aria-label': 'Power net' }, ...netNameChoices(this.project, l).map((n) => h('option', { value: n }, n)));
+      sel.value = l.net;
+      sel.addEventListener('change', () => { const r = rename(sel.value); if (r !== true && r !== undefined) sel.value = l.net; });
+      rows.push(h('div', { class: 'param param-wide' }, h('label', {}, 'Power net'), sel));
+      rows.push(this._text('New net', '', rename, { placeholder: 'Or type one, e.g. +2V5', ariaLabel: 'Net name' }));
+    } else rows.push(this._text('Net name', l.net, rename));
     if (!isPower(l)) {
       const sel = h('select', { class: 'select', 'aria-label': 'Label scope' },
         h('option', { value: 'local' }, 'Net label: this sheet only'),
