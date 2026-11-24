@@ -5,6 +5,7 @@
 import { h, button, icon } from './dom.js';
 import { gridLabel } from '../core/grid.js';
 import { makeDraggable } from './draggable.js';
+import { cardHead } from './cards.js';
 
 export class GridCard {
   /**
@@ -78,8 +79,7 @@ export class GridCard {
     const editable = st.originEditable !== false && this.o.onOrigin;
     const atOrigin = !st.origin[0] && !st.origin[1];
     el.replaceChildren(
-      h('div', { class: 'fp-head' }, h('b', {}, 'Grid'), h('span', { class: 'fp-count', title: st.scope }, st.scope),
-        button({ icon: 'close', title: 'Close', cls: 'btn-ghost', onClick: () => this.toggle(false) })),
+      cardHead({ icon: 'grid', title: 'Grid', sub: st.scope, onClose: () => this.toggle(false), closeTitle: 'Close (the Grid button on the toolbar opens it again)' }),
       h('div', { class: 'fp-body' },
         sel('main', 'Grid', 'The snap grid'),
         sel('alt', 'Alt grid', 'Hold Alt while drawing, moving or resizing to snap to this grid'),

@@ -3,6 +3,7 @@
 // Footprint, Field style, position/rotation/mirror, MPN and custom fields; for several it offers
 // the Field style and the shared commands. Every change is one undo step.
 import { h, button, toast } from '../ui/dom.js';
+import { cardHead } from '../ui/cards.js';
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
 import { moveSelection, rotateSymbols, mirrorSymbols, cleanupWires, placedUnits, setSymbolUnit, unitLetter } from '../core/schematic.js';
 import { setComponentFieldStyle, styleFor, hasPinnedFields } from '../core/fields.js';
@@ -60,12 +61,12 @@ export class SchematicInspector {
    */
   _head(title, sub, { rotate = true, mirror = false } = {}) {
     const ed = this.ed;
-    return h('div', { class: 'insp-head', title: 'Drag to move · double-click here to put the card back' },
-      h('div', { class: 'insp-title', title }, title, sub ? h('span', { class: 'insp-sub' }, ' · ' + sub) : null),
+    return cardHead({ icon: 'sliders', title, sub, actions: [
       rotate ? button({ icon: 'rotate', title: 'Rotate (R)', onClick: () => ed.rotate() }) : null,
       mirror ? button({ icon: 'mirror', title: 'Mirror (X)', onClick: () => ed.mirror() }) : null,
       button({ icon: 'duplicate', title: 'Duplicate (Ctrl+D)', onClick: () => ed.duplicate() }),
-      button({ icon: 'trash', title: 'Delete (Del)', onClick: () => ed.deleteSelection() }));
+      button({ icon: 'trash', title: 'Delete (Del)', onClick: () => ed.deleteSelection() })],
+    onClose: () => { ed.selection.clear(); ed.refresh(); }, closeTitle: 'Close (deselect; selecting something opens it again)' });
   }
 
   _edit(label, fn) {

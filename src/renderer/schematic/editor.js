@@ -15,6 +15,7 @@ import { snapToGrid, gridLabel, SCHEMATIC_GRIDS, setGridStep } from '../core/gri
 import { watchAlt } from '../ui/grid.js';
 import { RULER } from '../view/canvas2d.js';
 import { GridCard } from '../ui/gridCard.js';
+import { cardHead } from '../ui/cards.js';
 import { highlight, screenBox, revealBox } from '../view/highlight.js';
 import { probeFromSchematic, schematicTargets, sheetForProbe } from '../core/probe.js';
 import { hitDrawing, drawingDefaults, paperRect, titleBlockLayout, PAPER_SIZES, TITLE_FIELDS, LINE_STYLES } from '../core/drawings.js';
@@ -167,8 +168,7 @@ export class SchematicEditor {
     this.grid.addEventListener('pointerleave', () => { if (this.fpHover) { this.fpHover = null; this.renderFootprintRow(); } });
     // the Parts card: floating over the canvas (toolbar Parts button), or docked by either edge
     this.panel = h('div', { class: 'float-panel parts-card picker', role: 'region', 'aria-label': 'Parts' },
-      h('div', { class: 'fp-head', title: 'Drag to move · drop on the left or right edge of the canvas to dock · double-click to put it back' }, icon('parts', 16), h('b', {}, 'Parts'),
-        button({ icon: 'close', title: 'Close (the Parts button on the toolbar opens it again)', cls: 'btn-ghost', onClick: () => this.toggleParts(false) })),
+      cardHead({ icon: 'parts', title: 'Parts', onClose: () => this.toggleParts(false), closeTitle: 'Close (the Parts button on the toolbar opens it again)' }),
       h('div', { class: 'parts-body' },
       h('div', { class: 'side-filter picker-filter' }, catSel, this.viewBtn = button({ icon: VIEWS[this.pickerView].icon, title: `View: ${VIEWS[this.pickerView].label}`, cls: 'btn-ghost picker-view', onClick: (e) => this.viewMenu(e.currentTarget) })),
       h('div', { class: 'side-search' }, icon('search', 16), search),
@@ -1395,10 +1395,10 @@ export class SchematicEditor {
     const search = h('input', { class: 'input erc-search', type: 'search', placeholder: 'Part or net, e.g. U1 or VCC', 'aria-label': 'Filter by part or net', spellcheck: false });
     search.addEventListener('input', () => { f.query = search.value; this.renderErc(); this.ws?.view.invalidate(); });
     search.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') { search.value = ''; f.query = ''; this.renderErc(); this.ws?.view.invalidate(); } });
-    const count = h('span', { class: 'fp-count' });
+    const count = h('span', {});
     const body = h('div', { class: 'fp-body' });
     this.ercEl.replaceChildren(
-      h('div', { class: 'fp-head' }, h('b', {}, 'ERC'), count, button({ icon: 'close', title: 'Close', cls: 'btn-ghost', onClick: () => this.toggleErc(false) })),
+      cardHead({ icon: 'erc', title: 'ERC', sub: h('span', { class: 'insp-sub' }, ' · ', count), onClose: () => this.toggleErc(false), closeTitle: 'Close (the ERC button on the toolbar opens it again)' }),
       h('div', { class: 'erc-filter' }, h('div', { class: 'erc-chips', role: 'group', 'aria-label': 'Show' }, chips.error, chips.warning, chips.info),
         h('div', { class: 'side-search erc-search-row' }, icon('search', 15), search)),
       body);
@@ -1430,8 +1430,7 @@ export class SchematicEditor {
     const nl = buildNetlist(this.project);
     const pin = (x) => h('span', { class: 'nl-pin', title: `${x.ref} pin ${x.pin} → pad ${x.pad}` }, `${x.ref}.${x.pin}`);
     el.replaceChildren(
-      h('div', { class: 'fp-head' }, h('b', {}, 'Netlist'), h('span', { class: 'fp-count' }, `${nl.nets.length} net${nl.nets.length === 1 ? '' : 's'}`),
-        button({ icon: 'close', title: 'Close', cls: 'btn-ghost', onClick: () => this.toggleNetlist(false) })),
+      cardHead({ icon: 'netlist', title: 'Netlist', sub: `${nl.nets.length} net${nl.nets.length === 1 ? '' : 's'}`, onClose: () => this.toggleNetlist(false), closeTitle: 'Close (the Netlist button on the toolbar opens it again)' }),
       h('div', { class: 'fp-body' },
         nl.nets.length ? null : h('p', { class: 'side-note' }, 'No nets yet. Use the Wire tool (W) to connect Pins.'),
         ...nl.nets.map((n) => h('div', { class: 'nl-net', dataset: { net: n.name } }, h('div', { class: 'nl-name' }, n.name), h('div', { class: 'nl-pins' }, ...n.pins.map(pin)))),
@@ -1700,8 +1699,7 @@ export class SchematicEditor {
           button({ icon: 'trash', title: sheets.length < 2 ? 'A project keeps at least one sheet' : 'Delete sheet', cls: 'btn-ghost btn-xs', disabled: sheets.length < 2, onClick: () => this.deleteSheet(s.id) })));
     };
     el.replaceChildren(
-      h('div', { class: 'fp-head' }, h('b', {}, 'Sheets'), h('span', { class: 'fp-count' }, `${sheets.length}`),
-        button({ icon: 'close', title: 'Close', cls: 'btn-ghost', onClick: () => this.toggleSheets(false) })),
+      cardHead({ icon: 'sheets', title: 'Sheets', sub: String(sheets.length), onClose: () => this.toggleSheets(false), closeTitle: 'Close (the Sheets button on the toolbar opens it again)' }),
       h('div', { class: 'fp-body' }, ...sheets.map(row),
         h('div', { class: 'sheets-add' }, button({ icon: 'plus', label: 'Add sheet', cls: 'btn-outline', onClick: () => this.addSheet() })),
         h('p', { class: 'side-note' }, 'Net labels join on their own sheet; Global labels and Power symbols join across sheets. The gear sets a sheet\'s paper size, grid and origin.')));

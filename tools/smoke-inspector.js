@@ -14,6 +14,12 @@ check('hidden-when-empty', insp().childElementCount === 0);
 ed.selection = new Set([a.sym.id]); ed.refresh();
 check('shown-on-select', /R1/.test(insp().querySelector('.insp-title').textContent));
 check('header-icons', ['Rotate (R)', 'Mirror (X)', 'Duplicate (Ctrl+D)', 'Delete (Del)'].every((t) => insp().querySelector(`.insp-head button[title="${t}"]`)));
+// every floating card has the same title bar: icon, title, close X last
+for (const el of document.querySelectorAll('.ws-root[data-ws="schematic"] .float-panel, .ws-root[data-ws="schematic"] .inspector')) {
+  const head = el.querySelector(':scope > .card-head');
+  if (!head) continue; // a card not showing yet
+  check('title-bar ' + (el.getAttribute('aria-label') || el.className), head.firstElementChild?.classList.contains('icon') && !!head.querySelector('.insp-title') && head.lastElementChild?.classList.contains('card-close'));
+}
 { // each card moves by its header and resizes from its corner on its own; double-click docks it
   const card = insp();
   const ev = (type, x, y, target) => target.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, button: 0, buttons: 1, bubbles: true, pointerId: 7 }));
@@ -29,10 +35,10 @@ check('header-icons', ['Rotate (R)', 'Mirror (X)', 'Duplicate (Ctrl+D)', 'Delete
   ed.toggleNetlist(true);
   const nl = document.querySelector('.netlist-panel');
   check('netlist-still-docked', nl.parentElement.classList.contains('float-stack'));
-  const nh = nl.querySelector('.fp-head b').getBoundingClientRect();
-  ev('pointerdown', nh.left + 3, nh.top + 3, nl.querySelector('.fp-head b')); ev('pointermove', nh.left - 297, nh.top + 103, nl); ev('pointerup', nh.left - 297, nh.top + 103, nl);
+  const nh = nl.querySelector('.card-head .insp-title').getBoundingClientRect();
+  ev('pointerdown', nh.left + 3, nh.top + 3, nl.querySelector('.card-head .insp-title')); ev('pointermove', nh.left - 297, nh.top + 103, nl); ev('pointerup', nh.left - 297, nh.top + 103, nl);
   check('netlist-moved-alone', nl.classList.contains('card-free') && Math.abs(card.getBoundingClientRect().left - after.left) < 2);
-  for (const c of [card, nl]) c.querySelector('.insp-head, .fp-head').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  for (const c of [card, nl]) c.querySelector('.card-head').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   check('cards-docked-again', card.parentElement.classList.contains('float-stack') && nl.parentElement.classList.contains('float-stack') && !card.style.left
     && !localStorage.getItem('electrocad.card.schematic-inspector') && !localStorage.getItem('electrocad.card.schematic-netlist'));
   check('dock-order', [...document.querySelector('.float-stack:not(.float-stack-parts)').children].indexOf(card) < [...document.querySelector('.float-stack:not(.float-stack-parts)').children].indexOf(nl));

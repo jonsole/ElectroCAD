@@ -18,6 +18,7 @@ import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { SCHEMATIC_GRIDS, DEFAULT_SCHEMATIC_GRID, gridLabel, setGridStep, snapToGrid } from '../core/grid.js';
 import { watchAlt } from '../ui/grid.js';
 import { GridCard } from '../ui/gridCard.js';
+import { CardSet } from '../ui/cards.js';
 import { highlight, screenBox } from '../view/highlight.js';
 
 const HALF = G / 2;
@@ -119,14 +120,15 @@ export class LibraryEditor {
     this.libList = h('div', { class: 'lib-list', role: 'tree', 'aria-label': 'Libraries' });
     this.partEl = h('div', { class: 'lib-part' });
     this.propsEl = h('div', { class: 'lib-props' });
-    this.side = h('div', { class: 'side-panel lib-side' },
-      section('Libraries',
-        h('div', { class: 'side-search lib-search' }, icon('search', 16), this.libSearch),
-        this.libList,
-        h('div', { class: 'lib-actions' }, button({ icon: 'plus', label: 'New library', cls: 'btn-outline', onClick: () => this.createLibrary() }))),
-      section('Part', this.partEl),
-      section('Properties', this.propsEl));
-    return this.side;
+    // floating, dockable cards (toolbar buttons open them), like the Board's
+    this.cards = new CardSet('library-symbol');
+    this.cards.add({ id: 'libs', title: 'Libraries', icon: 'library', cls: 'lib-side', tip: 'Libraries: your Libraries and the built-in Parts', body: [
+      h('div', { class: 'side-search lib-search' }, icon('search', 16), this.libSearch),
+      this.libList,
+      h('div', { class: 'lib-actions' }, button({ icon: 'plus', label: 'New library', cls: 'btn-outline', onClick: () => this.createLibrary() }))] });
+    this.cards.add({ id: 'part', title: 'Part', icon: 'parts', cls: 'lib-side', tip: 'Part: name, prefix, Value, Units and Preferred footprints', body: [this.partEl] });
+    this.cards.add({ id: 'props', title: 'Properties', icon: 'sliders', cls: 'lib-side', tip: 'Properties: the selected Pin or graphic', body: [this.propsEl] });
+    return this.cards;
   }
 
   toolbar() {

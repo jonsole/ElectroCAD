@@ -663,3 +663,22 @@ body.resizing { cursor: col-resize; user-select: none; -webkit-user-select: none
 body.resizing iframe, body.resizing canvas { pointer-events: none; }
 /* the hint bar (context help) is optional: Settings → Show the hint bar */
 .no-hint-bar .hint-bar { display: none; }
+
+/* editor cards that replaced the side panels (Board, Library) */
+.side-card { display: flex; flex-direction: column; min-height: 0; }
+.float-stack.side-cards { width: 300px; }
+.float-stack .side-card { flex: 0 1 auto; min-height: 90px; }
+.side-card .fp-head b { flex: 1; }
+.side-card .fp-head .icon { color: var(--accent); }
+.side-card-body { overflow-y: auto; min-height: 0; padding: 8px 10px 10px; }
+.side-card-body .layer-list { max-height: none; }
+.dock-col > .side-card.docked { flex: 0 1 auto; }
+
+/* every floating card's title bar, as DabbleCAD's: icon, title (· detail), actions, close X */
+.card-head { display: flex; align-items: center; gap: 4px; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--border); min-height: 46px; box-sizing: border-box; }
+.card-head > .icon { flex: none; color: var(--accent); margin-right: 4px; }
+.card-head .insp-title { flex: 1; min-width: 0; font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-head .insp-sub { font-weight: 400; color: var(--muted); }
+.card-head .btn { height: 28px; min-width: 28px; padding: 0 6px; flex: none; }
+.card-head .card-close { color: var(--muted); }
+.card-head .card-close:hover { color: var(--text); }

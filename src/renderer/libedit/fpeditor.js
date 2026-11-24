@@ -21,6 +21,7 @@ import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { highlight, screenBox } from '../view/highlight.js';
 import { watchAlt } from '../ui/grid.js';
 import { GridCard } from '../ui/gridCard.js';
+import { CardSet } from '../ui/cards.js';
 
 export const FP_TOOLS = {
   select: { icon: 'select', title: 'Select (V)', key: 'v' },
@@ -96,10 +97,11 @@ export class FootprintEditor {
     this.listEl = h('div', { class: 'lib-list', role: 'tree', 'aria-label': 'Footprints' });
     this.fpEl = h('div', { class: 'lib-part' });
     this.propsEl = h('div', { class: 'lib-props' });
-    return h('div', { class: 'side-panel lib-side' },
-      section('Footprints', h('div', { class: 'side-search lib-search' }, icon('search', 16), this.search), this.listEl),
-      section('Footprint', this.fpEl),
-      section('Properties', this.propsEl));
+    this.cards = new CardSet('library-footprint');
+    this.cards.add({ id: 'list', title: 'Footprints', icon: 'library', cls: 'lib-side', tip: 'Footprints: your Libraries\' and the built-in ones', body: [h('div', { class: 'side-search lib-search' }, icon('search', 16), this.search), this.listEl] });
+    this.cards.add({ id: 'fp', title: 'Footprint', icon: 'pad', cls: 'lib-side', tip: 'Footprint: name, Library and problems', body: [this.fpEl] });
+    this.cards.add({ id: 'props', title: 'Properties', icon: 'sliders', cls: 'lib-side', tip: 'Properties: the selected pad or graphic, or the next pad', body: [this.propsEl] });
+    return this.cards;
   }
 
   chips() {

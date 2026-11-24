@@ -50,7 +50,7 @@ function board(app) {
       sep(), segmented([['2d', '2D', 'twoD', '2D board view'], ['3d', '3D', 'cube', '3D board preview', 40]], '2d')],
     hint: '',
     tools: editor.tools(later),
-    side: editor.buildSide(),
+    side: '', // Layers and Properties are cards over the canvas
     chips: () => editor.chips(),
     status: () => editor.status(),
   });
@@ -89,18 +89,17 @@ function library(app) {
   const cur = () => (app.libMode === 'footprint' ? fpe : sym);
   // both editors' toolbars, palettes and side panels are built; the Symbol | Footprint switch shows one
   const part = (cls, kids) => h('div', { class: `lib-mode ${cls}` }, ...kids.map((k) => k || h('span', { class: 'sep-h' })));
-  const symBar = h('div', { class: 'lib-mode-bar' }, ...sym.toolbar()), fpBar = h('div', { class: 'lib-mode-bar' }, ...fpe.toolbar());
+  const symCards = sym.buildSide(), fpCards = fpe.buildSide(); // each editor's cards over the canvas
+  const symBar = h('div', { class: 'lib-mode-bar' }, ...sym.toolbar(), sep(), ...symCards.buttons()), fpBar = h('div', { class: 'lib-mode-bar' }, ...fpe.toolbar(), sep(), ...fpCards.buttons());
   const symTools = part('tool-set', sym.tools()), fpTools = part('tool-set', fpe.tools());
-  const symSide = sym.buildSide(), fpSide = fpe.buildSide();
-  const side = h('div', { class: 'lib-sides' }, symSide, fpSide);
   let ws;
   const seg = segmented([['symbol', 'Symbol', 'schematic', 'Edit Symbols (Parts)'], ['footprint', 'Footprint', 'pad', 'Edit Footprints: pads, silk, courtyard, fab; Generator…']], app.libMode, (id) => setMode(id));
   function setMode(id) {
     app.libMode = id;
     for (const b of seg.querySelectorAll('button')) b.classList.toggle('active', b.dataset.id === id);
     const f = id === 'footprint';
-    symBar.hidden = f; symTools.hidden = f; symSide.hidden = f;
-    fpBar.hidden = !f; fpTools.hidden = !f; fpSide.hidden = !f;
+    symBar.hidden = f; symTools.hidden = f; symCards.setVisible(!f);
+    fpBar.hidden = !f; fpTools.hidden = !f; fpCards.setVisible(f);
     if (ws) {
       ws.editor = cur();
       ws.view.canvas.style.cursor = '';
@@ -117,12 +116,14 @@ function library(app) {
     toolbar: [seg, sep(), symBar, fpBar],
     hint: '',
     tools: [symTools, fpTools],
-    side,
+    side: '', // Libraries, Part and Properties are cards over the canvas
     chips: () => cur().chips(),
     status: () => cur().status(),
   });
   sym.attach(ws);
   fpe.attach(ws);
+  symCards.mount(ws);
+  fpCards.mount(ws);
   setMode(app.libMode);
   return ws;
 }

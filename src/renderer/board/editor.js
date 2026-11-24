@@ -23,6 +23,7 @@ import { shapeHandles, hitHandle, dragOutlineHandle, snapPoint, handlePoints } f
 import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { watchAlt } from '../ui/grid.js';
 import { GridCard } from '../ui/gridCard.js';
+import { CardSet } from '../ui/cards.js';
 import { highlight, screenBox, revealBox } from '../view/highlight.js';
 import { probeFromBoard, boardTargets } from '../core/probe.js';
 
@@ -105,7 +106,8 @@ export class BoardEditor {
       onOrigin: (at) => this.app.edit('Grid origin', (p) => { p.board.origin = at; }),
       onPick: () => this.setTool('origin'),
     });
-    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.del, this.btn.rotate, this.btn.flip, this.btn.lock, h('span', { class: 'sep' }), this.gridCard.button];
+    this.buildCards();
+    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.del, this.btn.rotate, this.btn.flip, this.btn.lock, h('span', { class: 'sep' }), ...this.cards.buttons(), this.gridCard.button];
   }
 
   tools(later) {
@@ -117,15 +119,14 @@ export class BoardEditor {
       T.outline, T.polygon, T.circle, null, later({ icon: 'ltext', title: 'Text' }, 19), T.measure, T.origin];
   }
 
-  buildSide() {
+  /** The Layers and Properties cards (floating, dockable; toolbar buttons open them). */
+  buildCards() {
     this.stackEl = h('div', { class: 'stack-row' });
     this.layerList = h('div', { class: 'layer-list', role: 'listbox', 'aria-label': 'Layers' });
     this.propsEl = h('div', { class: 'board-props' });
-    return h('div', { class: 'side-panel' },
-      section('Layers', this.stackEl, this.layerList),
-      section('Properties', this.propsEl),
-      section('Net classes', h('p', { class: 'side-note' }, 'Default · track 0.25 mm · clearance 0.2 mm')),
-      section('DRC', h('p', { class: 'side-note' }, 'Not run yet.')));
+    this.cards = new CardSet('board');
+    this.cards.add({ id: 'layers', title: 'Layers', icon: 'layers', body: [this.stackEl, this.layerList], tip: 'Layers: the copper stack, which layers show, and the active layer' });
+    this.cards.add({ id: 'props', title: 'Properties', icon: 'sliders', body: [this.propsEl], tip: 'Properties: the selected footprint or outline shape, and the Outline' });
   }
 
   layerColor(name) { return this.app.canvasColors('board')[name] || '#888'; }
@@ -539,6 +540,7 @@ export class BoardEditor {
     });
     watchAlt(ws, (on) => this.setAlt(on));
     this.gridCard.mount(ws);
+    this.cards.mount(ws);
     c.addEventListener('pointercancel', up);
     c.addEventListener('pointerleave', () => { if (this.tool !== 'select') { this.cursor = null; ws.view.invalidate(); } });
     this.refresh();

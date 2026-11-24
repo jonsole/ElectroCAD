@@ -64,7 +64,13 @@ The schematic has no fixed side panel (ported from DabbleCAD's dockable panels, 
   - Its close button or the Parts button closes it.
   - Whether it is open is remembered.
   - Dropping a tile back on the card cancels the placement.
-- **Every card** (Parts, inspector, Grid, Sheets, Netlist, ERC) floats over the canvas.
+- **No fixed side panels.** The Board's are now the **Layers** card (copper stack, layer rows, active layer) and the **Properties** card (selected footprint or outline shape, and the Outline's state). The Net classes and DRC cards come with #24 and #25.
+  - The Library's are the **Libraries**, **Part** and **Properties** cards in Symbol mode, and the **Footprints**, **Footprint** and **Properties** cards in Footprint mode. The Symbol | Footprint switch shows that mode's cards and their toolbar buttons.
+  - Each card has an icon button on its editor's toolbar, lit while open; whether it is open is remembered.
+- **One title bar** on every card, as DabbleCAD's panels:
+  - a 16 px accent icon, the title in semibold (with a muted detail such as "· Sheet 1" or "· 3 nets"), any action buttons, then the close **×** on the right;
+  - the inspector's close × deselects.
+- **Every card** (Parts, inspector, Grid, Sheets, Netlist, ERC, Layers, Properties, Libraries…) floats over the canvas.
   - Drag a card by its header to move it.
   - Drag it to the left or right edge of the canvas, or onto a docked column, and drop it on the highlighted strip to **dock** it. The column sits beside the canvas, which makes room.
   - Docked cards stack top to bottom, in the order dropped. Drag one out by its header (after 6 px of movement).

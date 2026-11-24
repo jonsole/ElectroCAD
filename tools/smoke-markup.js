@@ -88,7 +88,7 @@ check('sch-grid-undo', sheet().grid.main === G && sheet().origin[0] === 0);
 // the toolbar Grid button opens the Grid card for the current sheet
 ed.gridCard.button.click();
 const gc = document.querySelector('[data-ws="schematic"] .grid-card');
-check('sch-grid-card', ed.gridCard.open && gc.querySelector('.fp-count').textContent === sheet().name);
+check('sch-grid-card', ed.gridCard.open && gc.querySelector('.card-head .insp-sub').textContent === ` · ${sheet().name}`);
 const gcs = gc.querySelector('select[aria-label="Alt grid"]'); gcs.value = String(G / 2 / 5); gcs.dispatchEvent(new Event('change'));
 check('sch-card-alt', sheet().grid.alt === G / 10, sheet().grid);
 key('z', { ctrlKey: true });

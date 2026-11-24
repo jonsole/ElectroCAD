@@ -24,13 +24,13 @@ const card = () => document.querySelector('.erc-panel');
 const rows = () => [...card().querySelectorAll('.erc-row:not(.erc-info)')].map((x) => x.dataset.rule);
 const infos = () => card().querySelectorAll('.erc-row.erc-info').length;
 check('card-open', card().style.display !== 'none' && rows().join() === 'unconnected-pin,unconnected-pin', rows());
-check('count', /2 errors/.test(card().querySelector('.fp-count').textContent));
+check('count', /2 errors/.test(card().querySelector('.card-head .insp-sub').textContent));
 // Q, click both Pin tips: no problems left
 key('q');
 check('tool', ed.tool === 'noConnect');
 click(pin(r1, '1')); click(pin(r1, '2'));
 check('marked', app.project.schematic.sheets[0].noConnects.length === 2 && rows().length === 0 && infos() === 2, rows());
-check('clean-note', /No problems/.test(card().querySelector('.fp-count').textContent));
+check('clean-note', /No problems/.test(card().querySelector('.card-head .insp-sub').textContent));
 click(pin(r1, '2')); // again: unmarked
 check('unmarked', app.project.schematic.sheets[0].noConnects.length === 1 && rows().join() === 'unconnected-pin');
 key('Escape');
