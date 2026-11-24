@@ -42,7 +42,7 @@ function board(app) {
     id: 'board', label: 'Board', icon: 'board', title: 'Board: draw the Outline, place Footprints, route Tracks and pour Zones',
     grid: app.project.board.grid.main, home: { x0: -10e6, y0: -10e6, x1: 110e6, y1: 90e6 },
     toolbar: [...editor.toolbar(), sep(),
-      later({ label: 'Annotate', icon: 'annotate', title: 'Forward annotation: bring Schematic changes onto the Board' }, 16),
+      button({ label: 'Update from Schematic', icon: 'annotate', title: 'Forward annotation: list what the Schematic changes on the Board (new parts, removed parts, values, nets), then apply it (F8)', onClick: () => editor.annotate() }),
       later({ label: 'DRC', icon: 'erc', title: 'Design rule check' }, 25), spacer(),
       h('div', { class: 'mode-group', title: 'Routing mode' },
         later({ label: 'Shove', title: 'Shove routing mode' }, 29), later({ label: 'Walkaround', title: 'Walkaround routing mode' }, 22), later({ label: 'Free', title: 'Free routing mode' }, 20)),

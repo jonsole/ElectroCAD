@@ -13,7 +13,7 @@ delete env.ELECTRON_RUN_AS_NODE;
 const shots = fs.mkdtempSync(path.join(os.tmpdir(), 'electrocad-shots-'));
 const suites = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 // Suites joined with '+' run one after another on the same app data (to test restarts).
-const list = suites.length ? suites : ['smoke-boot.js', 'smoke-store.js+smoke-store-restart.js', 'smoke-themes.js+smoke-themes-restart.js', 'smoke-place.js', 'smoke-wire.js+smoke-wire-restart.js', 'smoke-fields.js', 'smoke-select.js', 'smoke-inspector.js', 'smoke-labels.js+smoke-labels-restart.js', 'smoke-pinned.js+smoke-pinned-restart.js', 'smoke-units.js', 'smoke-erc.js', 'smoke-picker.js', 'smoke-library.js+smoke-library-restart.js', 'smoke-markup.js+smoke-markup-restart.js', 'smoke-print.js', 'smoke-board.js+smoke-board-restart.js'];
+const list = suites.length ? suites : ['smoke-boot.js', 'smoke-store.js+smoke-store-restart.js', 'smoke-themes.js+smoke-themes-restart.js', 'smoke-place.js', 'smoke-wire.js+smoke-wire-restart.js', 'smoke-fields.js', 'smoke-select.js', 'smoke-inspector.js', 'smoke-labels.js+smoke-labels-restart.js', 'smoke-pinned.js+smoke-pinned-restart.js', 'smoke-units.js', 'smoke-erc.js', 'smoke-picker.js', 'smoke-library.js+smoke-library-restart.js', 'smoke-markup.js+smoke-markup-restart.js', 'smoke-print.js', 'smoke-board.js+smoke-board-restart.js', 'smoke-annotate.js'];
 
 let failed = false;
 const runs = [];

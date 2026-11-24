@@ -549,3 +549,20 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .grid-panel { margin-bottom: 4px; }
 .grid-panel .origin-at { font-size: 12px; color: var(--text); }
 .grid-panel .le-row .btn { height: 24px; font-size: 12px; padding: 0 8px; }
+
+/* Forward annotation dialog (#16) */
+.annotate-body { max-height: 60vh; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.annotate-head { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 4px; }
+.annotate-count { background: var(--panel-2); border: 1px solid var(--border); border-radius: 9px; padding: 0 7px; font-size: 11px; color: var(--text); }
+.annotate-list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.annotate-row { display: grid; grid-template-columns: 16px 86px 1fr; align-items: center; gap: 8px; padding: 6px 10px; font-size: 13px; border-top: 1px solid var(--border); }
+.annotate-row:first-child { border-top: 0; }
+.annotate-row svg { color: var(--muted); }
+.annotate-row.k-add svg, .annotate-row.k-net-add svg { color: #3fb950; }
+.annotate-row.k-remove svg, .annotate-row.k-net-remove svg { color: #e5484d; }
+.annotate-kind { color: var(--muted); font-size: 12px; }
+.annotate-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.annotate-warn { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(229, 160, 72, .5); background: rgba(229, 160, 72, .08); font-size: 13px; }
+.annotate-warn svg { color: #e5a048; flex: none; margin-top: 1px; }
+.annotate-empty { display: flex; gap: 8px; align-items: center; font-size: 14px; padding: 8px 0; }
+.annotate-empty svg { color: #3fb950; }

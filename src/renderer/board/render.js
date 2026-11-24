@@ -4,6 +4,8 @@
 import { arcCircle } from '../core/geom.js';
 import { outlineLoops, checkOutline } from '../core/board.js';
 import { mm } from '../core/units.js';
+import { placedPads, padNets, fpTransform, flipLayer } from '../core/footprint.js';
+import { footprintOf } from '../core/project.js';
 
 const TAU = Math.PI * 2;
 const norm = (a) => ((a % TAU) + TAU) % TAU;
@@ -74,6 +76,7 @@ export function drawBoard(ctx, view, C, board, opts = {}) {
       for (const p of openEnds) { const [x, y] = view.toScreen(p); ctx.beginPath(); ctx.arc(x, y, 6, 0, TAU); ctx.stroke(); }
     }
   }
+  if (opts.project) drawFootprints(ctx, view, C, opts.project, board, hidden);
   // the shape being drawn
   if (opts.ghost?.length || opts.ghostPts?.length) {
     ctx.strokeStyle = C.selection; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]);
@@ -100,4 +103,88 @@ export function drawBoard(ctx, view, C, board, opts = {}) {
     ctx.fillStyle = C.selection; ctx.textBaseline = 'middle'; ctx.fillText(text, tx + 6, ty + 10);
   }
   ctx.restore();
+}
+
+/**
+ * Footprints: back-side items first, then front. Pads in their copper colour (through-hole pads
+ * in the through-hole colour, with the drill), courtyards dashed, the Reference on silk above and
+ * the Value on fab below; when zoomed in far enough, each pad shows its number and Net.
+ */
+function drawFootprints(ctx, view, C, project, board, hidden) {
+  const nets = padNets(board);
+  const ann = board.annotation?.components || {};
+  const fps = [...board.footprints].sort((a, b) => (a.side === b.side ? 0 : a.side === 'B' ? -1 : 1));
+  const visible = (layer) => !hidden.has(layer);
+  for (const bf of fps) {
+    const comp = project.components[bf.componentId];
+    const fp = footprintOf(project, comp);
+    if (!fp) continue;
+    const T = fpTransform(bf);
+    const S = (p) => view.toScreen(T(p));
+    // courtyard and other graphics
+    for (const g of fp.graphics || []) {
+      const layer = flipLayer(g.layer || 'F.SilkS', bf.side);
+      if (!visible(layer) || g.type !== 'rect') continue;
+      const pts = [g.a, [g.b[0], g.a[1]], g.b, [g.a[0], g.b[1]]].map(S);
+      ctx.save(); ctx.strokeStyle = C[layer] || '#888'; ctx.lineWidth = 1; if (/CrtYd/.test(layer)) ctx.setLineDash([4, 3]);
+      ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.stroke(); ctx.restore();
+    }
+    // pads
+    for (const pad of placedPads(project, bf, nets)) {
+      const tht = pad.layers.includes('*.Cu');
+      const cu = tht ? (visible('F.Cu') || visible('B.Cu') ? (bf.side === 'B' && !visible('F.Cu') ? 'B.Cu' : 'F.Cu') : null)
+        : pad.layers.find((l) => /\.Cu$/.test(l) && visible(l));
+      if (!cu) continue;
+      const [cx, cy] = view.toScreen(pad.at);
+      const w = pad.size[0] * view.scale, hgt = pad.size[1] * view.scale;
+      ctx.save();
+      ctx.translate(cx, cy); ctx.rotate((-pad.rot * Math.PI) / 180);
+      ctx.fillStyle = tht ? (C.padThroughHole || C[cu]) : C[cu] || '#c33';
+      ctx.beginPath();
+      if (pad.shape === 'circle' || pad.shape === 'oval') ctx.ellipse(0, 0, w / 2, hgt / 2, 0, 0, TAU);
+      else if (pad.shape === 'roundrect' && ctx.roundRect) ctx.roundRect(-w / 2, -hgt / 2, w, hgt, Math.min(w, hgt) * 0.25);
+      else ctx.rect(-w / 2, -hgt / 2, w, hgt);
+      ctx.fill();
+      if (pad.drill) { ctx.fillStyle = C.drill || '#000'; ctx.beginPath(); ctx.arc(0, 0, (pad.drill * view.scale) / 2, 0, TAU); ctx.fill(); }
+      // number and Net, when the pad is big enough to read
+      const small = Math.min(w, hgt);
+      if (small >= 14) {
+        ctx.rotate((pad.rot * Math.PI) / 180); // text stays upright
+        ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.shadowColor = 'rgba(0,0,0,.8)'; ctx.shadowBlur = 2;
+        const fs = Math.min(13, small * 0.38);
+        if (pad.net && small >= 22) {
+          ctx.font = `600 ${fs}px system-ui, sans-serif`; ctx.fillText(pad.number, 0, -fs * 0.55);
+          ctx.font = `${fs * 0.85}px system-ui, sans-serif`;
+          const label = shortNet(pad.net, ctx, Math.max(w, hgt) * 0.95);
+          ctx.fillText(label, 0, fs * 0.55);
+        } else { ctx.font = `600 ${fs}px system-ui, sans-serif`; ctx.fillText(pad.number, 0, 0); }
+      }
+      ctx.restore();
+    }
+    // Reference on silk above the courtyard, Value on fab below it
+    const crt = (fp.graphics || []).find((g) => /CrtYd$/.test(g.layer || '') && g.type === 'rect');
+    const top = crt ? Math.min(crt.a[1], crt.b[1]) : -mm(1);
+    const ref = ann[bf.componentId]?.ref ?? comp?.ref ?? '';
+    const value = ann[bf.componentId]?.value ?? comp?.value ?? '';
+    const text = (layer, str, local, size) => {
+      if (!str || !visible(layer)) return;
+      const px = size * view.scale;
+      if (px < 4) return;
+      const [x, y] = S(local);
+      ctx.save(); ctx.fillStyle = C[layer] || '#ddd'; ctx.font = `600 ${px}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      if (bf.side === 'B') { ctx.translate(x, y); ctx.scale(-1, 1); ctx.fillText(str, 0, 0); } else ctx.fillText(str, x, y);
+      ctx.restore();
+    };
+    text(flipLayer('F.SilkS', bf.side), ref, [0, top - mm(0.8)], mm(1));
+    const bottom = crt ? Math.max(crt.a[1], crt.b[1]) : mm(1);
+    text(flipLayer('F.Fab', bf.side), value, [0, bottom + mm(0.6)], mm(0.7));
+  }
+}
+
+/** A Net name that fits `maxPx`: unnamed nets show as their Pad (Net-(R1-Pad2) -> R1-2). */
+function shortNet(net, ctx, maxPx) {
+  let s = /^Net-\((.+)-Pad(.+)\)$/.test(net) ? net.replace(/^Net-\((.+)-Pad(.+)\)$/, '$1-$2') : net;
+  while (s.length > 3 && ctx.measureText(s).width > maxPx) s = s.slice(0, -2) + '…';
+  return s;
 }

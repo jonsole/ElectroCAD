@@ -13,6 +13,8 @@ import {
   rectOutline, circleOutline, polygonOutline, checkOutline, outlineBounds, hitOutline, moveOutline,
 } from '../core/board.js';
 import { drawBoard } from './render.js';
+import { openAnnotateDialog } from './annotate-dialog.js';
+import { placedPads, padNets } from '../core/footprint.js';
 import { shapeHandles, hitHandle, dragOutlineHandle, snapPoint, handlePoints } from '../core/handles.js';
 import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { gridPanel, watchAlt } from '../ui/grid.js';
@@ -61,7 +63,7 @@ export class BoardEditor {
    */
   snapAt(w, skip = new Set(), not = null) {
     const tol = this.app.snapDistance() / (this.ws?.view.view.scale || 1);
-    const targets = [...handlePoints(this.board.outline, skip), this.board.origin].filter((t) => !not || t[0] !== not[0] || t[1] !== not[1]);
+    const targets = [...handlePoints(this.board.outline, skip), this.board.origin, ...this._padPoints()].filter((t) => !not || t[0] !== not[0] || t[1] !== not[1]);
     const r = snapPoint(w, targets, tol, (p) => this.snapPt(p));
     this.snapMark = r.target;
     return r.at;
@@ -247,7 +249,7 @@ export class BoardEditor {
       default: t = this.board.outline.length
         ? (this.selection.size === 1 ? 'Drag a handle to resize (a side handle moves that side; corners stay round) · drag the shape to move · Del delete · arrows nudge one grid step · hold Alt for the Alt grid'
           : 'Click an outline shape to select it, drag to move · Del delete · arrows nudge one grid step · B, P, C draw more outline · hold Alt for the Alt grid')
-        : 'No board yet: draw the Outline with B (rectangle), P (polygon) or C (round), then use Annotate (coming in #16) to bring Components over.';
+        : 'No board yet: draw the Outline with B (rectangle), P (polygon) or C (round), then Update from Schematic (F8) to bring the Components over.';
     }
     this.ws.hint.textContent = t;
   }
@@ -410,6 +412,15 @@ export class BoardEditor {
     return h ? { index, key: h.key, cursor: h.cursor } : null;
   }
 
+  /** Pad centres, as snap targets. */
+  _padPoints() {
+    const nets = padNets(this.board);
+    return this.board.footprints.flatMap((bf) => placedPads(this.project, bf, nets).map((p) => p.at));
+  }
+
+  /** Forward annotation: list what the Schematic changes on the Board, then apply it in one step. */
+  annotate() { openAnnotateDialog(this.app); }
+
   /** Origin tool: move the grid origin to `w`, onto another object's handle when close, else the grid. */
   placeOrigin(w) {
     const at = this.snapAt(w, new Set(), this.board.origin);
@@ -478,7 +489,7 @@ export class BoardEditor {
 
   draw(ctx, view, C) {
     const board = this.preview ? { ...this.board, outline: this.preview } : this.board;
-    drawBoard(ctx, view, C, board, { hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure });
+    drawBoard(ctx, view, C, board, { project: this.project, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure });
     drawHandles(ctx, view, C, this._handles(), this.handleDrag?.key);
     drawSnapMark(ctx, view, C, this.snapMark);
   }
