@@ -90,4 +90,19 @@ out.tidy = { wiresBefore, previewWires, after };
 check('tidied-on-release', after === wiresBefore - 3 + 1, out.tidy); // the three-run S becomes one run
 check('tidy-keeps-net', net56() === n0, [net56(), n0]);
 check('tidy-same-undo-step', (() => { key('z', { ctrlKey: true }); const back = app.project.schematic.sheets[0].wires.length === wiresBefore; key('z', { ctrlKey: true, shiftKey: true }); return back; })());
+
+// 7. Drag a wire that ends on two pins: it stays connected (short runs join it back to the pins).
+key('Escape');
+const r7 = put(R, 50, 100), r8 = put(R, 70, 100);
+app.edit('w78', (pr) => S.addWire(pr, pr.schematic.sheets[0], [pin(r7, '2'), pin(r8, '1')]));
+const w78 = app.project.schematic.sheets[0].wires.find((w) => w.a[1] === 100 * G && w.b[1] === 100 * G && Math.min(w.a[0], w.b[0]) >= 54 * G);
+const ref7 = app.project.components[r7.componentId].ref, ref8 = app.project.components[r8.componentId].ref;
+const together = () => NL.buildNetlist(app.project).nets.some((n) => n.pins.some((x) => x.ref === ref7) && n.pins.some((x) => x.ref === ref8));
+check('w78-connected', together());
+ws.view.view.fit({ x0: 42 * G, y0: 94 * G, x1: 80 * G, y1: 110 * G }, ws.view.w, ws.view.h, 20);
+const mid78 = scr([60 * G, 100 * G]), down78 = scr([60 * G, 104 * G]);
+ed.selection = new Set(); ed.refresh();
+pe('pointerdown', mid78, 1); pe('pointermove', [mid78[0], mid78[1] + 10], 1); pe('pointermove', down78, 1); pe('pointerup', down78, 0);
+check('wire-dragged', app.project.schematic.sheets[0].wires.some((w) => w.a[1] === 104 * G && w.b[1] === 104 * G), app.project.schematic.sheets[0].wires.filter((w) => w.a[1] >= 99 * G).map((w) => [w.a, w.b].map((p) => p.map((v) => v / G))));
+check('wire-drag-stays-on-pins', together());
 return { fails, out };

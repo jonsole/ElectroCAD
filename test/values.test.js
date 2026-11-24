@@ -39,3 +39,16 @@ test('BOM keys treat equal values as the same whatever the notation', () => {
   assert.notEqual(valueKey('100nF'), valueKey('100nH'));
   assert.equal(valueKey(' LED '), valueKey('led'));
 });
+
+test('RKM uses R as the decimal point only for resistances', () => {
+  // a capacitor (or anything not a resistor) never gets the R
+  for (const [s, out] of [['52', '52'], ['100n', '100n'], ['4.7u', '4u7'], ['1', '1'], ['2.2', '2.2'], ['10p', '10p'], ['0.1uF', '100n']]) {
+    assert.equal(formatValue(s, 'rkm', { resistance: false }), out, s);
+  }
+  // resistors, and values typed with Ω, keep it
+  assert.equal(formatValue('52', 'rkm', { resistance: true }), '52R');
+  assert.equal(formatValue('2.2', 'rkm', { resistance: true }), '2R2');
+  assert.equal(formatValue('0.47Ω', 'rkm', { resistance: false }), 'R47');
+  // a typed unit decides when the part doesn't say: F means not a resistance
+  assert.equal(formatValue('52F', 'rkm'), '52');
+});

@@ -190,6 +190,22 @@ export function moveSelection(project, sheet, ids, delta) {
     if (am && bm) whole.push(w);
     else if (am || bm) { moving.add(ptKey(am ? w.a : w.b)); stretch.push({ w, end: am ? 'a' : 'b' }); }
   }
+  // a moving Wire end that sits on a Pin of a part that isn't moving stays connected: a short
+  // run (with a corner if needed, leaving the Pin along the Wire's own direction) joins them
+  const tethers = [];
+  for (const w of whole) {
+    const axis = w.a[1] === w.b[1] ? 'h' : 'v';
+    for (const end of ['a', 'b']) {
+      const P = w[end];
+      if (!fixedPins.has(ptKey(P))) continue;
+      const E = add2(P, delta);
+      if (P[0] === E[0] || P[1] === E[1]) tethers.push({ id: uid('w'), a: P, b: E });
+      else {
+        const C = axis === 'h' ? [P[0], E[1]] : [E[0], P[1]]; // step across first, then along
+        tethers.push({ id: uid('w'), a: P, b: C }, { id: uid('w'), a: C, b: E });
+      }
+    }
+  }
   for (const w of whole) { w.a = add2(w.a, delta); w.b = add2(w.b, delta); }
   const added = [];
   const slid = new Map(); // corner key -> new point (so two Wires sharing a corner agree)
@@ -222,7 +238,7 @@ export function moveSelection(project, sheet, ids, delta) {
       added.push({ id: uid('w'), a: C, b: A2 });
     }
   }
-  sheet.wires.push(...added);
+  sheet.wires.push(...added, ...tethers);
   // tidy: drop zero-length runs
   sheet.wires = sheet.wires.filter((w) => w.a[0] !== w.b[0] || w.a[1] !== w.b[1]);
 }

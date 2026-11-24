@@ -61,9 +61,9 @@ export function drawUnit(ctx, toScreen, scale, part, unitIndex, sym, fields, C, 
     // a connected Pin takes the Wire colour so it reads as part of the Wire; a bare one keeps the
     // Pin colour and gets a small open circle at its tip (only when connection info is given)
     const conn = opts.connected ? opts.connected.has(pin.number) : null;
-    ctx.strokeStyle = conn ? C.wire : C.pin;
+    ctx.strokeStyle = conn && opts.colorConnected ? C.wire : C.pin;
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
-    if (conn === false) {
+    if (conn === false && opts.markUnconnected) {
       ctx.beginPath(); ctx.arc(ax, ay, Math.max(2, mm(0.3) * scale), 0, Math.PI * 2); ctx.stroke();
     }
     if (!unit.hidePinNumbers && scale * TEXT > 5) {
@@ -106,6 +106,9 @@ function bodyHalfHeight(unit) {
   }
   return m;
 }
+
+/** Schematic display options (Settings → Schematic display); app settings, not per Project. */
+export const DEFAULT_DISPLAY = { colorConnectedPins: false, markUnconnectedPins: true, wireHops: true };
 
 const WIRE = mm(0.15);
 const HOP = mm(0.5); // radius of the bridge where Wires cross without connecting
@@ -152,7 +155,7 @@ function drawFields(ctx, view, C, project, sheet, placement) {
 }
 
 /** Draw a Sheet: Wires, Symbols, fields, Junctions, then selection, the placement ghost and a Wire being drawn. */
-export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(), ghost = null, bounds, wiring = null, target = null, placement = null } = {}) {
+export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(), ghost = null, bounds, wiring = null, target = null, placement = null, display = DEFAULT_DISPLAY } = {}) {
   const toScreen = (p) => view.toScreen(p);
   const wireW = Math.max(1.5, WIRE * view.scale);
   ctx.save();
@@ -167,7 +170,7 @@ export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(),
   ctx.strokeStyle = C.wire; ctx.lineWidth = wireW;
   // horizontal Wires hop over vertical ones they cross without connecting
   const hops = new Map();
-  for (const c of wireCrossings(sheet)) { if (!hops.has(c.over)) hops.set(c.over, []); hops.get(c.over).push(c.at[0]); }
+  if (display.wireHops) for (const c of wireCrossings(sheet)) { if (!hops.has(c.over)) hops.set(c.over, []); hops.get(c.over).push(c.at[0]); }
   const r = Math.max(4, HOP * view.scale);
   ctx.beginPath();
   for (const w of sheet.wires) {
@@ -193,7 +196,7 @@ export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(),
     if (!part) continue;
     const unit = part.units[sym.unit || 0];
     const connected = new Set(unit ? unit.pins.filter((pn) => conn.has(`${sym.id}:${pn.number}`)).map((pn) => pn.number) : []);
-    drawUnit(ctx, toScreen, view.scale, part, sym.unit, sym, null, C, { connected }); // fields come from the placer
+    drawUnit(ctx, toScreen, view.scale, part, sym.unit, sym, null, C, { connected, colorConnected: display.colorConnectedPins, markUnconnected: display.markUnconnectedPins }); // fields come from the placer
     if (selection.has(sym.id) && bounds) {
       const b = bounds(sym);
       const [x0, y0] = view.toScreen([b.x0, b.y0]), [x1, y1] = view.toScreen([b.x1, b.y1]);

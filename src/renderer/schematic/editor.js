@@ -280,7 +280,7 @@ export class SchematicEditor {
     const proj = this.preview || this.project;
     const sheet = proj.schematic.sheets[0];
     this.placement = placeFields(proj, sheet, { measure: measureText });
-    drawSheet(ctx, view, C, proj, sheet, { selection: this.selection, ghost, bounds: (s) => symbolBounds(proj, s), wiring, target, placement: this.placement });
+    drawSheet(ctx, view, C, proj, sheet, { selection: this.selection, ghost, bounds: (s) => symbolBounds(proj, s), wiring, target, placement: this.placement, display: this.app.schematicDisplay() });
     if (this.marquee && (this.marquee.a[0] !== this.marquee.b[0] || this.marquee.a[1] !== this.marquee.b[1])) {
       const m = this.marquee;
       const [x0, y0] = view.toScreen(m.a), [x1, y1] = view.toScreen(m.b);

@@ -182,3 +182,20 @@ test('a drag that leaves overlapping runs is tidied with the Netlist unchanged',
   assert.ok(orthogonal(s) && noZero(s));
   assert.equal(s.wires.length, 1, JSON.stringify(s.wires));
 });
+
+test('dragging a wire that ends on a pin keeps it on the pin', () => {
+  const { p, s } = seriesStraight(); // one straight run from R1.2 to R2.1
+  const w = s.wires[0];
+  const before = sig(p);
+  moveSelection(p, s, [w.id], [0, G * 4]); // drag the run down
+  assert.equal(sig(p), before, 'both pins still on the net');
+  assert.ok(orthogonal(s) && noZero(s), JSON.stringify(s.wires));
+  cleanupWires(p, s);
+  assert.equal(sig(p), before);
+  assert.equal(s.wires.length, 3, 'down from R1, across, up to R2');
+  // sideways too: the end at the pin gets a corner
+  const q = seriesStraight();
+  moveSelection(q.p, q.s, [q.s.wires[0].id], [G * 2, G * 3]);
+  assert.equal(sig(q.p), sig(seriesStraight().p));
+  assert.ok(orthogonal(q.s) && noZero(q.s), JSON.stringify(q.s.wires));
+});

@@ -12,6 +12,7 @@ import { resolveTheme, listThemes, MATCH_APP } from './core/themes.js';
 import { colorsSection } from './ui/themes.js';
 import { fieldStylesSection } from './ui/fieldStyles.js';
 import { setDefaultFieldStyle } from './core/fields.js';
+import { DEFAULT_DISPLAY } from './schematic/render.js';
 import { buildWorkspaces } from './workspaces/index.js';
 import { later, sep, spacer } from './workspaces/workspace.js';
 
@@ -327,6 +328,28 @@ export class App {
 
   recolor() { for (const w of this.workspaces) w.recolor(); }
 
+  /** Schematic display options (Settings → Schematic display), with defaults filled in. */
+  schematicDisplay() { return { ...DEFAULT_DISPLAY, ...(this.settings.schematicDisplay || {}) }; }
+
+  setSchematicDisplay(patch) {
+    this.settings.schematicDisplay = { ...this.schematicDisplay(), ...patch };
+    platform.setSettings({ schematicDisplay: this.settings.schematicDisplay });
+    this.recolor();
+  }
+
+  _displaySection() {
+    const d = this.schematicDisplay();
+    const row = (key, label, note) => {
+      const cb = h('input', { type: 'checkbox', checked: !!d[key], dataset: { display: key } });
+      cb.addEventListener('change', () => this.setSchematicDisplay({ [key]: cb.checked }));
+      return h('label', { class: 'check-row' }, cb, h('span', {}, label, note ? h('small', { class: 'side-note', style: { display: 'block', margin: 0 } }, note) : null));
+    };
+    return h('div', { class: 'colors-section' }, h('div', { class: 'set-group-title' }, 'Schematic display'),
+      row('colorConnectedPins', 'Colour connected pins like wires', 'A pin with a wire on it is drawn in the wire colour.'),
+      row('markUnconnectedPins', 'Mark unconnected pin ends', 'A small open circle at the tip of a pin with nothing on it.'),
+      row('wireHops', 'Hop where wires cross', 'A small bridge where wires cross without connecting.'));
+  }
+
   // ---------------------------------------------------------------- Field styles (ADR-0012)
 
   /** Replace the user's own Field styles (kept in settings, like Colour themes). */
@@ -399,6 +422,7 @@ export class App {
     sel.value = this.settings.theme === 'light' ? 'light' : 'dark';
     sel.addEventListener('change', () => { if (sel.value !== (this.settings.theme === 'light' ? 'light' : 'dark')) this.toggleTheme(); });
     m.body.append(h('label', { class: 'field' }, h('span', {}, 'App theme'), sel),
+      this._displaySection(),
       colorsSection(this),
       fieldStylesSection(this),
       h('p', { class: 'side-note' }, 'More settings (units, AI providers, agents) arrive with later tickets.'));

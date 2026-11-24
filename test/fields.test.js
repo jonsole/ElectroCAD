@@ -176,3 +176,14 @@ test('hitField finds the Reference and Value under a point, and splits one-line 
   assert.equal(hitField(p, pl, [line.box.x0 + 1, mid(line.box)[1]]).key, 'reference');
   assert.equal(hitField(p, pl, [line.box.x1 - 1, mid(line.box)[1]]).key, 'value');
 });
+
+test('RKM values: a capacitor valued 52 shows 52, a resistor 52R', () => {
+  const p = newProject();
+  const s = p.schematic.sheets[0];
+  setDefaultFieldStyle(p, builtinFieldStyle('rkm'));
+  const c = placeSymbol(p, s, CAPACITOR, [G * 20, G * 20]); c.comp.value = '52';
+  const r = placeSymbol(p, s, RESISTOR, [G * 50, G * 20]); r.comp.value = '52';
+  const pl = placeFields(p, s, { measure });
+  assert.ok(pl.get(c.sym.id).items.some((i) => i.text === '52'));
+  assert.ok(pl.get(r.sym.id).items.some((i) => i.text === '52R'));
+});

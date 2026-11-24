@@ -84,11 +84,11 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 - **If that would run through another Pin,** the corner goes the other way.
 - **`/`** flips the corner for the rest of the Wire.
 
-**Showing connections:**
-- **Connected Pins:** a Pin with a Wire on its tip, or touching another Pin, draws in the Wire colour, so it reads as part of the Wire.
-- **Bare Pins:** a Pin with nothing on it keeps the Pin colour and gets a small open circle at its tip.
+**Showing connections** (Settings → Schematic display; app settings, not per Project):
+- **Connected Pins** (option, **off** by default): a Pin with a Wire on its tip, or touching another Pin, draws in the Wire colour.
+- **Bare Pins** (option, on by default): a Pin with nothing on it gets a small open circle at its tip.
 - **Junctions:** a dot where Wires really connect (a T-join, or three or more ends).
-- **Crossings:** where a horizontal and a vertical Wire cross without connecting, the horizontal one draws a small semicircle **hop** over the other.
+- **Crossings** (option, on by default): where a horizontal and a vertical Wire cross without connecting, the horizontal one draws a small semicircle **hop** over the other.
 
 ## Selecting and moving
 
@@ -98,6 +98,7 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
   - a Wire whose both ends move goes with them;
   - a Wire with one moving end stretches. If its far end is a plain corner, the corner slides along so an L stays an L; otherwise the original run stays on its line, so T-joins onto it stay connected, and a new corner reaches the moved end;
   - a Wire T-joined onto a Wire that moves goes along with it.
+  - a dragged Wire whose end sits on a Pin of a part that isn't moving stays on the Pin: a short run (with a corner if needed) joins them.
 - **Connectivity never changes when you move things.**
 - **Tidying on release:** when you release a drag (and after nudging, moving from the inspector or drawing a Wire), the Wires are tidied in the same undo step:
   - straight runs that meet end to end are joined, unless a Pin, a third Wire or a Wire passing through connects there;

@@ -109,7 +109,9 @@ export function fieldLines(project, comp, part, style, unitIndex = 0) {
   const ref = comp.ref + (part.units.length > 1 ? String.fromCharCode(65 + unitIndex) : '');
   if (style.show.reference) lines.push({ key: 'reference', text: ref });
   const hideValue = style.show.hideValueIfPartName && String(comp.value).trim().toLowerCase() === String(part.name).trim().toLowerCase();
-  if (style.show.value && comp.value && !hideValue) lines.push({ key: 'value', text: formatValue(comp.value, style.valueFormat) });
+  // resistors are the only parts whose Value is in ohms (RKM's 'R' decimal point)
+  const resistance = /^R(?![A-Z])/i.test(part.prefix || '') && !/^(RLY|RV)/i.test(part.prefix || '');
+  if (style.show.value && comp.value && !hideValue) lines.push({ key: 'value', text: formatValue(comp.value, style.valueFormat, { resistance }) });
   if (style.show.footprint && comp.footprint) {
     const fp = comp.footprint.footprint ? comp.footprint.footprint.name : comp.footprint.fpId;
     if (fp) lines.push({ key: 'footprint', text: fp });

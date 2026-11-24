@@ -37,7 +37,7 @@ function saveSettings() {
 ipcMain.handle('settings:get', () => ({ ...settings, platform: process.platform, version: app.getVersion(), smoke: !!SMOKE }));
 ipcMain.handle('settings:set', (_e, patch) => {
   if (!patch || typeof patch !== 'object') return settings;
-  const allowed = ['theme', 'units', 'workspace', 'lastProject', 'colorThemes', 'customThemes', 'customFieldStyles'];
+  const allowed = ['theme', 'units', 'workspace', 'lastProject', 'colorThemes', 'customThemes', 'customFieldStyles', 'schematicDisplay'];
   for (const k of allowed) if (k in patch) settings[k] = patch[k];
   if ('theme' in patch) nativeTheme.themeSource = settings.theme === 'light' ? 'light' : 'dark';
   saveSettings();

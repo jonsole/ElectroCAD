@@ -77,6 +77,15 @@ let n = 0;
 for (let i = 0; i < img.length; i += 4) if ('#' + [img[i], img[i + 1], img[i + 2]].map((x) => x.toString(16).padStart(2, '0')).join('') === want) n++;
 check('wires-drawn', n > 100, n);
 
+// Display option: connected pins in the wire colour adds wire-coloured pixels; off by default.
+check('pins-not-coloured-by-default', app.schematicDisplay().colorConnectedPins === false);
+const wirePixels = () => { ws.view.draw(); const d = ws.view.ctx.getImageData(0, 0, canvas.width, canvas.height).data; let k = 0; for (let i = 0; i < d.length; i += 4) if ('#' + [d[i], d[i + 1], d[i + 2]].map((x) => x.toString(16).padStart(2, '0')).join('') === want) k++; return k; };
+const off = wirePixels();
+app.setSchematicDisplay({ colorConnectedPins: true });
+const on = wirePixels();
+check('option-colours-pins', on > off, [off, on]);
+check('option-saved', (await window.electroNative.getSettings()).schematicDisplay?.colorConnectedPins === true);
+app.setSchematicDisplay({ colorConnectedPins: false });
 await app.saveNow();
 localStorage.setItem('smoke.netlist', JSON.stringify(window.electrocadLib.netlist.buildNetlist(app.project)));
 return { fails, out };

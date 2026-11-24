@@ -31,17 +31,24 @@ function scaled(num) {
 
 const clean = (x) => String(+x.toPrecision(6));
 
-/** Format a Value: 'as-typed' (unchanged), 'rkm' (4k7, 2R2, 100n) or 'si' (4.7k, 100nF). */
-export function formatValue(text, format = 'as-typed') {
+/**
+ * Format a Value: 'as-typed' (unchanged), 'rkm' (4k7, 2R2, 100n) or 'si' (4.7k, 100nF).
+ * `resistance` says whether the Value is in ohms (true for resistors). RKM writes 'R' for the
+ * decimal point only for resistances; other Values (capacitors, inductors…) never get an 'R'.
+ * When `resistance` isn't given, a typed unit decides (Ω yes, F/H/V/A no), else it is assumed.
+ */
+export function formatValue(text, format = 'as-typed', { resistance } = {}) {
   if (format === 'as-typed') return text;
   const v = parseValue(text);
   if (!v) return text;
+  const ohms = v.unit === 'Ω' ? true : v.unit ? false : resistance !== undefined ? resistance : true;
   let [mant, prefix] = scaled(v.num);
-  if (format === 'si') return clean(mant) + prefix + (v.unit && v.unit !== 'Ω' ? v.unit : v.unit === 'Ω' ? 'Ω' : '');
+  if (format === 'si') return clean(mant) + prefix + (v.unit || '');
   // RKM / IEC 60062: the prefix letter replaces the decimal point; 'R' stands in for no prefix
-  if (v.num < 1 && prefix === 'm' && (v.unit === 'Ω' || v.unit === '')) { mant = v.num; prefix = ''; } // resistor-style R47
-  const letter = prefix || 'R';
+  if (ohms && v.num < 1 && prefix === 'm') { mant = v.num; prefix = ''; } // resistor-style R47
   const s = clean(mant);
+  if (!prefix && !ohms) return s; // 52, 2.2: nothing to stand in for the decimal point
+  const letter = prefix || 'R';
   if (s.includes('.')) {
     const [i, f] = s.split('.');
     return (i === '0' ? '' : i) + letter + f;
