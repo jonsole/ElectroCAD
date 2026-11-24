@@ -7,9 +7,10 @@ What the user typed is never rewritten behind their back:
 - **Labels keep their spelling.** Each label shows the name as typed.
 - **The Net takes one canonical spelling.** The normal order still decides first: a Power symbol beats a Global label, which beats a Net label. Within the winning kind, the spelling used by the most labels wins, then the alphabetically first. Exports and the Board use that name.
 - **Spellings are corrected as you type.** When a name typed for a new or renamed label matches an existing Net apart from case, the name box (and the inspector) uses the existing spelling and says so in a short message. Mixed spellings therefore only arise from imports or hand-edited files.
-- **Mixed spellings are an ERC warning (#11),** not an error: "+3v3 and +3V3 are the same net; use one spelling". The netlist reports them on each Net (`spellings`).
+- **Mixed spellings are an ERC warning (#11),** with a fix that renames the odd labels, not an error: "+3v3 and +3V3 are the same net; use one spelling". The netlist reports them on each Net (`spellings`).
 - **Same-name local Nets on different Sheets** stay separate as before. They are qualified with the Sheet name (`Sheet 1/EN`) when names collide regardless of case.
-- **Importers warn** when a foreign design (KiCad is case-sensitive) has Nets whose names differ only by case, because they merge here.
+- **Importers warn** when a foreign design (KiCad is case-sensitive) has Nets whose names differ only by case, because they merge here (#33). Eagle stores net names in upper case, so its names never differ only by case.
+- **Exporters to case-sensitive formats** (KiCad, #34) write every label with its Net's spelling, so the Net doesn't split there, and list each rewrite in the loss report.
 
 Matching uses `toLowerCase()` on the trimmed name. It is locale-independent, so `İ`/`ı` are not special-cased; net names are almost always ASCII.
 
