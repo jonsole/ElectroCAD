@@ -1,0 +1,3 @@
+# The Native format is versioned JSON; KiCad and Eagle are lossy converters around it
+
+The `.ecad` project file is a single JSON document with a `format`/`version` header and a stable `id` on every object. It embeds a copy of every Library Part the Project uses, so a Project opens anywhere without its libraries. KiCad and Eagle support lives in separate Importer/Exporter modules that convert to and from the Native model. Features with no counterpart are dropped *with a written report*, never silently. Neither foreign format is used as the working model, because each has concepts the other lacks (for example Eagle's gates and KiCad's hierarchical sheets), and binding the editor to either would make the other a second-class citizen.
