@@ -17,7 +17,8 @@ import { openAnnotateDialog } from './annotate-dialog.js';
 import { hitPad, footprintOutline, placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation } from '../core/footprint.js';
 import { ratsnest } from '../core/ratsnest.js';
 import { copperIndex, pointSeg2 } from '../core/collision.js';
-import { CORNERS, startRoute, step as routeStep, click as routeClickAt, back as routeBack, flipPosture, commit as routeCommit } from '../core/router.js';
+import { CORNERS, startRoute, step as routeStep, click as routeClickAt, back as routeBack, flipPosture, commit as routeCommit, switchLayer, layerPairs } from '../core/router.js';
+import { connection, setTrackWidth, setTrackLayer, setViaSize, placeVia } from '../core/copper.js';
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
 import { allFootprints } from '../library/footprints.js';
 import { STARTER_LIBRARY } from '../library/starter.js';
@@ -34,7 +35,8 @@ const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
 /** The palette tools that work now: key, icon, title. */
 export const BOARD_TOOLS = {
   select: { icon: 'select', title: 'Select (V)', key: 'v' },
-  route: { icon: 'route', title: 'Route (X): click a pad to start a track on the active copper layer, click to place corners, click a pad of the same net to finish · / flips the bend · Backspace undoes a corner · Esc cancels', key: 'x' },
+  route: { icon: 'route', title: 'Route (X): click a pad to start a track on the active copper layer, click to place corners, click a pad of the same net to finish · V drops a via and changes layer · / flips the bend · Backspace undoes a corner · Esc cancels', key: 'x' },
+  via: { icon: 'via', title: 'Via: click to place a through via; it takes the net of the track or pad it lands on' },
   outline: { icon: 'outline', title: 'Outline rectangle (B): click two corners. Round the corners with Corner radius in Properties', key: 'b' },
   polygon: { icon: 'lpolygon', title: 'Outline polygon (P): click corners; A makes the next side an arc; click the first point to close', key: 'p' },
   circle: { icon: 'lellipse', title: 'Round outline or hole (C): click the centre, then the edge', key: 'c' },
@@ -59,7 +61,8 @@ export class BoardEditor {
     this.selection = new Set(); // indices into board.outline
     this.fpSel = new Set();     // ids of selected board Footprints
     this.netSel = new Set();    // Net names (as on the Board) selected by double-clicking a pad
-    this.trackSel = new Set();  // ids of selected Tracks
+    this.trackSel = new Set();  // ids of selected Tracks and Vias
+    this.pair = pref.get('boardLayerPair', null); // the layers V switches between while routing (4-layer boards)
     this.corner = pref.get('boardCorner', '45');            // track bends: '90' | '45' | 'any'
     this.chamfer = mm(pref.get('boardChamfer', 0));         // Eagle-style auto chamfer of 90° bends
     this.route = null;          // the track being routed (router state), its copper index and proposal
@@ -123,8 +126,12 @@ export class BoardEditor {
     this.chamferIn.addEventListener('change', () => { const v = parseFloat(this.chamferIn.value); if (Number.isFinite(v) && v >= 0) this.setChamfer(mm(v)); });
     const chamfer = h('label', { class: 'chamfer-box', title: 'Auto chamfer (as Eagle\'s mitre): bends of 90° or sharper are cut back by this length and joined at 45°. 0 for none' }, h('span', {}, 'Chamfer'), this.chamferIn, h('em', {}, 'mm'));
     // the Route tool's options pop up over the canvas while it is the tool (see attach)
+    this.pairSel = h('select', { class: 'select', 'aria-label': 'Via layer pair', title: 'The two copper layers V switches between while routing (through vias join every layer)' });
+    this.pairSel.addEventListener('change', () => { this.pair = this.pairSel.value.split('|'); pref.set('boardLayerPair', this.pair); if (this.route) this.route = { ...this.route, pair: this.pair }; });
+    this.pairSel.addEventListener('keydown', (e) => e.stopPropagation());
+    this.pairBox = h('label', { class: 'chamfer-box pair-box' }, h('span', {}, 'V switches'), this.pairSel);
     this.routeStrip = h('div', { class: 'tool-strip route-strip', role: 'toolbar', 'aria-label': 'Routing options', hidden: true },
-      h('span', { class: 'tool-strip-label' }, 'Corners'), this.cornerSeg, h('span', { class: 'sep' }), chamfer);
+      h('span', { class: 'tool-strip-label' }, 'Corners'), this.cornerSeg, h('span', { class: 'sep' }), chamfer, h('span', { class: 'sep pair-sep' }), this.pairBox);
     return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.del, this.btn.rotate, this.btn.flip, this.btn.lock, h('span', { class: 'sep' }), ...this.cards.buttons(), this.gridCard.button];
   }
 
@@ -133,7 +140,7 @@ export class BoardEditor {
     for (const [id, t] of Object.entries(BOARD_TOOLS)) this.toolBtn[id] = button({ icon: t.icon, title: t.title, onClick: () => this.setTool(id) });
     const T = this.toolBtn;
     return [T.select, T.route, later({ icon: 'dragTrack', title: 'Drag track (D)' }, 31),
-      later({ icon: 'via', title: 'Via' }, 21), later({ icon: 'zone', title: 'Zone' }, 23), null,
+      T.via, later({ icon: 'zone', title: 'Zone' }, 23), null,
       T.outline, T.polygon, T.circle, null, later({ icon: 'ltext', title: 'Text' }, 19), T.measure, T.origin];
   }
 
@@ -191,6 +198,7 @@ export class BoardEditor {
     };
     const parts = [];
     const fps = this.board.footprints.filter((f) => this.fpSel.has(f.id));
+    if (this.trackSel.size) parts.push(...this.copperProps());
     if (fps.length === 1 && !sel.length) parts.push(...this.footprintProps(fps[0]));
     else if (fps.length > 1) parts.push(h('div', { class: 'prop-title' }, `${fps.length} footprints${sel.length ? ` and ${sel.length} outline shape${sel.length === 1 ? '' : 's'}` : ''}`),
       h('p', { class: 'side-note' }, 'R rotates them 90° about their middle, F flips them to the other side, L locks them. Drag to move.'));
@@ -220,6 +228,41 @@ export class BoardEditor {
       icon(ok ? 'check' : 'info', 16),
       h('span', {}, ok ? `Outline closed · ${fmt(b.x1 - b.x0)} × ${fmt(b.y1 - b.y0)} mm${c.pieces > 1 ? ` · ${c.pieces} separate pieces` : ''}${c.cutouts ? ` · ${c.cutouts} cut-out${c.cutouts > 1 ? 's' : ''}` : ''}` : c.problems.join(' '))));
     el.replaceChildren(...parts);
+  }
+
+  /** PROPERTIES for selected Tracks and Vias: width and layer, drill and diameter; the whole connection (U). */
+  copperProps() {
+    const tracks = this.board.tracks.filter((t) => this.trackSel.has(t.id)), vias = this.board.vias.filter((v) => this.trackSel.has(v.id));
+    const stop = (el) => { el.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter' && el.tagName === 'INPUT') el.blur(); }); return el; };
+    const row = (label, el, unit = '') => h('label', { class: 'le-row' }, h('span', {}, label), el, h('em', {}, unit));
+    const one = (xs, k) => (xs.length && xs.every((x) => x[k] === xs[0][k]) ? xs[0][k] : null);
+    const num = (label, value, onSet) => {
+      const i = stop(h('input', { class: 'input', type: 'number', step: '0.01', min: '0.01', value: value == null ? '' : fmt(value), placeholder: value == null ? 'mixed' : '', 'aria-label': label }));
+      i.addEventListener('change', () => { const v = parseFloat(i.value); if (Number.isFinite(v) && v > 0) { try { onSet(mm(v)); } catch (e) { toast(e.message, 'error', 3000); } } });
+      return row(label, i, 'mm');
+    };
+    const nets = [...new Set([...tracks, ...vias].map((x) => x.net || '(no net)'))];
+    const len = tracks.reduce((a, t) => a + Math.hypot(t.b[0] - t.a[0], t.b[1] - t.a[1]), 0);
+    const out = [h('div', { class: 'prop-title' }, [tracks.length ? `${tracks.length} track${tracks.length === 1 ? '' : 's'}` : '', vias.length ? `${vias.length} via${vias.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')),
+      h('p', { class: 'side-note' }, `Net ${nets.join(', ')}${tracks.length ? ` · ${fmt(Math.round(len))} mm long` : ''}`)];
+    if (tracks.length) {
+      const ids = tracks.map((t) => t.id);
+      out.push(num('Width', one(tracks, 'width'), (w) => this.app.edit('Track width', (p) => setTrackWidth(p, ids, w))));
+      const layer = stop(h('select', { class: 'select', 'aria-label': 'Track layer' }, ...copperLayerNames(this.board.stack.copper).map((l) => h('option', { value: l }, l))));
+      if (!one(tracks, 'layer')) layer.prepend(h('option', { value: '', disabled: true }, 'Mixed'));
+      layer.value = one(tracks, 'layer') || '';
+      layer.addEventListener('change', () => this.app.edit(`Tracks to ${layer.value}`, (p) => setTrackLayer(p, ids, layer.value)));
+      out.push(row('Layer', layer));
+    }
+    if (vias.length) {
+      const ids = vias.map((v) => v.id);
+      out.push(num('Via drill', one(vias, 'drill'), (d) => this.app.edit('Via drill', (p) => setViaSize(p, ids, { drill: d }))),
+        num('Via diameter', one(vias, 'diameter'), (d) => this.app.edit('Via diameter', (p) => setViaSize(p, ids, { diameter: d }))));
+    }
+    out.push(h('div', { class: 'layer-actions' },
+      button({ label: 'Whole connection (U)', cls: 'btn-ghost', title: 'Select every track and via joined to these', onClick: () => this.selectConnection() }),
+      button({ label: 'Delete', icon: 'trash', cls: 'btn-ghost', title: 'Delete (Del)', onClick: () => this.deleteSelection() })));
+    return out;
   }
 
   /**
@@ -307,7 +350,7 @@ export class BoardEditor {
     for (const i of [...this.selection]) if (i >= n) this.selection.delete(i);
     const ids = new Set(this.board.footprints.map((f) => f.id));
     for (const id of [...this.fpSel]) if (!ids.has(id)) this.fpSel.delete(id);
-    const tids = new Set((this.board.tracks || []).map((t) => t.id));
+    const tids = new Set([...(this.board.tracks || []), ...(this.board.vias || [])].map((t) => t.id));
     for (const id of [...this.trackSel]) if (!tids.has(id)) this.trackSel.delete(id);
     this._rats = ratsnest(this.project);
     if (!copperLayerNames(this.board.stack.copper).includes(this.activeLayer) && /^In\d/.test(this.activeLayer)) this.activeLayer = 'F.Cu';
@@ -321,7 +364,15 @@ export class BoardEditor {
       this.btn.lock.replaceChildren(icon(fs.length && fs.every((f) => f.locked) ? 'unlock' : 'lock', 20));
     }
     if (this.toolBtn) for (const [id, b] of Object.entries(this.toolBtn)) b.classList.toggle('active', this.tool === id);
-    if (this.routeStrip) this.routeStrip.hidden = this.tool !== 'route';
+    if (this.routeStrip) {
+      this.routeStrip.hidden = this.tool !== 'route';
+      // layer pairs: only a 4-layer board has a choice
+      const pairs = layerPairs(this.board.stack.copper), four = this.board.stack.copper === 4;
+      this.pairBox.hidden = !four; this.routeStrip.querySelector('.pair-sep').hidden = !four;
+      const cur = (this.pair && pairs.some((q) => q.join('|') === this.pair.join('|')) ? this.pair : pairs[0]).join('|');
+      if (this.pairSel.options.length !== pairs.length) this.pairSel.replaceChildren(...pairs.map((q) => h('option', { value: q.join('|') }, q.join(' ↔ '))));
+      this.pairSel.value = cur;
+    }
     if (this.stackEl) { this.renderStack(); this.renderLayers(); this.renderProps(); }
     this._home();
     if (this.ws) { this.ws.view.grid = this.gridStep; this.ws.view.origin = this.board.origin; }
@@ -351,11 +402,14 @@ export class BoardEditor {
           : 'Outline polygon: click the next corner · A arc side · Backspace undo corner · click the first corner to close · Esc cancel'; break;
       case 'circle': t = p ? 'Circle: click a point on the edge' : 'Circle: click the centre (a round board, or a hole inside the board)'; break;
       case 'route': t = this.route
-        ? `Routing ${this.route.net} on ${this.route.layer} (${fmt(this.route.width)} mm): click to place a corner · click a ${this.route.net} pad to finish · double-click or Enter ends here · / flips the bend · Backspace undoes a corner · Esc cancels${this.routeView?.collisions.length ? ' · red: too close to another net' : ''}`
+        ? `Routing ${this.route.net} on ${this.route.layer} (${fmt(this.route.width)} mm): click to place a corner · click a ${this.route.net} pad to finish · V drops a via and goes to ${this.route.layer === this.route.pair[0] ? this.route.pair[1] : this.route.pair[0]} · double-click or Enter ends here · / flips the bend · Backspace undoes a corner · Esc cancels${this.routeView?.collisions.length ? ' · red: too close to another net' : ''}`
         : `Route: click a pad on ${this.activeLayer} to start a track (corners: ${this.corner === 'any' ? 'any angle' : this.corner + '°'}${this.chamfer ? `, chamfer ${fmt(this.chamfer)} mm` : ''})`; break;
+      case 'via': t = 'Via: click to place a through via (F.Cu to B.Cu); it takes the net of the track or pad it lands on · Esc back to Select'; break;
       case 'origin': t = 'Grid origin: click where the grid, rulers and coordinates should measure from (outline corners attract it) · Esc back to Select'; break;
       case 'measure': t = this.measure && !this.measure.done ? 'Measure: click the second point' : 'Measure: click two points · Esc to stop'; break;
-      default: t = this.fpSel.size
+      default: t = this.trackSel.size
+        ? `${this.trackSel.size} track${this.trackSel.size === 1 ? '' : 's'} or via${this.trackSel.size === 1 ? '' : 's'} selected · U selects the whole connection · Del deletes · width, layer and via size in Properties`
+        : this.fpSel.size
         ? `${this.fpSel.size === 1 ? 'Footprint' : `${this.fpSel.size} footprints`} selected · drag to move (the origin snaps to the grid) · R rotate 90° (Shift+R back) · F flip to the other side · L lock · arrows nudge · exact angle and Footprint in Properties`
         : this.board.outline.length
         ? (this.selection.size === 1 ? 'Drag a handle to resize (a side handle moves that side; corners stay round) · drag the shape to move · Del delete · arrows nudge one grid step · hold Alt for the Alt grid'
@@ -412,7 +466,7 @@ export class BoardEditor {
   deleteSelection() {
     if (this.trackSel.size) {
       const del = new Set(this.trackSel); this.trackSel.clear();
-      this.app.edit(del.size === 1 ? 'Delete track' : `Delete ${del.size} tracks`, (p) => { p.board.tracks = p.board.tracks.filter((t) => !del.has(t.id)); });
+      this.app.edit(del.size === 1 ? 'Delete track' : `Delete ${del.size} tracks and vias`, (p) => { p.board.tracks = p.board.tracks.filter((t) => !del.has(t.id)); p.board.vias = p.board.vias.filter((v) => !del.has(v.id)); });
       return;
     }
     if (this.fpSel.size && !this.selection.size) { toast('Footprints come from the Schematic: delete the part there, then Update from Schematic (F8).', 'info', 3500); return; }
@@ -465,6 +519,13 @@ export class BoardEditor {
       this.setAlt(e.altKey);
       if (this.tool === 'origin') { this.placeOrigin(w); return; }
       if (this.tool === 'route') { this.routeClick(w, e.detail >= 2); return; }
+      if (this.tool === 'via') {
+        const at = this.snapAt(w);
+        let v = null;
+        this.app.edit('Place via', (p) => { v = placeVia(p, at, 2 / ws.view.view.scale); });
+        toast(v.net ? `Via on ${v.net}.` : 'Via with no net (it isn\'t on a track or pad).', 'info', 1600);
+        return;
+      }
       if (this.tool === 'select') {
         const tol = 5 / ws.view.view.scale;
         const handle = this._handleAt(w, tol);
@@ -619,6 +680,7 @@ export class BoardEditor {
     const boxes = [
       ...sub.outline.map((sh) => outlineBounds([sh])),
       ...(board.tracks || []).filter((t) => trackIds.has(t.id)).map((t) => ({ x0: Math.min(t.a[0], t.b[0]) - t.width / 2, y0: Math.min(t.a[1], t.b[1]) - t.width / 2, x1: Math.max(t.a[0], t.b[0]) + t.width / 2, y1: Math.max(t.a[1], t.b[1]) + t.width / 2 })),
+      ...(board.vias || []).filter((v) => trackIds.has(v.id)).map((v) => ({ x0: v.at[0] - v.diameter / 2, y0: v.at[1] - v.diameter / 2, x1: v.at[0] + v.diameter / 2, y1: v.at[1] + v.diameter / 2 })),
       ...sub.footprints.filter((f) => !partial.has(f.id)).map((f) => { const q = footprintOutline(proj, f); const xs = q.map((p) => p[0]), ys = q.map((p) => p[1]); return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }; }),
       ...sub.footprints.filter((f) => partial.has(f.id)).flatMap((f) => placedPads(proj, f, nets).filter((p) => padKeys.has(`${f.componentId}:${p.number}`)).map((p) => { const r = Math.max(...p.size) / 2; return { x0: p.at[0] - r, y0: p.at[1] - r, x1: p.at[0] + r, y1: p.at[1] + r }; })),
     ].filter(Boolean).map((b) => screenBox(view, b));
@@ -629,7 +691,7 @@ export class BoardEditor {
   /** Tell the Schematic what is selected here (when this is the workspace being used). */
   _publishProbe() {
     if (this.app.active !== this.ws) return;
-    const trackNets = (this.board.tracks || []).filter((t) => this.trackSel.has(t.id)).map((t) => t.net);
+    const trackNets = [...(this.board.tracks || []), ...(this.board.vias || [])].filter((t) => this.trackSel.has(t.id) && t.net).map((t) => t.net);
     const sig = `${[...this.fpSel].sort().join()}|${[...this.netSel].join()}|${trackNets.join()}`;
     if (sig === this._probeSig) return;
     this._probeSig = sig;
@@ -686,7 +748,9 @@ export class BoardEditor {
       const hit = this._padOnLayer(w);
       if (!hit) { toast(hitPad(this.project, w) ? `That pad isn't on ${this.activeLayer}: make its layer active (Layers, or the chips at the bottom).` : 'Start a track on a pad.', 'info', 2600); return; }
       if (!hit.pad.net) { toast('That pad has no net yet: Update from Schematic (F8) first.', 'info', 2600); return; }
-      this.route = startRoute(this.project, hit.pad.at, this.activeLayer, hit.pad.net, { corner: this.corner, chamfer: this.chamfer });
+      const pairs = layerPairs(this.board.stack.copper);
+      const pair = this.pair && pairs.some((q) => q.join('|') === this.pair.join('|')) ? this.pair : null;
+      this.route = startRoute(this.project, hit.pad.at, this.activeLayer, hit.pad.net, { corner: this.corner, chamfer: this.chamfer, pair });
       this.routeIndex = copperIndex(this.project);
       this._routeMove();
       this.refresh();
@@ -719,7 +783,8 @@ export class BoardEditor {
     if (st && st.points.length > 1) {
       let n = 0;
       this.app.edit(`Route ${st.net}`, (p) => { n = routeCommit(p, st).length; });
-      toast(`${n} track${n === 1 ? '' : 's'} on ${st.layer} (${st.net}).`, 'info', 1600);
+      const v = st.vias?.length || 0;
+      toast(`${n} track${n === 1 ? '' : 's'}${v ? ` and ${v} via${v === 1 ? '' : 's'}` : ` on ${st.layer}`} (${st.net}).`, 'info', 1600);
     } else this.refresh();
   }
 
@@ -729,7 +794,15 @@ export class BoardEditor {
   _hitTrack(w, tol) {
     const order = ['F.Cu', 'In1.Cu', 'In2.Cu', 'B.Cu'];
     const ts = (this.board.tracks || []).filter((t) => !this.hidden.has(t.layer)).sort((a, b) => order.indexOf(a.layer) - order.indexOf(b.layer));
-    return ts.find((t) => pointSeg2(w, t.a, t.b) <= (t.width / 2 + tol) ** 2) || null;
+    const via = (this.hidden.has('F.Cu') && this.hidden.has('B.Cu')) ? null : (this.board.vias || []).find((v) => Math.hypot(w[0] - v.at[0], w[1] - v.at[1]) <= v.diameter / 2 + tol);
+    return via || ts.find((t) => pointSeg2(w, t.a, t.b) <= (t.width / 2 + tol) ** 2) || null;
+  }
+
+  /** U: select the whole connection the selected copper belongs to. */
+  selectConnection() {
+    if (!this.trackSel.size) return;
+    this.trackSel = connection(this.board, [...this.trackSel]);
+    this.refresh();
   }
 
   /** Forward annotation: list what the Schematic changes on the Board, then apply it in one step. */
@@ -832,9 +905,16 @@ export class BoardEditor {
       for (const sg of segments) {
         const [x0, y0] = view.toScreen(sg.a), [x1, y1] = view.toScreen(sg.b);
         if (pass === 'band') { ctx.globalAlpha = sg.collides ? 0.4 : 0.18; ctx.strokeStyle = sg.collides ? bad : C.selection; ctx.lineWidth = Math.max(2, (st.width + 2 * this.board.rules.clearance) * view.scale); }
-        else { ctx.globalAlpha = sg.fixed ? 0.95 : 0.8; ctx.strokeStyle = sg.collides ? bad : C[st.layer] || '#c33'; ctx.lineWidth = Math.max(1, st.width * view.scale); }
+        else { ctx.globalAlpha = sg.fixed ? 0.95 : 0.8; ctx.strokeStyle = sg.collides ? bad : C[sg.layer || st.layer] || '#c33'; ctx.lineWidth = Math.max(1, st.width * view.scale); }
         ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
       }
+    }
+    // the vias dropped so far
+    ctx.globalAlpha = 1;
+    for (const v of st.vias || []) {
+      const [x, y] = view.toScreen(v.at);
+      ctx.fillStyle = C.via || '#c8c8c8'; ctx.beginPath(); ctx.arc(x, y, Math.max(2, (st.via.diameter / 2) * view.scale), 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = C.drill || '#000'; ctx.beginPath(); ctx.arc(x, y, Math.max(1, (st.via.drill / 2) * view.scale), 0, Math.PI * 2); ctx.fill();
     }
     ctx.globalAlpha = 1; ctx.strokeStyle = bad; ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
     for (const it of collisions) {
@@ -861,6 +941,13 @@ export class BoardEditor {
     if (this.route) {
       if (e.key === 'Escape') { this.cancelRoute(); return true; }
       if (e.key === '/') { this.route = flipPosture(this.route); this._routeMove(); return true; }
+      if (e.key.toLowerCase() === 'v') {
+        this.route = switchLayer(this.project, this.route, this.cursor || this.route.points[this.route.points.length - 1]);
+        this.activeLayer = this.route.layer;
+        if (this.hidden.delete(this.activeLayer)) pref.set('boardHidden', [...this.hidden]);
+        this._routeMove(); this.refresh();
+        return true;
+      }
       if (e.key === 'Backspace') { if (this.route.points.length > 1) { this.route = routeBack(this.route); this._routeMove(); } else this.cancelRoute(); return true; }
       if (e.key === 'Enter') { this.finishRoute(); return true; }
     }
@@ -877,6 +964,7 @@ export class BoardEditor {
     if ((e.key === 'Delete' || e.key === 'Backspace') && (this.selection.size || this.trackSel.size || this.fpSel.size)) { this.deleteSelection(); return true; }
     const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
     if (arrows[e.key] && (this.selection.size || this.fpSel.size)) { const [dx, dy] = arrows[e.key]; this.nudge(dx * this.board.grid.main, dy * this.board.grid.main); return true; }
+    if (this.trackSel.size && this.tool === 'select' && e.key.toLowerCase() === 'u') { this.selectConnection(); return true; }
     if (this.fpSel.size && this.tool === 'select') {
       if (k === 'r') { this.rotateSel(e.shiftKey ? -90 : 90); return true; }
       if (k === 'f') { this.flipSel(); return true; }

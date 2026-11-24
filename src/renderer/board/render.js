@@ -77,7 +77,10 @@ export function drawBoard(ctx, view, C, board, opts = {}) {
   if (opts.project) {
     const view2 = { ...opts.project, board };
     drawFootprints(ctx, view, C, view2, board, hidden, opts.padsOnly, opts.padKeys);
-    if (!opts.only || opts.trackIds) drawTracks(ctx, view, C, board, hidden, opts.only ? opts.trackIds : null);
+    if (!opts.only || opts.trackIds) {
+      drawTracks(ctx, view, C, board, hidden, opts.only ? opts.trackIds : null);
+      drawVias(ctx, view, C, board, hidden, opts.only ? opts.trackIds : null);
+    }
     // the Ratsnest: a thin line for each unrouted connection
     if (opts.rats?.length) {
       ctx.save(); ctx.strokeStyle = C.ratsnest || '#98a2b3'; ctx.lineWidth = 1;
@@ -274,6 +277,21 @@ export function drawTracks(ctx, view, C, board, hidden = new Set(), ids = null) 
       ctx.lineWidth = Math.max(1, t.width * view.scale);
       ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
     }
+  }
+  ctx.restore();
+}
+
+/** Through Vias: a ring in the Via colour with its drill hole. `ids`: only these (highlighting). */
+export function drawVias(ctx, view, C, board, hidden = new Set(), ids = null) {
+  if (hidden.has('F.Cu') && hidden.has('B.Cu')) return;
+  ctx.save();
+  for (const v of board.vias || []) {
+    if (ids && !ids.has(v.id)) continue;
+    const [x, y] = view.toScreen(v.at);
+    ctx.fillStyle = C.via || '#c8c8c8';
+    ctx.beginPath(); ctx.arc(x, y, Math.max(2, (v.diameter / 2) * view.scale), 0, TAU); ctx.fill();
+    ctx.fillStyle = C.drill || '#000';
+    ctx.beginPath(); ctx.arc(x, y, Math.max(1, (v.drill / 2) * view.scale), 0, TAU); ctx.fill();
   }
   ctx.restore();
 }

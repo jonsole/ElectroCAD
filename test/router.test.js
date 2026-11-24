@@ -100,3 +100,56 @@ test('collisions with other Nets show while drawing', () => {
   assert.ok(r.segments[0].collides);
   assert.ok(r.collisions.some((c) => c.kind === 'pad' && c.item.number === '1'));
 });
+
+test('routing across a layer change yields tracks on both layers joined by a via with the right Net (#21)', async () => {
+  const { switchLayer, layerPairs, nextLayer } = await import('../src/renderer/core/router.js');
+  const { p, from, to } = board();
+  let st = startRoute(p, from.at, 'F.Cu', from.net, { corner: '90' });
+  st = click(p, st, [mm(3), 0]);
+  st = switchLayer(p, st, [mm(3), mm(2)]);                              // fixed to the cursor, via there, now on B.Cu
+  assert.equal(st.layer, 'B.Cu');
+  assert.deepEqual(st.vias, [{ at: [mm(3), mm(2)] }]);
+  const shown = step(p, st, [mm(5), mm(2)], 'free', copperIndex(p));
+  assert.deepEqual([...new Set(shown.segments.map((s) => s.layer))], ['F.Cu', 'B.Cu']);
+  st = back(st);                                                        // back through the via
+  assert.equal(st.layer, 'F.Cu'); assert.equal(st.vias.length, 0);
+  st = switchLayer(p, st, [mm(3), mm(2)]);
+  st = click(p, st, to.at);
+  const before = p.board.vias.length;
+  const tracks = commit(p, st);
+  assert.ok(tracks.some((t) => t.layer === 'F.Cu') && tracks.some((t) => t.layer === 'B.Cu'));
+  assert.equal(p.board.vias.length, before + 1);
+  const v = p.board.vias.at(-1);
+  assert.deepEqual([v.at, v.net, v.from, v.to, v.drill, v.diameter], [[mm(3), mm(2)], from.net, 'F.Cu', 'B.Cu', mm(0.3), mm(0.6)]);
+  // layer pairs on a 4-layer board
+  assert.equal(layerPairs(2).length, 1);
+  assert.equal(layerPairs(4).length, 6);
+  assert.equal(nextLayer(['In1.Cu', 'In2.Cu'], 'In1.Cu'), 'In2.Cu');
+  assert.equal(nextLayer(['F.Cu', 'In1.Cu'], 'B.Cu'), 'F.Cu');
+});
+
+test('a standalone via takes the Net it lands on; U-style connection selection; width and layer edits', async () => {
+  const { placeVia, connection, setTrackWidth, setTrackLayer, setViaSize } = await import('../src/renderer/core/copper.js');
+  const { switchLayer } = await import('../src/renderer/core/router.js');
+  const { p, from } = board();
+  let st = startRoute(p, from.at, 'F.Cu', from.net, { corner: '90' });
+  st = click(p, st, [mm(3), 0]);
+  st = switchLayer(p, st, [mm(3), mm(2)]);
+  st = click(p, st, [mm(6), mm(2)]);
+  commit(p, st);
+  const tracks = p.board.tracks;
+  const via = placeVia(p, [mm(4.5), mm(2)]);                            // on the B.Cu track
+  assert.equal(via.net, from.net);
+  assert.equal(placeVia(p, [mm(50), mm(50)]).net, '');                 // nowhere: no Net
+  const all = connection(p.board, [tracks.at(-1).id]);
+  assert.ok(tracks.every((t) => all.has(t.id)) && all.has(p.board.vias[0].id), [...all]);
+  assert.ok(!all.has(p.board.vias.at(-1).id));
+  setTrackWidth(p, [tracks[0].id], mm(0.5));
+  assert.equal(tracks[0].width, mm(0.5));
+  assert.throws(() => setTrackWidth(p, [tracks[0].id], 0), RangeError);
+  setTrackLayer(p, [tracks[0].id], 'B.Cu');
+  assert.equal(tracks[0].layer, 'B.Cu');
+  setViaSize(p, [via.id], { drill: mm(0.4), diameter: mm(0.8) });
+  assert.equal(via.diameter, mm(0.8));
+  assert.throws(() => setViaSize(p, [via.id], { diameter: mm(0.3) }), RangeError);
+});

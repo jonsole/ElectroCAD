@@ -6,7 +6,10 @@
 // Shove (#29) will propose other copper through the same interface. DOM-free.
 //
 // state: { net, layer, width, points: [start, corner…], corner: '90' | '45' | 'any', posture: 'a' | 'b',
-//          chamfer: nm }  chamfer: Eagle-style mitre length cut off every bend of 90° or sharper (0: none)
+//          chamfer: nm,  Eagle-style mitre length cut off every bend of 90° or sharper (0: none)
+//          runs: [{ layer, points }],  the runs already finished on other layers (#21)
+//          vias: [{ at }],  where they change layer
+//          pair: [layerA, layerB], via: { drill, diameter } }
 import { uid } from './project.js';
 import { netRules } from './collision.js';
 
@@ -30,8 +33,31 @@ export function cornerPath(a, b, corner = '45', posture = 'a') {
 }
 
 /** Start routing from a point (a pad's centre) on a layer, for a Net: width from its Net class. */
-export function startRoute(project, at, layer, net, { corner = '45', posture = 'a', chamfer = 0 } = {}) {
-  return { net, layer, width: netRules(project.board, net).trackWidth, points: [at], corner, posture, chamfer };
+export function startRoute(project, at, layer, net, { corner = '45', posture = 'a', chamfer = 0, pair = null } = {}) {
+  const r = netRules(project.board, net);
+  return { net, layer, width: r.trackWidth, points: [at], corner, posture, chamfer, runs: [], vias: [], pair: pair || defaultPair(project.board, layer), via: { drill: r.viaDrill, diameter: r.viaDiameter } };
+}
+
+/** The layer pairs a via can join while routing (through vias: any two copper layers). */
+export function layerPairs(copper) {
+  const ls = copper === 4 ? ['F.Cu', 'In1.Cu', 'In2.Cu', 'B.Cu'] : ['F.Cu', 'B.Cu'];
+  const out = [];
+  for (let i = 0; i < ls.length; i++) for (let j = i + 1; j < ls.length; j++) out.push([ls[i], ls[j]]);
+  return out;
+}
+const defaultPair = (board, layer) => (layer === 'F.Cu' || layer === 'B.Cu' || board.stack.copper !== 4 ? ['F.Cu', 'B.Cu'] : ['In1.Cu', 'In2.Cu']);
+
+/** The layer a via goes to from `layer`: the other one of the pair (or the pair's first). */
+export const nextLayer = (pair, layer) => (layer === pair[0] ? pair[1] : layer === pair[1] ? pair[0] : pair[0]);
+
+/**
+ * V while routing: fix the track to `at`, drop a via there and carry on from it on the other
+ * layer of the pair (or `to`).
+ */
+export function switchLayer(project, state, at, to = null) {
+  const s1 = click(project, state, at);
+  const end = s1.points[s1.points.length - 1];
+  return { ...s1, runs: [...s1.runs, { layer: s1.layer, points: s1.points }], vias: [...s1.vias, { at: end }], layer: to || nextLayer(s1.pair, s1.layer), points: [end] };
 }
 
 /**
@@ -61,12 +87,17 @@ export function step(project, state, cursor, mode = 'free', index = null) {
   const pts = chamferPath([...state.points, ...cornerPath(state.points[state.points.length - 1], cursor, state.corner, state.posture)], state.chamfer);
   const nFixed = chamferPath(state.points, state.chamfer).length;
   const segments = [];
-  for (let i = 1; i < pts.length; i++) if (pts[i][0] !== pts[i - 1][0] || pts[i][1] !== pts[i - 1][1]) segments.push({ a: pts[i - 1], b: pts[i], fixed: i < nFixed - 1 });
+  // runs finished on other layers, then this layer's
+  for (const run of state.runs || []) {
+    const rp = chamferPath(run.points, state.chamfer);
+    for (let i = 1; i < rp.length; i++) if (rp[i][0] !== rp[i - 1][0] || rp[i][1] !== rp[i - 1][1]) segments.push({ a: rp[i - 1], b: rp[i], fixed: true, layer: run.layer });
+  }
+  for (let i = 1; i < pts.length; i++) if (pts[i][0] !== pts[i - 1][0] || pts[i][1] !== pts[i - 1][1]) segments.push({ a: pts[i - 1], b: pts[i], fixed: i < nFixed - 1, layer: state.layer });
   let collisions = [];
   if (index && mode === 'free') {
     const seen = new Map();
     for (const s of segments) {
-      const hits = index.collisions(project.board, { type: 'capsule', a: s.a, b: s.b, r: state.width / 2 }, state.layer, state.net);
+      const hits = index.collisions(project.board, { type: 'capsule', a: s.a, b: s.b, r: state.width / 2 }, s.layer, state.net);
       s.collides = hits.length > 0;
       for (const h of hits) seen.set(h.id, h);
     }
@@ -82,20 +113,35 @@ export function click(project, state, point) {
   return { ...state, points: [...state.points, ...cornerPath(last, point, state.corner, state.posture)] };
 }
 
-/** Take back the last fixed segment (the start stays). */
-export const back = (state) => (state.points.length > 1 ? { ...state, points: state.points.slice(0, -1) } : state);
+/** Take back the last fixed segment (the start stays); at a via, take the via back and return to the layer before. */
+export function back(state) {
+  if (state.points.length > 1) return { ...state, points: state.points.slice(0, -1) };
+  if (!state.runs?.length) return state;
+  const prev = state.runs[state.runs.length - 1];
+  return { ...state, runs: state.runs.slice(0, -1), vias: state.vias.slice(0, -1), layer: prev.layer, points: prev.points };
+}
 
 export const flipPosture = (state) => ({ ...state, posture: state.posture === 'a' ? 'b' : 'a' });
 
 /** The Tracks for the fixed points, added to the Board (in place). Returns them. */
 export function commit(project, state) {
   const tracks = [];
-  const pts = chamferPath(state.points, state.chamfer);
-  for (let i = 1; i < pts.length; i++) {
-    const a = pts[i - 1], b = pts[i];
-    if (a[0] === b[0] && a[1] === b[1]) continue;
-    tracks.push({ id: uid('t'), a, b, width: state.width, layer: state.layer, net: state.net });
+  for (const run of [...(state.runs || []), { layer: state.layer, points: state.points }]) {
+    const pts = chamferPath(run.points, state.chamfer);
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      if (a[0] === b[0] && a[1] === b[1]) continue;
+      tracks.push({ id: uid('t'), a, b, width: state.width, layer: run.layer, net: state.net });
+    }
   }
   project.board.tracks.push(...tracks);
+  const vias = (state.vias || []).map((v) => newVia(project, v.at, state.net, state.via));
+  project.board.vias.push(...vias);
   return tracks;
+}
+
+/** A through via (v1: F.Cu to B.Cu, ADR-0015), sized by its Net class unless given. */
+export function newVia(project, at, net, size = null) {
+  const r = netRules(project.board, net);
+  return { id: uid('v'), at, drill: size?.drill || r.viaDrill, diameter: size?.diameter || r.viaDiameter, from: 'F.Cu', to: 'B.Cu', net: net || '' };
 }

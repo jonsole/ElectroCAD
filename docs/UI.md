@@ -433,6 +433,23 @@ Selecting something in one editor highlights the same thing in the other (#18). 
   - A selected track's Net highlights its Wires on the Schematic (cross-probing).
   - Moving and editing tracks comes with #21.
 
+## Vias, layer changes and editing tracks
+
+#21 adds vias and track editing:
+- **V while routing** fixes the track up to the pointer and drops a **through via** there (F.Cu to B.Cu, ADR-0015). Routing carries on from the via on the other layer of the **layer pair**, and the active layer follows.
+  - On a 4-layer board, the routing strip adds **V switches: A ↔ B** to choose the pair (any two copper layers, remembered).
+  - Backspace steps back through a via. Vias take their size from the Net class.
+- **Via tool** (palette): click to place a standalone through via. It takes the Net of the track, via or pad it lands on, or none.
+- **Selecting copper:** Select picks tracks and vias (vias first).
+  - **U** extends the selection to the whole connection: every track and via joined end to end, stopping at pads.
+  - **Del** deletes the selection (a segment, or the whole connection after U).
+- **PROPERTIES for selected copper:**
+  - the count, the Net and the length;
+  - **Width** and **Layer** for the tracks;
+  - **Via drill** and **Via diameter** for the vias;
+  - a "Whole connection (U)" button and Delete.
+  - Mixed values show blank or "Mixed". Every edit is one undo step.
+
 ## Workspaces
 
 There are four workspace tabs: **Schematic · Board · Gerber · Library**. Each keeps its own pan/zoom and selection when you switch away and back.
