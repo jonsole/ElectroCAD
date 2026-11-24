@@ -262,7 +262,7 @@ The Schematic, Board and Library editors work the same way here.
   - The Schematic and Board grids are saved in the Project. The Library's are a per-browser preference.
   - Arrow keys nudge by one main-grid step.
 - **Origin tool (O)** in each palette.
-  - Schematic (per sheet) and Board: click to move the grid origin. The grid lines, rulers and the coordinate pill then measure from it. **Reset** puts it back: next to the origin in the Board's PROPERTIES, and in the Sheet setup dialog, which also takes X and Y in mm.
+  - Schematic (per sheet) and Board: click to move the grid origin. The grid lines, rulers and the coordinate pill then measure from it. **Reset** in the Grid card puts it back; the card and the Sheet setup dialog also take X and Y in mm.
   - Library: the origin is the Symbol's anchor (where it is placed from). Clicking a point shifts the whole Part, every Unit, so that point becomes the anchor. The drawing stays where it is on screen and the origin mark moves.
   - The origin snaps onto handles like everything else.
   - The origin is marked by a cross with a small ring in every workspace, drawn over the content in the theme's **Origin mark** colour.
