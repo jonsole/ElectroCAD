@@ -106,10 +106,10 @@ export const platform = {
   },
 
   /** Pick an .ecad file to bring into the store. Resolves to { name, text } or null if cancelled. */
-  importFile: () => (native ? native.importFile() : pickFile('.ecad,application/json')),
+  importFile: (kind = 'project') => (native ? native.importFile(kind) : pickFile(kind === 'theme' ? '.json,application/json' : '.ecad,application/json')),
   /** Write an .ecad file: a Save dialog on desktop, a download in the browser. Resolves to { name } or null. */
-  async exportFile(suggestedName, text) {
-    if (native) return native.exportFile(suggestedName, text);
+  async exportFile(suggestedName, text, kind = 'project') {
+    if (native) return native.exportFile(suggestedName, text, kind);
     download(suggestedName, text);
     return { name: suggestedName };
   },

@@ -131,12 +131,13 @@ Canvas colours come from a **Colour theme**, chosen separately for the **Schemat
   - **Export** a theme to a `.json` file and **Import** one to share it.
   - Custom themes are stored with the app settings (desktop `settings.json`, browser storage), never in the Project file.
   - Built-in themes are read-only; editing one starts by duplicating it.
+- **Rulers** are app chrome, so they follow the app's dark/light theme rather than the canvas theme.
 - **Settings → Colours layout:** two theme selects (Schematic, Board) with Duplicate / Edit / Import / Export buttons. The editor is a fork-style modal: a list of the theme's colours grouped as below, each with a swatch, and the preview on the right.
 
-**Schematic theme colours:** background, paper, grid minor, grid major, sheet edge and title block, Wire, Junction, Symbol body line, Symbol body fill, Pin, Pin number, Pin name, Reference designator, Value, Net label, Global label, Power symbol, No-connect, selection, highlight (Cross-probing), ERC error, ERC warning.
+**Schematic theme colours:** background, paper, grid minor, grid major, sheet edge and title block, origin mark, Wire, Junction, Symbol body line, Symbol body fill, Pin, Pin number, Pin name, Reference designator, Value, Net label, Global label, Power symbol, No-connect, selection, highlight (Cross-probing), ERC error, ERC warning.
 
 **Board theme colours:**
-- background, grid minor, grid major, Ratsnest, selection, highlight, DRC error;
+- background, grid minor, grid major, origin mark, Ratsnest, selection, highlight, DRC error;
 - one colour per layer: F.Cu, In1.Cu, In2.Cu, B.Cu, F/B.SilkS, F/B.Mask, F/B.Paste, F/B.CrtYd, F/B.Fab, Edge.Cuts;
 - Via, through-hole Pad, drill hole;
 - Zone fill opacity and inactive-layer dimming.

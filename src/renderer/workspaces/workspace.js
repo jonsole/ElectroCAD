@@ -47,11 +47,13 @@ export class Workspace {
    * @param {Element} cfg.side         side panel element
    * @param {() => Element[]} [cfg.chips]
    * @param {() => string} [cfg.status]
+   * @param {() => object} cfg.colors    resolved Colour theme tokens for this canvas
+   * @param {() => void} [cfg.onRefresh]
    */
   constructor(cfg) {
     this.id = cfg.id;
     this.cfg = cfg;
-    this.view = new Canvas2D({ grid: cfg.grid, frame: cfg.frame, home: cfg.home });
+    this.view = new Canvas2D({ grid: cfg.grid, frame: cfg.frame, home: cfg.home, colors: cfg.colors });
     this.hint = h('span', { class: 'hint-text' }, cfg.hint);
     this.chipStrip = h('div', { class: 'chip-strip' });
     this.statusText = h('div', { class: 'status-text' });
@@ -68,6 +70,13 @@ export class Workspace {
   refresh() {
     this.chipStrip.replaceChildren(...(this.cfg.chips ? this.cfg.chips() : []));
     this.statusText.textContent = this.cfg.status ? this.cfg.status() : '';
+    if (this.cfg.onRefresh) this.cfg.onRefresh();
+  }
+
+  /** Redraw after a Colour theme or UI theme change. */
+  recolor() {
+    this.refresh();
+    this.view.invalidate();
   }
 
   show(on) {

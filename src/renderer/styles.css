@@ -245,3 +245,18 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .dash-meta div { flex: 1; min-width: 0; }
 .dash-meta b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dash-meta small { color: var(--muted); }
+
+/* ---------- Settings → Colours and the colour theme editor (#51) ---------- */
+.set-group-title { margin: 14px 0 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+.theme-row { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px 12px; margin-bottom: 10px; }
+.theme-row .field { margin-bottom: 8px; }
+.theme-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.theme-actions .btn { height: 30px; }
+.theme-editor-grid { display: grid; grid-template-columns: 1fr 420px; gap: 18px; }
+.theme-tokens { max-height: 420px; overflow-y: auto; padding-right: 6px; }
+.theme-group { margin: 10px 0 4px; font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+.theme-token { display: grid; grid-template-columns: 1fr 64px 30px; align-items: center; gap: 8px; padding: 2px 0; font-size: 12.5px; }
+.theme-token input[type='color'] { width: 64px; height: 26px; padding: 0 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); cursor: pointer; }
+.theme-token input[type='range'] { width: 64px; accent-color: var(--accent); }
+.theme-token .btn { height: 26px; min-width: 26px; padding: 0; }
+.theme-preview { display: block; width: 420px; height: 260px; border: 1px solid var(--border); border-radius: 8px; margin-top: 6px; }

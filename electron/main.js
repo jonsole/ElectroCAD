@@ -37,7 +37,7 @@ function saveSettings() {
 ipcMain.handle('settings:get', () => ({ ...settings, platform: process.platform, version: app.getVersion(), smoke: !!SMOKE }));
 ipcMain.handle('settings:set', (_e, patch) => {
   if (!patch || typeof patch !== 'object') return settings;
-  const allowed = ['theme', 'units', 'workspace', 'lastProject'];
+  const allowed = ['theme', 'units', 'workspace', 'lastProject', 'colorThemes', 'customThemes'];
   for (const k of allowed) if (k in patch) settings[k] = patch[k];
   if ('theme' in patch) nativeTheme.themeSource = settings.theme === 'light' ? 'light' : 'dark';
   saveSettings();
@@ -95,29 +95,35 @@ ipcMain.handle('store:delete', (_e, id) => {
 ipcMain.handle('store:folder', () => { fs.mkdirSync(projectsDir(), { recursive: true }); shell.openPath(projectsDir()); });
 
 // ---------------------------------------------------------------- .ecad files on disk (import / export)
-const PROJECT_FILTERS = [{ name: 'ElectroCAD project', extensions: ['ecad'] }, { name: 'All files', extensions: ['*'] }];
+const FILE_KINDS = {
+  project: { ext: 'ecad', filters: [{ name: 'ElectroCAD project', extensions: ['ecad'] }, { name: 'All files', extensions: ['*'] }], open: 'Open project file', save: 'Save project as file' },
+  theme: { ext: 'json', filters: [{ name: 'ElectroCAD colour theme', extensions: ['json'] }, { name: 'All files', extensions: ['*'] }], open: 'Import colour theme', save: 'Export colour theme' },
+};
+const fileKind = (k) => FILE_KINDS[k] || FILE_KINDS.project;
 const smokeDialogs = []; // smoke tests queue dialog answers here instead of clicking
 
-ipcMain.handle('file:import', async () => {
+ipcMain.handle('file:import', async (_e, kind) => {
+  const K = fileKind(kind);
   let file;
   if (SMOKE) file = smokeDialogs.shift() || null;
   else {
-    const r = await dialog.showOpenDialog(win, { title: 'Open project file', filters: PROJECT_FILTERS, properties: ['openFile'] });
+    const r = await dialog.showOpenDialog(win, { title: K.open, filters: K.filters, properties: ['openFile'] });
     file = r.canceled || !r.filePaths.length ? null : r.filePaths[0];
   }
   if (!file) return null;
   return { name: path.basename(file), text: fs.readFileSync(file, 'utf8') };
 });
-ipcMain.handle('file:export', async (_e, suggestedName, text) => {
+ipcMain.handle('file:export', async (_e, suggestedName, text, kind) => {
+  const K = fileKind(kind);
   if (typeof text !== 'string') throw new Error('Nothing to save');
   let file;
   if (SMOKE) file = smokeDialogs.shift() || null;
   else {
-    const r = await dialog.showSaveDialog(win, { title: 'Save project as file', defaultPath: suggestedName, filters: PROJECT_FILTERS });
+    const r = await dialog.showSaveDialog(win, { title: K.save, defaultPath: suggestedName, filters: K.filters });
     file = r.canceled || !r.filePath ? null : r.filePath;
   }
   if (!file) return null;
-  if (!/\.ecad$/i.test(file)) file += '.ecad';
+  if (!file.toLowerCase().endsWith('.' + K.ext)) file += '.' + K.ext;
   fs.writeFileSync(file, text);
   return { name: path.basename(file) };
 });

@@ -6,11 +6,6 @@ import { Workspace, later, sep, spacer, section, segmented, toolButton } from '.
 import { SCH_GRID, mm } from '../core/units.js';
 import { copperLayers } from '../core/project.js';
 
-// Layer colours (docs/UI.md, "Canvas colours").
-export const LAYER_COLORS = {
-  'F.Cu': '#e5484d', 'In1.Cu': '#e5b84d', 'In2.Cu': '#46a758', 'B.Cu': '#4f8cff',
-  'F.SilkS': '#e7eaf0', 'B.SilkS': '#b6bfcc', 'Edge.Cuts': '#f2c94c',
-};
 
 const editTools = () => [
   later({ icon: 'undo', title: 'Undo (Ctrl+Z)' }, 4), later({ icon: 'redo', title: 'Redo (Ctrl+Shift+Z)' }, 4), sep(),
@@ -31,6 +26,7 @@ function schematic(app) {
     h('div', { class: 'shape-grid' }, h('div', { class: 'side-empty' }, 'Parts arrive here with the Part picker (#4): drag one onto the sheet, or click it and then click the sheet.')),
     h('div', { class: 'side-foot' }, later({ label: 'Import', icon: 'import', title: 'Import KiCad or Eagle libraries' }, 32), later({ label: 'New part', icon: 'plus', title: 'Create a Part in the Library tab' }, 13)));
   return new Workspace({
+    colors: () => app.canvasColors('schematic'),
     id: 'schematic', label: 'Schematic', icon: 'schematic', title: 'Schematic: place Parts, wire them and check the Netlist',
     grid: SCH_GRID,
     frame: { x0: 0, y0: 0, x1: mm(297), y1: mm(210) }, // A4 landscape sheet
@@ -53,16 +49,20 @@ function schematic(app) {
 function board(app) {
   const p = app.project;
   const layers = () => [...copperLayers(p.board.stack.copper), 'F.SilkS', 'B.SilkS', 'Edge.Cuts'];
+  const layerColor = (name) => app.canvasColors('board')[name] || '#888';
   const layerRow = (name, i) => h('div', { class: 'll-row' + (i === 0 ? ' on' : ''), title: name },
-    h('span', { class: 'll-chip', style: { background: LAYER_COLORS[name] || '#888' } }, name === 'Edge.Cuts' ? 'Edge' : name.replace('.Cu', '').replace('.SilkS', ' silk')),
+    h('span', { class: 'll-chip', style: { background: layerColor(name) } }, name === 'Edge.Cuts' ? 'Edge' : name.replace('.Cu', '').replace('.SilkS', ' silk')),
     h('span', { class: 'll-name' }, name),
     h('input', { type: 'checkbox', checked: true, title: 'Visible', 'aria-label': `${name} visible` }));
+  const layerList = h('div', { class: 'layer-list' });
   const side = h('div', { class: 'side-panel' },
-    section('Layers', h('div', { class: 'layer-list' }, ...layers().map(layerRow))),
+    section('Layers', layerList),
     section('Properties', h('p', { class: 'side-note' }, 'Nothing selected.')),
     section('Net classes', h('p', { class: 'side-note' }, 'Default · track 0.25 mm · clearance 0.2 mm')),
     section('DRC', h('p', { class: 'side-note' }, 'Not run yet.')));
   return new Workspace({
+    colors: () => app.canvasColors('board'),
+    onRefresh: () => layerList.replaceChildren(...layers().map(layerRow)),
     id: 'board', label: 'Board', icon: 'board', title: 'Board: place Footprints, route Tracks and pour Zones',
     grid: mm(0.5), home: { x0: -10e6, y0: -10e6, x1: 110e6, y1: 90e6 },
     toolbar: [...editTools(), sep(),
@@ -77,12 +77,12 @@ function board(app) {
       toolButton('zone', 'Zone', { ticket: 23 }), toolButton('outline', 'Outline', { ticket: 15 }), null,
       toolButton('ltext', 'Text', { ticket: 15 }), toolButton('ruler', 'Measure', { ticket: 15 })],
     side,
-    chips: () => copperLayers(p.board.stack.copper).map((name, i) => h('button', { class: 'chip' + (i === 0 ? ' on' : ''), type: 'button', title: `${name} (active layer)`, style: { background: LAYER_COLORS[name] } }, name.replace('.Cu', ''))),
+    chips: () => copperLayers(p.board.stack.copper).map((name, i) => h('button', { class: 'chip' + (i === 0 ? ' on' : ''), type: 'button', title: `${name} (active layer)`, style: { background: layerColor(name) } }, name.replace('.Cu', ''))),
     status: () => `${p.board.stack.copper}-layer · ${p.board.footprints.length} footprints · grid 0.5 mm`,
   });
 }
 
-function gerber() {
+function gerber(app) {
   const outputs = [['Gerber X2 (copper, mask, paste, silk, Edge.Cuts)', true], ['Excellon drill (PTH / NPTH)', true], ['BOM (CSV)', false], ['Pick-and-place (CSV)', false]];
   const side = h('div', { class: 'side-panel' },
     section('Fab preset', h('select', { class: 'select', disabled: true, style: { width: '100%' }, title: 'Fab presets (coming in #24)' }, h('option', {}, 'Generic'))),
@@ -90,6 +90,7 @@ function gerber() {
     section('Output', ...outputs.map(([label, on]) => h('label', { class: 'check-row' }, h('input', { type: 'checkbox', checked: on, disabled: true }), label))),
     section('Checks', h('p', { class: 'side-note' }, 'DRC summary and missing-layer warnings appear here.')));
   return new Workspace({
+    colors: () => app.canvasColors('board'),
     id: 'gerber', label: 'Gerber', icon: 'gerber', title: 'Gerber: generate Fab output, check it and download the zip',
     grid: mm(0.5), home: { x0: -10e6, y0: -10e6, x1: 110e6, y1: 90e6 },
     toolbar: [later({ label: 'Generate', icon: 'play', title: 'Generate Fab output', cls: 'btn-primary' }, 26),
@@ -103,7 +104,7 @@ function gerber() {
   });
 }
 
-function library() {
+function library(app) {
   const side = h('div', { class: 'side-panel' },
     section('Libraries',
       h('div', { class: 'side-search', style: { padding: '0 0 8px' } }, icon('search', 16), h('input', { class: 'input', type: 'search', placeholder: 'Search libraries', disabled: true })),
@@ -111,6 +112,7 @@ function library() {
     section('Part', h('p', { class: 'side-note' }, 'Select or create a Part to edit its prefix, default Value, Units and Preferred footprints.')),
     section('Properties', h('p', { class: 'side-note' }, 'Nothing selected.')));
   return new Workspace({
+    colors: () => app.canvasColors('schematic'), // the Symbol editor; the Footprint editor (#19) switches to the Board theme
     id: 'library', label: 'Library', icon: 'library', title: 'Library: your Libraries, and the Symbol and Footprint editors',
     grid: SCH_GRID, home: { x0: -20e6, y0: -15e6, x1: 20e6, y1: 15e6 },
     toolbar: [segmented([['symbol', 'Symbol', 'schematic', 'Edit the Symbol', 13], ['footprint', 'Footprint', 'pad', 'Edit the Footprint', 19]], 'symbol'), sep(),

@@ -7,6 +7,8 @@ import { newProject, serialize, deserialize, ProjectFileError } from './core/pro
 import { projectMeta, importProject, duplicateProject, exportFileName } from './core/store.js';
 import { renderThumbnail } from './view/thumbnail.js';
 import { ProjectsScreen } from './ui/projects.js';
+import { resolveTheme, listThemes, MATCH_APP } from './core/themes.js';
+import { colorsSection } from './ui/themes.js';
 import { buildWorkspaces } from './workspaces/index.js';
 import { later, sep, spacer } from './workspaces/workspace.js';
 
@@ -119,7 +121,7 @@ export class App {
     this._showFileState();
     this.save.pending = (async () => {
       try {
-        const meta = projectMeta(project, { modified: Date.now(), thumb: renderThumbnail(project) });
+        const meta = projectMeta(project, { modified: Date.now(), thumb: renderThumbnail(project, (k) => this.canvasColors(k)) });
         await platform.store.save(project.id, text, meta);
         return true;
       } catch (err) {
@@ -224,7 +226,7 @@ export class App {
     const src = await this._loadStored(id);
     const names = (await platform.store.list()).map((m) => m.name);
     const copy = duplicateProject(src, names);
-    await platform.store.save(copy.id, serialize(copy), projectMeta(copy, { thumb: renderThumbnail(copy) }));
+    await platform.store.save(copy.id, serialize(copy), projectMeta(copy, { thumb: renderThumbnail(copy, (k) => this.canvasColors(k)) }));
     return copy;
   }
 
@@ -236,7 +238,7 @@ export class App {
     }
     const p = deserialize(await platform.store.load(id));
     p.name = name;
-    await platform.store.save(p.id, serialize(p), projectMeta(p, { thumb: renderThumbnail(p) }));
+    await platform.store.save(p.id, serialize(p), projectMeta(p, { thumb: renderThumbnail(p, (k) => this.canvasColors(k)) }));
     return true;
   }
 
@@ -281,6 +283,33 @@ export class App {
 
   workspace(id) { return this.workspaces.find((w) => w.id === id); }
 
+  // ---------------------------------------------------------------- Colour themes (#51)
+
+  /** Resolved canvas colours for 'schematic' or 'board', from the chosen Colour theme and the UI theme. */
+  canvasColors(kind) {
+    const chosen = (this.settings.colorThemes || {})[kind] || MATCH_APP;
+    return resolveTheme(kind, chosen, this.settings.theme === 'light' ? 'light' : 'dark', this.settings.customThemes || []);
+  }
+
+  /** Pick the Colour theme for a kind; every canvas of that kind redraws at once. */
+  setColorTheme(kind, id) {
+    this.settings.colorThemes = { ...(this.settings.colorThemes || {}), [kind]: id };
+    platform.setSettings({ colorThemes: this.settings.colorThemes });
+    this.recolor();
+  }
+
+  /** Replace the list of custom themes (after duplicate, edit, rename, delete or import). */
+  setCustomThemes(list) {
+    this.settings.customThemes = list;
+    const chosen = { ...(this.settings.colorThemes || {}) };
+    for (const kind of ['schematic', 'board']) if (chosen[kind] && !listThemes(kind, list).some((t) => t.id === chosen[kind])) chosen[kind] = MATCH_APP;
+    this.settings.colorThemes = chosen;
+    platform.setSettings({ customThemes: list, colorThemes: chosen });
+    this.recolor();
+  }
+
+  recolor() { for (const w of this.workspaces) w.recolor(); }
+
   applyTheme(theme) {
     document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
   }
@@ -291,7 +320,7 @@ export class App {
     this.applyTheme(theme);
     this.themeBtn.replaceWith(this.themeBtn = button({ icon: theme === 'light' ? 'moon' : 'sun', title: 'Switch between dark and light mode', onClick: () => this.toggleTheme() }));
     platform.setSettings({ theme });
-    for (const w of this.workspaces) w.view.invalidate();
+    this.recolor(); // canvases on "Match app" follow the UI theme
   }
 
   _keys() {
@@ -326,11 +355,12 @@ export class App {
   }
 
   settingsDialog() {
-    const m = modal({ title: 'Settings', width: 440 });
+    const m = modal({ title: 'Settings', width: 520 });
     const sel = h('select', { class: 'select' }, h('option', { value: 'dark' }, 'Dark'), h('option', { value: 'light' }, 'Light'));
     sel.value = this.settings.theme === 'light' ? 'light' : 'dark';
     sel.addEventListener('change', () => { if (sel.value !== (this.settings.theme === 'light' ? 'light' : 'dark')) this.toggleTheme(); });
-    m.body.append(h('label', { class: 'field' }, h('span', {}, 'Theme'), sel),
+    m.body.append(h('label', { class: 'field' }, h('span', {}, 'App theme'), sel),
+      colorsSection(this),
       h('p', { class: 'side-note' }, 'More settings (units, AI providers, agents) arrive with later tickets.'));
   }
 }

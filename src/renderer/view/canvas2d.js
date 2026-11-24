@@ -9,14 +9,13 @@ import { toMm } from '../core/units.js';
 
 export const RULER = 22;
 
-// Canvas colours, from the Laser workspace's palette (docs/UI.md, "Canvas colours").
-export const COLORS = {
-  dark: { bg: '#14161b', paper: '#1b1e25', minor: '#232831', major: '#2f3542', edge: '#6b7890', text: '#9aa5b6', ruler: '#1e2128', origin: '#e5484d', sel: '#29c5ff' },
-  light: { bg: '#e4e9f0', paper: '#ffffff', minor: '#eef2f6', major: '#d3dbe6', edge: '#8b98aa', text: '#445063', ruler: '#f3f6fa', origin: '#e5484d', sel: '#0a84ff' },
+// Ruler colours are app chrome, so they follow the UI theme (as in the Laser workspace).
+// Everything inside the canvas comes from the workspace's Colour theme (core/themes.js, #51).
+const CHROME = {
+  dark: { ruler: '#1e2128', text: '#9aa5b6', line: '#2f3542' },
+  light: { ruler: '#f3f6fa', text: '#445063', line: '#d3dbe6' },
 };
-
-/** Canvas colours for the current UI theme (Colour themes, #51, will replace this lookup). */
-export const canvasColors = () => COLORS[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
+export const chromeColors = () => CHROME[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
 
 export class Canvas2D {
   /**
@@ -25,7 +24,8 @@ export class Canvas2D {
    * @param {{x0,y0,x1,y1}} [opts.frame]  optional paper/sheet rectangle in nm (drawn like the laser bed)
    * @param {(ctx, view, colors) => void} [opts.draw]  draws the workspace content in screen space
    */
-  constructor({ grid, frame = null, draw = null, home = null }) {
+  constructor({ grid, frame = null, draw = null, home = null, colors }) {
+    this.getColors = colors; // () => resolved Colour theme tokens
     this.grid = grid;
     this.frame = frame;
     this.drawContent = draw;
@@ -119,13 +119,12 @@ export class Canvas2D {
     this.raf = requestAnimationFrame(() => { this.raf = 0; this.draw(); });
   }
 
-  colors() { return canvasColors(); }
 
   draw() {
-    const ctx = this.ctx, v = this.view, C = this.colors();
+    const ctx = this.ctx, v = this.view, C = this.getColors();
     if (!this.w) return;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    ctx.fillStyle = C.bg;
+    ctx.fillStyle = C.background;
     ctx.fillRect(0, 0, this.w, this.h);
 
     if (this.frame) {
@@ -138,7 +137,7 @@ export class Canvas2D {
     if (this.frame) {
       const [x0, y0] = v.toScreen([this.frame.x0, this.frame.y0]);
       const [x1, y1] = v.toScreen([this.frame.x1, this.frame.y1]);
-      ctx.strokeStyle = C.edge; ctx.lineWidth = 1.2;
+      ctx.strokeStyle = C.sheetEdge; ctx.lineWidth = 1.2;
       ctx.strokeRect(Math.round(x0) + 0.5, Math.round(y0) + 0.5, x1 - x0, y1 - y0);
     } else {
       // origin cross
@@ -147,7 +146,7 @@ export class Canvas2D {
       ctx.beginPath(); ctx.moveTo(ox - 8, oy + 0.5); ctx.lineTo(ox + 8, oy + 0.5); ctx.moveTo(ox + 0.5, oy - 8); ctx.lineTo(ox + 0.5, oy + 8); ctx.stroke();
     }
     if (this.drawContent) this.drawContent(ctx, v, C);
-    this._drawRulers(ctx, C);
+    this._drawRulers(ctx, C, chromeColors());
   }
 
   _drawGrid(ctx, C) {
@@ -165,7 +164,7 @@ export class Canvas2D {
     ctx.lineWidth = 1;
     const isMajor = (val) => Math.abs(Math.round(val / major) * major - val) < minor / 2;
     for (let pass = 0; pass < 2; pass++) { // minor lines first, major on top
-      ctx.strokeStyle = pass ? C.major : C.minor;
+      ctx.strokeStyle = pass ? C.gridMajor : C.gridMinor;
       ctx.beginPath();
       for (let x = Math.ceil(x0 / minor) * minor; x <= x1; x += minor) {
         if (isMajor(x) !== !!pass) continue;
@@ -181,11 +180,11 @@ export class Canvas2D {
     }
   }
 
-  _drawRulers(ctx, C) {
+  _drawRulers(ctx, C, K) {
     const v = this.view;
-    ctx.fillStyle = C.ruler;
+    ctx.fillStyle = K.ruler;
     ctx.fillRect(0, 0, this.w, RULER); ctx.fillRect(0, 0, RULER, this.h);
-    ctx.strokeStyle = C.major; ctx.fillStyle = C.text; ctx.font = '10px "Segoe UI", system-ui, sans-serif'; ctx.lineWidth = 1;
+    ctx.strokeStyle = K.line; ctx.fillStyle = K.text; ctx.font = '10px "Segoe UI", system-ui, sans-serif'; ctx.lineWidth = 1;
     const step = rulerStep(v.scale);
     const [wx0, wy0] = v.toWorld([RULER, RULER]);
     const [wx1, wy1] = v.toWorld([this.w, this.h]);
@@ -204,13 +203,13 @@ export class Canvas2D {
     // cursor marks on the rulers
     if (this.cursor) {
       const [cx, cy] = v.toScreen(this.cursor);
-      ctx.strokeStyle = C.sel; ctx.beginPath();
+      ctx.strokeStyle = C.selection; ctx.beginPath();
       ctx.moveTo(Math.round(cx) + 0.5, 0); ctx.lineTo(Math.round(cx) + 0.5, RULER);
       ctx.moveTo(0, Math.round(cy) + 0.5); ctx.lineTo(RULER, Math.round(cy) + 0.5);
       ctx.stroke();
     }
-    ctx.fillStyle = C.ruler; ctx.fillRect(0, 0, RULER, RULER);
-    ctx.strokeStyle = C.major;
+    ctx.fillStyle = K.ruler; ctx.fillRect(0, 0, RULER, RULER);
+    ctx.strokeStyle = K.line;
     ctx.beginPath(); ctx.moveTo(0, RULER + 0.5); ctx.lineTo(this.w, RULER + 0.5); ctx.moveTo(RULER + 0.5, 0); ctx.lineTo(RULER + 0.5, this.h); ctx.stroke();
   }
 }
