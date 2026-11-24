@@ -599,3 +599,4 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .workspace-bar .spacer { flex: 1; }
 .workspace-bar .ws-split.active { background: var(--accent-soft); color: var(--accent); }
 .ws-host.split .toolbar > * { flex-shrink: 0; }
+.inspector.card { transition: transform .14s ease-out; }

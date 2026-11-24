@@ -522,6 +522,7 @@ export class SchematicEditor {
     this.renderStyleFoot();
     this.ws?.renderBar();
     this.inspector?.render();
+    this._avoidInspector();
     this._hint();
     this._publishProbe();
     this.ws?.view.invalidate();
@@ -573,6 +574,7 @@ export class SchematicEditor {
     this.ws = ws;
     const c = ws.view.canvas;
     c.addEventListener('pointerdown', (e) => {
+      this.lastPointer = [e.clientX, e.clientY];
       if (e.button !== 0) return;
       const world = ws.view.view.toWorld(ws.view.local(e));
       this.setAlt(e.altKey);
@@ -674,6 +676,7 @@ export class SchematicEditor {
       }
     });
     c.addEventListener('pointermove', (e) => {
+      this.lastPointer = [e.clientX, e.clientY];
       if (this.placing && !this.placing.drag) this._update(ws.view.view.toWorld(ws.view.local(e)));
       const world = ws.view.view.toWorld(ws.view.local(e));
       this.setAlt(e.altKey);
@@ -753,6 +756,8 @@ export class SchematicEditor {
       c.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
     }
     this.gridCard.mount(ws, { layer, dock });
+    // picking the inspector up puts it back where it was before it stepped aside
+    this.inspector.el.addEventListener('pointerdown', (e) => { if (e.target.closest('.insp-head')) { this.inspector.el.style.transform = ''; this._avoidSig = [...this.selection].sort().join(); } }, true);
     this.renderNetlist();
     this.renderSheets();
     this.renderErc();
@@ -1090,6 +1095,35 @@ export class SchematicEditor {
     this.selection = new Set([...(net.wires || []), ...(net.labels || [])].filter((x) => here.has(x)));
     this.refresh();
     toast(`Net ${net.name}: ${net.pins.length} pin${net.pins.length === 1 ? '' : 's'}`, 'info', 1800);
+  }
+
+  /**
+   * The inspector must not cover what was just selected, nor the mouse: when it would, it moves to
+   * the first free corner of the canvas (top left, bottom right, bottom left) until the selection
+   * changes. Picking the card up by its header puts it back where it was.
+   */
+  _avoidInspector() {
+    const el = this.inspector?.el;
+    if (!el || !this.ws) return;
+    const sig = [...this.selection].sort().join();
+    if (sig === this._avoidSig) return;
+    this._avoidSig = sig;
+    el.style.transform = '';
+    if (!this.selection.size || !el.childElementCount || !el.offsetParent) return;
+    const v = this.ws.view, cr = v.canvas.getBoundingClientRect();
+    const b = itemsBounds(this.project, this.sheet, [...this.selection]);
+    if (!b) return;
+    const pad = SCH_GRID * 2; // room for the Reference and Value
+    const [x0, y0] = v.view.toScreen([b.x0 - pad, b.y0 - pad]), [x1, y1] = v.view.toScreen([b.x1 + pad, b.y1 + pad]);
+    const keep = [{ x0: cr.left + Math.min(x0, x1) - 8, y0: cr.top + Math.min(y0, y1) - 8, x1: cr.left + Math.max(x0, x1) + 8, y1: cr.top + Math.max(y0, y1) + 8 }];
+    if (this.lastPointer) keep.push({ x0: this.lastPointer[0] - 24, y0: this.lastPointer[1] - 24, x1: this.lastPointer[0] + 24, y1: this.lastPointer[1] + 24 });
+    const r = el.getBoundingClientRect();
+    const hits = (dx, dy) => keep.some((k) => r.left + dx < k.x1 && r.right + dx > k.x0 && r.top + dy < k.y1 && r.bottom + dy > k.y0);
+    if (!hits(0, 0)) return;
+    const m = 10, left = cr.left + RULER + m, top = cr.top + RULER + m, right = cr.right - m, bottom = cr.bottom - m;
+    const spots = [[left - r.left, 0], [0, bottom - r.bottom], [left - r.left, bottom - r.bottom], [right - r.right, top - r.top]];
+    const free = spots.find(([dx, dy]) => !hits(dx, dy));
+    if (free) el.style.transform = `translate(${Math.round(free[0])}px, ${Math.round(free[1])}px)`;
   }
 
   /** Tell the Board what is selected here (when this is the workspace being used). */

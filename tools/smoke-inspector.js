@@ -102,4 +102,26 @@ check('esc-cancels', !document.querySelector('.field-edit') && app.history.undoS
   const hidden = a.x0 < ir.right && a.x1 > ir.left && a.y0 < ir.bottom && a.y1 > ir.top;
   check('placed-not-hidden', sed.inspector.el.childElementCount > 0 && !hidden, [a, { l: ir.left, t: ir.top, r: ir.right, b: ir.bottom }]);
 }
+// selecting a part that lies under the inspector moves the card out of the way (not the view)
+{
+  const sws = app.workspace('schematic'), sed = sws.editor;
+  sed.selection = new Set(); sed.refresh();
+  sed.inspector.el.style.transition = 'none'; // the headless window doesn't run CSS transitions
+  const sym = sed.sheet.symbols.at(-1);
+  sed.selection = new Set([sym.id]); sed.refresh(); // the card shows; put the part right under it
+  const ir = sed.inspector.el.getBoundingClientRect(), cr = sws.view.canvas.getBoundingClientRect();
+  const v = sws.view.view;
+  const [sx, sy] = v.toScreen(sym.at);
+  v.pan(ir.left + ir.width / 2 - (cr.left + sx), ir.top + 60 - (cr.top + sy));
+  const view0 = JSON.stringify(v.toJSON());
+  sed.selection = new Set(); sed.refresh();
+  sed.lastPointer = [ir.left + ir.width / 2, ir.top + 60];
+  sed.selection = new Set([sym.id]); sed.refresh();
+  await new Promise((r) => setTimeout(r, 250)); // the card slides aside
+  const bb = window.electrocadLib.schematic.symbolBounds(app.project, sym);
+  const [a0, b0] = v.toScreen([bb.x0, bb.y0]), [a1, b1] = v.toScreen([bb.x1, bb.y1]);
+  const r2 = sed.inspector.el.getBoundingClientRect();
+  const over = cr.left + a0 < r2.right && cr.left + a1 > r2.left && cr.top + b0 < r2.bottom && cr.top + b1 > r2.top;
+  check('card-steps-aside', !over && sed.inspector.el.style.transform !== '' && JSON.stringify(v.toJSON()) === view0, [sed.inspector.el.style.transform, over, { l: r2.left, r: r2.right, t: r2.top, b: r2.bottom }, { x0: cr.left + a0, x1: cr.left + a1, y0: cr.top + b0, y1: cr.top + b1 }, { cl: cr.left, cr: cr.right }, getComputedStyle(sed.inspector.el).transform]);
+}
 return { fails };
