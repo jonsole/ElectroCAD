@@ -67,11 +67,11 @@ export function drawUnit(ctx, toScreen, scale, part, unitIndex, sym, fields, C, 
     if (conn === false && opts.markUnconnected) {
       ctx.beginPath(); ctx.arc(ax, ay, Math.max(2, mm(0.3) * scale), 0, Math.PI * 2); ctx.stroke();
     }
-    if (!unit.hidePinNumbers && scale * TEXT > 5) {
+    if (!unit.hidePinNumbers && !opts.bare && scale * TEXT > 5) {
       ctx.fillStyle = C.pinNumber; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
       ctx.fillText(pin.number, (ax + bx) / 2, (ay + by) / 2 - 2);
     }
-    if (!unit.hidePinNames && pin.name && pin.name !== '~' && scale * TEXT > 5) {
+    if (!unit.hidePinNames && !opts.bare && pin.name && pin.name !== '~' && scale * TEXT > 5) {
       ctx.fillStyle = C.pinName; ctx.textBaseline = 'middle';
       const inward = P([end[0] + d[0] * mm(0.6), end[1] + d[1] * mm(0.6)]);
       ctx.textAlign = inward[0] > bx + 0.5 ? 'left' : inward[0] < bx - 0.5 ? 'right' : 'center';
@@ -331,6 +331,50 @@ export function symbolThumbnail(part, C, size = 144) {
   const ox = size / 2 - ((x0 + x1) / 2) * scale, oy = size / 2 - ((y0 + y1) / 2) * scale;
   const toScreen = ([x, y]) => [x * scale + ox, y * scale + oy];
   // thick enough to read at tile size
-  drawUnit(ctx, toScreen, Math.max(scale, 3 / LINE), part, 0, { at: [0, 0], rot: 0, mirror: false }, null, C);
+  // just the shape: pin names and numbers are unreadable at tile size
+  drawUnit(ctx, toScreen, Math.max(scale, 3 / LINE), part, 0, { at: [0, 0], rot: 0, mirror: false }, null, C, { bare: true });
   return c.toDataURL('image/png');
+}
+
+/**
+ * A Footprint's pads on a small canvas, in the Board colour theme: copper pads (through-hole
+ * ones in the through-hole colour with their drill), the courtyard dashed, pad numbers on top.
+ */
+export function drawFootprintPreview(canvas, fp, C) {
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.width, H = canvas.height;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = `${W}px`; canvas.style.height = `${H}px`;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = C.background; ctx.fillRect(0, 0, W, H);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const add = (x, y) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); };
+  for (const p of fp.pads) { add(p.at[0] - p.size[0] / 2, p.at[1] - p.size[1] / 2); add(p.at[0] + p.size[0] / 2, p.at[1] + p.size[1] / 2); }
+  const crt = (fp.graphics || []).find((g) => g.layer === 'F.CrtYd' && g.type === 'rect');
+  if (crt) { add(crt.a[0], crt.a[1]); add(crt.b[0], crt.b[1]); }
+  const pad = 16;
+  const s = Math.min((W - 2 * pad) / Math.max(1, x1 - x0), (H - 2 * pad) / Math.max(1, y1 - y0));
+  const T = ([x, y]) => [W / 2 + (x - (x0 + x1) / 2) * s, H / 2 + (y - (y0 + y1) / 2) * s];
+  if (crt) {
+    const [ax, ay] = T(crt.a), [bx, by] = T(crt.b);
+    ctx.save(); ctx.setLineDash([4, 3]); ctx.strokeStyle = C['F.CrtYd'] || '#888'; ctx.lineWidth = 1; ctx.strokeRect(ax, ay, bx - ax, by - ay); ctx.restore();
+  }
+  for (const p of fp.pads) {
+    const [cx, cy] = T(p.at), w = p.size[0] * s, h = p.size[1] * s;
+    ctx.fillStyle = p.drill ? (C.padThroughHole || C['F.Cu']) : C['F.Cu'];
+    ctx.beginPath();
+    if (p.shape === 'circle' || p.shape === 'oval') ctx.ellipse(cx, cy, w / 2, h / 2, 0, 0, Math.PI * 2);
+    else if (p.shape === 'roundrect' && ctx.roundRect) ctx.roundRect(cx - w / 2, cy - h / 2, w, h, Math.min(w, h) * 0.25);
+    else ctx.rect(cx - w / 2, cy - h / 2, w, h);
+    ctx.fill();
+    if (p.drill) { ctx.fillStyle = C.drill || '#000'; ctx.beginPath(); ctx.arc(cx, cy, (p.drill * s) / 2, 0, Math.PI * 2); ctx.fill(); }
+  }
+  const fs = Math.max(8, Math.min(12, Math.min(...fp.pads.map((p) => Math.min(p.size[0], p.size[1]) * s)) * 0.7));
+  if (fs >= 8) {
+    ctx.fillStyle = '#fff'; ctx.font = `600 ${fs}px "Segoe UI", system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0,0,0,.7)'; ctx.shadowBlur = 2;
+    const seen = new Set();
+    for (const p of fp.pads) { if (seen.has(p.number) && fp.pads.length > 3) continue; seen.add(p.number); const [cx, cy] = T(p.at); ctx.fillText(p.number, cx, cy); }
+  }
 }

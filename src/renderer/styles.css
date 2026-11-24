@@ -419,3 +419,25 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .erc-search-row { padding: 0; }
 .erc-search { height: 30px; }
 .erc-search-row .icon { left: 9px; top: 7px; }
+
+/* ---------- Part picker: unit badge and footprint row (#12) ---------- */
+.part-tile .unit-badge { position: absolute; top: 6px; right: 6px; padding: 0 5px; height: 16px; line-height: 16px; border-radius: 8px; background: var(--accent); color: var(--accent-text, #fff); font-size: 10.5px; font-weight: 700; }
+.part-tile.active { border-color: var(--accent); }
+.fp-row { padding: 8px 10px 10px; border-top: 1px solid var(--border); }
+.fp-row-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 6px; font-size: 12px; }
+.fp-row-head span { color: var(--muted); }
+.fp-row-head b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.fp-row-note { color: var(--muted); font-size: 12px; }
+.fp-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.fp-chip { height: 26px; padding: 0 9px; border: 1px solid var(--border); border-radius: 13px; background: var(--panel-2); color: var(--text); font-size: 12px; cursor: pointer; white-space: nowrap; }
+.fp-chip:hover { border-color: var(--muted); }
+.fp-chip.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 600; }
+.fp-chip.fp-other:not(.on) { color: var(--muted); border-style: dashed; }
+.fp-preview { position: fixed; z-index: 60; padding: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); pointer-events: none; }
+.fp-preview canvas { display: block; border-radius: 6px; }
+.fp-preview-name { margin-top: 6px; font: 600 12px ui-monospace, Consolas, monospace; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-preview-meta { color: var(--muted); font-size: 11.5px; }
+.fp-search-pop { position: fixed; width: 330px; max-height: 320px; display: flex; flex-direction: column; gap: 6px; padding: 8px; }
+.fp-search-pop .input { height: 30px; }
+.fp-search-list { overflow-y: auto; }
+.fp-search-list .menu-item { font: 12px ui-monospace, Consolas, monospace; }

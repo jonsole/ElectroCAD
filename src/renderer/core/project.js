@@ -90,7 +90,11 @@ export function nextRef(project, prefix) {
  */
 export function addComponent(project, sheet, part, at, opts = {}) {
   const key = partKey(part);
-  if (!project.parts[key]) project.parts[key] = { ...structuredClone(part), id: key };
+  if (!project.parts[key]) {
+    const { category, ...copy } = structuredClone(part); // Library-only (the picker's categories)
+    void category;
+    project.parts[key] = { ...copy, id: key };
+  }
   const stored = project.parts[key];
   const unit = opts.unit || 0;
   if (!stored.units[unit]) throw new RangeError(`${stored.name} has no Unit ${unit}`);

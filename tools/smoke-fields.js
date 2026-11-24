@@ -8,7 +8,8 @@ const check = (name, cond, info) => { if (!cond) fails.push(name + (info !== und
 const ws = app.workspace('schematic');
 const ed = ws.editor;
 const G = 1270000;
-const [R, C, L] = ed.parts;
+const byName = (n) => ed.parts.find((x) => x.name === n);
+const [R, C, L] = [byName('Resistor'), byName('Capacitor'), byName('LED')];
 const put = (part, x, y, rot = 0, value) => {
   ed.beginPlace(part); ed.placing.rot = rot; ed.placing.at = [x * G, y * G];
   const r = ed.commitPlace(); ed.endPlace();

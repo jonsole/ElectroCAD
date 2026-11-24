@@ -43,9 +43,10 @@ export function updateComponent(project, compId, patch) {
 
 /**
  * Footprints a Component can use: its Part's Preferred footprints (with their Pin maps) first,
- * then every other Footprint in `library` (identity Pin map). Each choice is { label, value, key }.
+ * then every other Footprint in `library`'s Parts and in `footprints` (e.g. every generated
+ * Footprint; identity Pin map). Each choice is { label, value, key }.
  */
-export function footprintChoices(project, comp, library) {
+export function footprintChoices(project, comp, library, footprints = []) {
   const part = partOf(project, comp);
   const preferred = Object.entries(part?.footprints || {}).map(([fpId, fp]) => ({ label: fp.name, value: { fpId }, key: 'p:' + fpId }));
   const names = new Set(preferred.map((c) => c.label));
@@ -57,6 +58,12 @@ export function footprintChoices(project, comp, library) {
       other.push({ label: fp.name, value: { library: lp.origin?.library || 'builtin', footprint: structuredClone(fp) }, key: 'o:' + fp.name });
     }
   }
+  for (const fp of footprints) {
+    if (names.has(fp.name)) continue;
+    names.add(fp.name);
+    other.push({ label: fp.name, value: { library: 'builtin', footprint: structuredClone(fp) }, key: 'o:' + fp.name });
+  }
+  other.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
   return { preferred, other };
 }
 

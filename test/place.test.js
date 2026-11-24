@@ -35,10 +35,12 @@ test('Pins stay on the grid when a Symbol placed on the grid is rotated or mirro
 });
 
 test('search matches names and keywords', () => {
-  assert.deepEqual(searchParts(MINI_LIBRARY, 'cap').map((p) => p.name), ['Capacitor']);
-  assert.deepEqual(searchParts(MINI_LIBRARY, 'diode').map((p) => p.name), ['LED']);
+  assert.deepEqual(searchParts(MINI_LIBRARY, 'cap').map((p) => p.name), ['Capacitor', 'Capacitor (polarised)']);
+  assert.deepEqual(searchParts(MINI_LIBRARY, 'diode').map((p) => p.name), ['LED', 'Diode']);
+  assert.deepEqual(searchParts(MINI_LIBRARY, 'cap', 'Semiconductors'), [], 'a category narrows the search');
+  assert.deepEqual(searchParts(MINI_LIBRARY, '', 'Power').map((p) => p.name), ['AMS1117-3.3']);
   assert.equal(searchParts(MINI_LIBRARY, '').length, MINI_LIBRARY.length);
-  assert.deepEqual(searchParts(MINI_LIBRARY, 'op-amp').map((p) => p.name), ['LM324']);
+  assert.deepEqual(searchParts(MINI_LIBRARY, 'op-amp').map((p) => p.name), ['LM324', 'LM358']);
 });
 
 test('placing snaps to the grid and allocates Reference designators per prefix', () => {
@@ -93,7 +95,7 @@ test('rotate and mirror selected Symbols; delete removes them and their Componen
   deleteSymbols(p, [a.sym.id]);
   assert.deepEqual(s.symbols.map((y) => y.id), [b.sym.id]);
   assert.deepEqual(Object.values(p.components).map((c) => c.ref), ['D1']);
-  assert.deepEqual(Object.keys(p.parts), ['builtin-mini/led@1'], 'unused Parts are dropped too; Parts are keyed by Library origin');
+  assert.deepEqual(Object.keys(p.parts), ['builtin/led@1'], 'unused Parts are dropped too; Parts are keyed by Library origin');
 });
 
 test('symbol bounds follow rotation and cover the Pins', () => {

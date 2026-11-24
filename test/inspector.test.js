@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { allFootprints } from '../src/renderer/library/footprints.js';
 import assert from 'node:assert/strict';
 import { newProject, padForPin, footprintOf } from '../src/renderer/core/project.js';
 import { placeSymbol } from '../src/renderer/core/schematic.js';
@@ -39,9 +40,10 @@ test('updateComponent edits Reference designator, Value, MPN and fields; a bad r
 
 test('footprint choices: Preferred first, then any other Footprint from the Library', () => {
   const { p, r1 } = two();
-  const ch = footprintChoices(p, r1, MINI_LIBRARY);
-  assert.deepEqual(ch.preferred.map((c) => c.label), ['R_0805_2012Metric']);
-  assert.deepEqual(ch.preferred[0].value, { fpId: 'R_0805' });
+  const ch = footprintChoices(p, r1, MINI_LIBRARY, allFootprints());
+  assert.deepEqual(ch.preferred.map((c) => c.label), ['R_0805_2012Metric', 'R_0402_1005Metric', 'R_0603_1608Metric', 'R_1206_3216Metric', 'R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal']);
+  assert.deepEqual(ch.preferred[0].value, { fpId: 'R_0805' }, '0805 is the default');
+  assert.ok(ch.other.some((c) => c.label === 'SOIC-8_3.9x4.9mm_P1.27mm'), 'every generated Footprint is offered');
   assert.ok(ch.other.some((c) => c.label === 'C_0805_2012Metric'));
   assert.ok(!ch.other.some((c) => c.label === 'R_0805_2012Metric'), 'no duplicate of a Preferred footprint');
 });

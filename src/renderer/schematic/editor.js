@@ -4,7 +4,8 @@
 import { h, icon, button, popupMenu, toast } from '../ui/dom.js';
 import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { later } from '../workspaces/workspace.js';
-import { MINI_LIBRARY, searchParts } from '../library/mini.js';
+import { STARTER_LIBRARY, CATEGORIES, searchParts } from '../library/starter.js';
+import { allFootprints } from '../library/footprints.js';
 import { toggleNoConnect, hitNoConnect, placedUnits, unitSuggestion, nextUnplacedUnit, unitLetter, placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, addLabel, addSheet, renameSheet, moveSheet, deleteSheet, validateSheetName, hitWire, preferredAxis, routeWire, moveSelection, copySelection, pasteClip, itemsInRect, itemsBounds, cleanupWires } from '../core/schematic.js';
 import { buildNetlist } from '../core/netlist.js';
 import { runErc, filterViolations } from '../core/erc.js';
@@ -13,7 +14,7 @@ import { onSegment, eq } from '../core/geom.js';
 import { snapPt, SCH_GRID, mm } from '../core/units.js';
 
 const mm127 = mm(1.27);
-import { drawSheet, symbolThumbnail, measureText } from './render.js';
+import { drawSheet, symbolThumbnail, measureText, drawFootprintPreview } from './render.js';
 import { SchematicInspector } from './inspector.js';
 import { makeDraggable } from '../ui/draggable.js';
 import { placeFields, fieldWarnings, setDefaultFieldStyle, setComponentFieldStyle, hitField, styleFor, pinField, unpinFields, hasPinnedFields } from '../core/fields.js';
@@ -29,6 +30,18 @@ const LABEL_TOOLS = {
 };
 
 /** EN1 → EN2, D7 → D8; names without a trailing number stay as they are. */
+/** Chips in the footprint row go smallest first: 0402, 0603, 0805, 1206, then through-hole, then packages. */
+const FP_ORDER = ['0402', '0603', '0805', '1206', 'THT'];
+const fpOrder = (fpId) => { const i = FP_ORDER.findIndex((s) => fpId.endsWith(s)); return i < 0 ? FP_ORDER.length : i; };
+/** A short chip label: the size code, THT, or the package name (SOIC-14, DIP-8, SOT-223…). */
+function shortFpLabel(fpId, fp) {
+  const size = FP_ORDER.find((s) => fpId.endsWith(s));
+  if (size) return size;
+  const m = /^(PinHeader)_(\d)x(\d+)/.exec(fp.name);
+  if (m) return `${m[2]}×${+m[3]} header`;
+  return fp.name.split('_')[0];
+}
+
 const bumpName = (n) => n.replace(/(\d+)$/, (d) => String(Number(d) + 1).padStart(d.length, '0'));
 
 const DRAG_START_PX = 4;
@@ -50,7 +63,11 @@ export class SchematicEditor {
     this.preview = null; // a copy of the Project showing a move in progress
     this.clipboard = null;
     this.query = '';
-    this.parts = MINI_LIBRARY;
+    this.parts = STARTER_LIBRARY;
+    this.category = 'All';
+    this.fpChoice = new Map(); // Part id -> the Footprint chosen in the picker's footprint row (ADR-0008)
+    this.fpPart = null;        // the Part the footprint row is for (last clicked or dragged tile)
+    this.fpHover = null;       // a tile under the pointer (previews its row)
     this.sheetId = null;  // the Sheet being edited
     this.labelRot = 0;    // rotation of the label tool's ghost
     this.nextName = { label: 'NET1', power: null }; // what the label tools offer next
@@ -85,10 +102,15 @@ export class SchematicEditor {
     const search = h('input', { class: 'input', type: 'search', placeholder: 'Search parts', 'aria-label': 'Search parts' });
     search.addEventListener('input', () => { this.query = search.value; this.renderTiles(); });
     search.addEventListener('keydown', (e) => e.stopPropagation());
+    const catSel = h('select', { class: 'select', 'aria-label': 'Part category', title: 'Part category' },
+      h('option', { value: 'All' }, 'All parts'), ...CATEGORIES.map((c) => h('option', { value: c }, c)));
+    catSel.addEventListener('change', () => { this.category = catSel.value; this.renderTiles(); });
+    this.grid.addEventListener('pointerleave', () => { if (this.fpHover) { this.fpHover = null; this.renderFootprintRow(); } });
     this.panel = h('div', { class: 'side-panel picker', 'aria-label': 'Part picker' },
-      h('div', { class: 'side-filter' }, h('select', { class: 'select', disabled: true, title: 'Part categories (coming in #12)' }, h('option', {}, 'All parts'))),
+      h('div', { class: 'side-filter' }, catSel),
       h('div', { class: 'side-search' }, icon('search', 16), search),
       this.grid,
+      this.fpRow = h('div', { class: 'fp-row', 'aria-label': 'Footprint for the next part' }),
       this.styleFoot = h('div', { class: 'side-foot field-style-foot' }),
       h('div', { class: 'side-foot' }, later({ label: 'Import', icon: 'import', title: 'Import KiCad or Eagle libraries' }, 32), later({ label: 'New part', icon: 'plus', title: 'Create a Part in the Library tab' }, 13)));
     return this.panel;
@@ -178,21 +200,121 @@ export class SchematicEditor {
   renderTiles() {
     if (!this.grid) return;
     const C = this.app.canvasColors('schematic');
-    const list = searchParts(this.parts, this.query);
+    const list = searchParts(this.parts, this.query, this.category);
     this.grid.replaceChildren(...list.map((part) => this._tile(part, C)));
-    if (!list.length) this.grid.append(h('div', { class: 'side-empty' }, 'No parts match.'));
+    if (!list.length) this.grid.append(h('div', { class: 'side-empty' }, this.query ? 'No parts match.' : 'No parts in this category yet.'));
+    this.renderFootprintRow();
   }
+
+  /** Every generated Footprint (for "Other…" here and in the inspector), made once. */
+  allFootprints() { return (this._allFp ||= allFootprints()); }
 
   _tile(part, C) {
     // drawn on the schematic's paper colour, so the tile looks like the part on the sheet
     const img = h('img', { alt: '', draggable: false, src: symbolThumbnail(part, C), style: { background: C.paper || C.background } });
     const tile = h('div', { class: 'shape-tile part-tile', role: 'listitem', tabindex: '0', dataset: { part: part.id }, 'aria-label': part.name,
-      title: `${part.name}: drag onto the sheet, or click then click to place (R rotates, X mirrors, Esc stops)` }, img, h('span', {}, part.name));
-    tile.addEventListener('pointerdown', (e) => this._tilePointerDown(e, part));
+      title: `${part.name}${part.units.length > 1 ? ` (${part.units.length} units)` : ''}: drag onto the sheet, or click then click to place (R rotates, X mirrors, Esc stops)` },
+      img, h('span', {}, part.name),
+      part.units.length > 1 ? h('b', { class: 'unit-badge', title: `${part.units.length} units: ${part.units.map((u) => u.name).join(', ')}` }, `×${part.units.length}`) : null);
+    tile.classList.toggle('active', this.fpPart === part);
+    tile.addEventListener('pointerdown', (e) => { this._setFpPart(part); this._tilePointerDown(e, part); });
+    tile.addEventListener('pointerenter', () => { this.fpHover = part; this.renderFootprintRow(); });
+    tile.addEventListener('focus', () => { this.fpHover = part; this.renderFootprintRow(); });
     tile.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.placeAtViewCenter(part); }
     });
     return tile;
+  }
+
+  // ---------------------------------------------------------------- footprint row (#12, ADR-0008)
+
+  _setFpPart(part) {
+    this.fpPart = part;
+    for (const t of this.grid?.querySelectorAll('.part-tile') || []) t.classList.toggle('active', t.dataset.part === part.id);
+    this.renderFootprintRow();
+  }
+
+  /** The Footprint the next dropped Component of `part` gets: the one chosen in the row, else the Part's default. */
+  footprintFor(part) { return this.fpChoice.get(part.id) || null; }
+
+  /**
+   * The footprint row under the tiles: for the hovered tile (or the last one clicked or dragged),
+   * its Preferred footprints as chips, smallest first, with a pad preview on hover, then
+   * "Other…" for any Footprint (identity Pin map). The chosen one goes on the next dropped
+   * Component and is remembered per Part.
+   */
+  renderFootprintRow() {
+    const row = this.fpRow;
+    if (!row) return;
+    this._fpPreview(null); // the chip it belonged to is about to be replaced
+    const part = this.fpHover || this.fpPart;
+    if (!part) { row.replaceChildren(h('div', { class: 'fp-row-note' }, 'Footprint: pick a part to choose its footprint.')); return; }
+    const choice = this.fpChoice.get(part.id);
+    const ids = Object.keys(part.footprints || {});
+    const current = choice ? (choice.fpId || `other:${choice.footprint.name}`) : ids[0];
+    const chips = ids.sort((a, b) => fpOrder(a) - fpOrder(b) || a.localeCompare(b)).map((fpId) => {
+      const fp = part.footprints[fpId];
+      const b = h('button', { class: 'fp-chip' + (current === fpId ? ' on' : ''), type: 'button', title: fp.name, dataset: { fp: fpId } }, shortFpLabel(fpId, fp));
+      b.addEventListener('click', () => this._chooseFootprint(part, ids[0] === fpId && !choice ? null : { fpId }));
+      b.addEventListener('pointerenter', () => this._fpPreview(b, fp));
+      b.addEventListener('pointerleave', () => this._fpPreview(null));
+      return b;
+    });
+    const other = choice && !choice.fpId ? choice.footprint : null;
+    const otherBtn = h('button', { class: 'fp-chip fp-other' + (other ? ' on' : ''), type: 'button', title: other ? `${other.name} (any Footprint: Pin n to Pad n)` : 'Any other Footprint (Pin n goes to Pad n)' }, other ? shortFpLabel('', other) : 'Other…');
+    otherBtn.addEventListener('click', () => this._otherFootprint(part, otherBtn));
+    if (other) { otherBtn.addEventListener('pointerenter', () => this._fpPreview(otherBtn, other)); otherBtn.addEventListener('pointerleave', () => this._fpPreview(null)); }
+    row.replaceChildren(
+      h('div', { class: 'fp-row-head' }, h('span', {}, 'Footprint'), h('b', { title: part.name }, part.name)),
+      h('div', { class: 'fp-chips' }, ...chips, otherBtn));
+  }
+
+  _chooseFootprint(part, choice) {
+    if (choice) this.fpChoice.set(part.id, choice); else this.fpChoice.delete(part.id);
+    this.fpPart = part;
+    this.renderFootprintRow();
+  }
+
+  /** A small pad drawing next to a footprint chip. */
+  _fpPreview(anchor, fp) {
+    this.fpPop?.remove(); this.fpPop = null;
+    if (!anchor) return;
+    const C = this.app.canvasColors('board');
+    const c = h('canvas', { width: 280, height: 180 });
+    drawFootprintPreview(c, fp, C);
+    const r = anchor.getBoundingClientRect();
+    this.fpPop = h('div', { class: 'fp-preview' }, c, h('div', { class: 'fp-preview-name' }, fp.name), h('div', { class: 'fp-preview-meta' }, `${fp.pads.length} pad${fp.pads.length === 1 ? '' : 's'}${fp.pads.some((p) => p.drill) ? ' · through-hole' : ' · SMD'}`));
+    document.body.append(this.fpPop);
+    const w = this.fpPop.offsetWidth;
+    Object.assign(this.fpPop.style, { left: `${Math.max(8, r.left - w - 10)}px`, top: `${Math.max(8, r.top - 60)}px` });
+  }
+
+  /** "Other…": search every generated Footprint; the choice uses Pin n -> Pad n. */
+  _otherFootprint(part, anchor) {
+    document.querySelectorAll('.fp-search-pop').forEach((x) => x.remove());
+    const input = h('input', { class: 'input', type: 'search', placeholder: 'Search footprints, e.g. SOIC-8 or 2x05', 'aria-label': 'Search footprints', spellcheck: false });
+    const list = h('div', { class: 'fp-search-list', role: 'listbox' });
+    const pop = h('div', { class: 'fp-search-pop menu' }, input, list);
+    const close = () => { pop.remove(); this._fpPreview(null); document.removeEventListener('pointerdown', outside, true); };
+    const outside = (e) => { if (!pop.contains(e.target)) close(); };
+    const render = () => {
+      const words = input.value.toLowerCase().split(/\s+/).filter(Boolean);
+      const found = this.allFootprints().filter((f) => words.every((w) => f.name.toLowerCase().includes(w))).slice(0, 80);
+      list.replaceChildren(...found.map((f) => {
+        const b = h('button', { class: 'menu-item', type: 'button', role: 'option' }, h('span', { class: 'menu-label' }, f.name));
+        b.addEventListener('click', () => { this._chooseFootprint(part, { library: 'builtin', footprint: f }); close(); });
+        b.addEventListener('pointerenter', () => this._fpPreview(pop, f));
+        return b;
+      }), found.length ? '' : h('div', { class: 'side-empty' }, 'No footprints match.'));
+    };
+    input.addEventListener('input', render);
+    input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') close(); if (e.key === 'Enter') list.querySelector('.menu-item')?.click(); });
+    document.body.append(pop);
+    const r = anchor.getBoundingClientRect();
+    Object.assign(pop.style, { left: `${Math.max(8, Math.min(r.left, window.innerWidth - 340))}px`, top: `${Math.max(8, r.top - 330)}px` });
+    render();
+    input.focus();
+    setTimeout(() => document.addEventListener('pointerdown', outside, true));
   }
 
   toolbar() {
@@ -513,7 +635,7 @@ export class SchematicEditor {
     const pl = this.placing;
     if (!pl || !pl.at) return null;
     const res = this.app.edit(`Place ${this._placingName(pl)}`, (p) => placeSymbol(p, this._S(p), pl.part, pl.at,
-      { rot: pl.rot, mirror: pl.mirror, unit: pl.unit, component: pl.componentId ? p.components[pl.componentId] : undefined }));
+      { rot: pl.rot, mirror: pl.mirror, unit: pl.unit, component: pl.componentId ? p.components[pl.componentId] : undefined, footprint: this.footprintFor(pl.part) || undefined }));
     if (pl.drag) { this.placing = null; this.ws.view.canvas.style.cursor = ''; }
     else if (pl.part.units.length > 1) {
       // keep going with the same Component's next Unit; once all are down, start a new Component
@@ -530,7 +652,7 @@ export class SchematicEditor {
     const v = this.ws.view;
     const at = snapPt(v.view.toWorld([v.w / 2, v.h / 2]), SCH_GRID);
     const { componentId, unit } = unitSuggestion(this.project, part);
-    const res = this.app.edit(`Place ${part.name}`, (p) => placeSymbol(p, this._S(p), part, at, { unit, component: componentId ? p.components[componentId] : undefined }));
+    const res = this.app.edit(`Place ${part.name}`, (p) => placeSymbol(p, this._S(p), part, at, { unit, component: componentId ? p.components[componentId] : undefined, footprint: this.footprintFor(part) || undefined }));
     this.selection = new Set([res.sym.id]);
     this.refresh();
     return res;

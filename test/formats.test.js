@@ -43,7 +43,8 @@ test('points and other short lists are written on one line', () => {
   assert.match(text, /"at": \[-?\d+, -?\d+\]/);
   assert.match(text, /"layers": \["F\.Cu", "F\.Paste", "F\.Mask"\]/);
   assert.deepEqual(JSON.parse(text), JSON.parse(JSON.stringify(p)), 'still plain JSON, same content');
-  assert.ok(text.split('\n').length < 600, `${text.split('\n').length} lines`);
+  const plainLines = JSON.stringify(p, null, 1).split('\n').length, lines = text.split('\n').length;
+  assert.ok(lines < plainLines * 0.7, `${lines} lines, against ${plainLines} with one value per line`);
 });
 
 test('opening a damaged file refuses it and says what is wrong, in plain words', () => {
@@ -71,7 +72,8 @@ test('opening checks what the schema cannot: unique ids and refs, keys that poin
 
 test('Parts are keyed by Library origin and table Footprints are stored once', () => {
   const p = sampleProject();
-  assert.deepEqual(Object.keys(p.parts).sort(), ['builtin-mini/capacitor@1', 'builtin-mini/led@1', 'builtin-mini/resistor@1']);
+  assert.deepEqual(Object.keys(p.parts).sort(), ['builtin/capacitor@1', 'builtin/led@1', 'builtin/resistor@1']);
+  assert.ok(Object.values(p.parts).every((x) => !('category' in x)), 'Library-only keys stay in the Library');
   const d1 = Object.values(p.components).find((c) => c.ref === 'D1');
   assert.deepEqual(d1.footprint, { fpKey: 'User/LED_1206' });
   assert.deepEqual(Object.keys(p.footprints), ['User/LED_1206']);

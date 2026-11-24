@@ -4,14 +4,14 @@
  "id": "p1",
  "name": "LED indicator",
  "parts": {
-  "builtin-mini/capacitor@1": {
-   "id": "builtin-mini/capacitor@1",
+  "builtin/capacitor@1": {
+   "id": "builtin/capacitor@1",
    "name": "Capacitor",
    "prefix": "C",
    "defaultValue": "100n",
-   "keywords": "capacitor cap c passive",
+   "keywords": "capacitor cap c passive ceramic",
    "origin": {
-    "library": "builtin-mini",
+    "library": "builtin",
     "partId": "capacitor",
     "version": 1
    },
@@ -75,27 +75,132 @@
       {
        "type": "rect",
        "layer": "F.CrtYd",
-       "a": [-1680000, -950000],
+       "a": [-1670000, -950000],
        "b": [1680000, 950000]
+      }
+     ]
+    },
+    "C_0402": {
+     "name": "C_0402_1005Metric",
+     "pads": [
+      {
+       "number": "1",
+       "at": [-510000, 0],
+       "shape": "roundrect",
+       "size": [540000, 640000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
+      },
+      {
+       "number": "2",
+       "at": [510000, 0],
+       "shape": "roundrect",
+       "size": [540000, 640000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
+      }
+     ],
+     "graphics": [
+      {
+       "type": "rect",
+       "layer": "F.CrtYd",
+       "a": [-1030000, -570000],
+       "b": [1030000, 570000]
+      }
+     ]
+    },
+    "C_0603": {
+     "name": "C_0603_1608Metric",
+     "pads": [
+      {
+       "number": "1",
+       "at": [-825000, 0],
+       "shape": "roundrect",
+       "size": [800000, 950000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
+      },
+      {
+       "number": "2",
+       "at": [825000, 0],
+       "shape": "roundrect",
+       "size": [800000, 950000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
+      }
+     ],
+     "graphics": [
+      {
+       "type": "rect",
+       "layer": "F.CrtYd",
+       "a": [-1470000, -720000],
+       "b": [1480000, 730000]
+      }
+     ]
+    },
+    "C_1206": {
+     "name": "C_1206_3216Metric",
+     "pads": [
+      {
+       "number": "1",
+       "at": [-1462500, 0],
+       "shape": "roundrect",
+       "size": [1125000, 1750000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
+      },
+      {
+       "number": "2",
+       "at": [1462500, 0],
+       "shape": "roundrect",
+       "size": [1125000, 1750000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
+      }
+     ],
+     "graphics": [
+      {
+       "type": "rect",
+       "layer": "F.CrtYd",
+       "a": [-2270000, -1120000],
+       "b": [2280000, 1130000]
+      }
+     ]
+    },
+    "C_THT": {
+     "name": "C_Disc_D5.0mm_W2.5mm_P5.00mm",
+     "pads": [
+      {
+       "number": "1",
+       "at": [-2500000, 0],
+       "shape": "rect",
+       "size": [1600000, 1600000],
+       "drill": 800000,
+       "layers": ["*.Cu", "*.Mask"]
+      },
+      {
+       "number": "2",
+       "at": [2500000, 0],
+       "shape": "circle",
+       "size": [1600000, 1600000],
+       "drill": 800000,
+       "layers": ["*.Cu", "*.Mask"]
+      }
+     ],
+     "graphics": [
+      {
+       "type": "rect",
+       "layer": "F.CrtYd",
+       "a": [-3550000, -1050000],
+       "b": [3550000, 1050000]
       }
      ]
     }
    },
-   "pinMap": {
-    "C_0805": {
-     "1": "1",
-     "2": "2"
-    }
-   }
+   "pinMap": {}
   },
-  "builtin-mini/resistor@1": {
-   "id": "builtin-mini/resistor@1",
+  "builtin/resistor@1": {
+   "id": "builtin/resistor@1",
    "name": "Resistor",
    "prefix": "R",
    "defaultValue": "10k",
    "keywords": "resistor res r passive",
    "origin": {
-    "library": "builtin-mini",
+    "library": "builtin",
     "partId": "resistor",
     "version": 1
    },
@@ -155,27 +260,132 @@
       {
        "type": "rect",
        "layer": "F.CrtYd",
-       "a": [-1680000, -950000],
+       "a": [-1670000, -950000],
        "b": [1680000, 950000]
+      }
+     ]
+    },
+    "R_0402": {
+     "name": "R_0402_1005Metric",
+     "pads": [
+      {
+       "number": "1",
+       "at": [-510000, 0],
+       "shape": "roundrect",
+       "size": [540000, 640000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
+      },
+      {
+       "number": "2",
+       "at": [510000, 0],
+       "shape": "roundrect",
+       "size": [540000, 640000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
+      }
+     ],
+     "graphics": [
+      {
+       "type": "rect",
+       "layer": "F.CrtYd",
+       "a": [-1030000, -570000],
+       "b": [1030000, 570000]
+      }
+     ]
+    },
+    "R_0603": {
+     "name": "R_0603_1608Metric",
+     "pads": [
+      {
+       "number": "1",
+       "at": [-825000, 0],
+       "shape": "roundrect",
+       "size": [800000, 950000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
+      },
+      {
+       "number": "2",
+       "at": [825000, 0],
+       "shape": "roundrect",
+       "size": [800000, 950000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
+      }
+     ],
+     "graphics": [
+      {
+       "type": "rect",
+       "layer": "F.CrtYd",
+       "a": [-1470000, -720000],
+       "b": [1480000, 730000]
+      }
+     ]
+    },
+    "R_1206": {
+     "name": "R_1206_3216Metric",
+     "pads": [
+      {
+       "number": "1",
+       "at": [-1462500, 0],
+       "shape": "roundrect",
+       "size": [1125000, 1750000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
+      },
+      {
+       "number": "2",
+       "at": [1462500, 0],
+       "shape": "roundrect",
+       "size": [1125000, 1750000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
+      }
+     ],
+     "graphics": [
+      {
+       "type": "rect",
+       "layer": "F.CrtYd",
+       "a": [-2270000, -1120000],
+       "b": [2280000, 1130000]
+      }
+     ]
+    },
+    "R_THT": {
+     "name": "R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal",
+     "pads": [
+      {
+       "number": "1",
+       "at": [-5080000, 0],
+       "shape": "rect",
+       "size": [1600000, 1600000],
+       "drill": 800000,
+       "layers": ["*.Cu", "*.Mask"]
+      },
+      {
+       "number": "2",
+       "at": [5080000, 0],
+       "shape": "circle",
+       "size": [1600000, 1600000],
+       "drill": 800000,
+       "layers": ["*.Cu", "*.Mask"]
+      }
+     ],
+     "graphics": [
+      {
+       "type": "rect",
+       "layer": "F.CrtYd",
+       "a": [-6130000, -1050000],
+       "b": [6130000, 1050000]
       }
      ]
     }
    },
-   "pinMap": {
-    "R_0805": {
-     "1": "1",
-     "2": "2"
-    }
-   }
+   "pinMap": {}
   },
-  "builtin-mini/led@1": {
-   "id": "builtin-mini/led@1",
+  "builtin/led@1": {
+   "id": "builtin/led@1",
    "name": "LED",
    "prefix": "D",
    "defaultValue": "LED",
    "keywords": "led diode light",
    "origin": {
-    "library": "builtin-mini",
+    "library": "builtin",
     "partId": "led",
     "version": 1
    },
@@ -255,24 +465,129 @@
       {
        "type": "rect",
        "layer": "F.CrtYd",
-       "a": [-1680000, -950000],
+       "a": [-1670000, -950000],
        "b": [1680000, 950000]
+      }
+     ]
+    },
+    "LED_0402": {
+     "name": "LED_0402_1005Metric",
+     "pads": [
+      {
+       "number": "1",
+       "at": [-510000, 0],
+       "shape": "roundrect",
+       "size": [540000, 640000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
+      },
+      {
+       "number": "2",
+       "at": [510000, 0],
+       "shape": "roundrect",
+       "size": [540000, 640000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
+      }
+     ],
+     "graphics": [
+      {
+       "type": "rect",
+       "layer": "F.CrtYd",
+       "a": [-1030000, -570000],
+       "b": [1030000, 570000]
+      }
+     ]
+    },
+    "LED_0603": {
+     "name": "LED_0603_1608Metric",
+     "pads": [
+      {
+       "number": "1",
+       "at": [-825000, 0],
+       "shape": "roundrect",
+       "size": [800000, 950000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
+      },
+      {
+       "number": "2",
+       "at": [825000, 0],
+       "shape": "roundrect",
+       "size": [800000, 950000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
+      }
+     ],
+     "graphics": [
+      {
+       "type": "rect",
+       "layer": "F.CrtYd",
+       "a": [-1470000, -720000],
+       "b": [1480000, 730000]
+      }
+     ]
+    },
+    "LED_1206": {
+     "name": "LED_1206_3216Metric",
+     "pads": [
+      {
+       "number": "1",
+       "at": [-1462500, 0],
+       "shape": "roundrect",
+       "size": [1125000, 1750000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
+      },
+      {
+       "number": "2",
+       "at": [1462500, 0],
+       "shape": "roundrect",
+       "size": [1125000, 1750000],
+       "layers": ["F.Cu", "F.Paste", "F.Mask"]
+      }
+     ],
+     "graphics": [
+      {
+       "type": "rect",
+       "layer": "F.CrtYd",
+       "a": [-2270000, -1120000],
+       "b": [2280000, 1130000]
+      }
+     ]
+    },
+    "LED_THT": {
+     "name": "LED_D5.0mm",
+     "pads": [
+      {
+       "number": "1",
+       "at": [-1270000, 0],
+       "shape": "rect",
+       "size": [1800000, 1800000],
+       "drill": 900000,
+       "layers": ["*.Cu", "*.Mask"]
+      },
+      {
+       "number": "2",
+       "at": [1270000, 0],
+       "shape": "circle",
+       "size": [1800000, 1800000],
+       "drill": 900000,
+       "layers": ["*.Cu", "*.Mask"]
+      }
+     ],
+     "graphics": [
+      {
+       "type": "rect",
+       "layer": "F.CrtYd",
+       "a": [-2420000, -1150000],
+       "b": [2420000, 1150000]
       }
      ]
     }
    },
-   "pinMap": {
-    "LED_0805": {
-     "1": "1",
-     "2": "2"
-    }
-   }
+   "pinMap": {}
   }
  },
  "components": {
   "c1": {
    "id": "c1",
-   "partId": "builtin-mini/capacitor@1",
+   "partId": "builtin/capacitor@1",
    "ref": "C1",
    "value": "100n",
    "mpn": null,
@@ -283,7 +598,7 @@
   },
   "c2": {
    "id": "c2",
-   "partId": "builtin-mini/resistor@1",
+   "partId": "builtin/resistor@1",
    "ref": "R1",
    "value": "330",
    "mpn": {
@@ -299,7 +614,7 @@
   },
   "c3": {
    "id": "c3",
-   "partId": "builtin-mini/led@1",
+   "partId": "builtin/led@1",
    "ref": "D1",
    "value": "LED",
    "mpn": null,
