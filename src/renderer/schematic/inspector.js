@@ -8,6 +8,7 @@ import { moveSelection, rotateSymbols, mirrorSymbols, cleanupWires } from '../co
 import { setComponentFieldStyle, styleFor } from '../core/fields.js';
 import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { partOf } from '../core/project.js';
+import { validateLabelName, isPower, POWER_NAMES } from '../core/labels.js';
 import { snap, SCH_GRID, mm } from '../core/units.js';
 
 const fmtMm = (nm) => String(+(nm / 1e6).toFixed(2));
@@ -30,15 +31,17 @@ export class SchematicInspector {
   render() {
     const syms = this.ed.sheet.symbols.filter((y) => this.ed.selection.has(y.id));
     const wires = this.ed.sheet.wires.filter((w) => this.ed.selection.has(w.id));
+    const labels = (this.ed.sheet.labels || []).filter((l) => this.ed.selection.has(l.id));
     const comps = syms.map((y) => this.project.components[y.componentId]);
-    const sig = JSON.stringify([[...this.ed.selection], syms, wires.length, comps, this.project.fieldStyles?.default]);
+    const sig = JSON.stringify([[...this.ed.selection], syms, wires.length, labels, comps, this.project.fieldStyles?.default]);
     const focused = this.el.contains(document.activeElement) ? document.activeElement : null;
     const typing = focused && /^(INPUT|TEXTAREA)$/.test(focused.tagName);
     if (typing && sig === this.sig) return;
     this.sig = sig;
-    if (!syms.length && !wires.length) { this.el.replaceChildren(); return; }
-    if (syms.length === 1) this._one(syms[0], wires.length);
-    else this._many(syms, wires);
+    if (!syms.length && !wires.length && !labels.length) { this.el.replaceChildren(); return; }
+    if (syms.length === 1 && !labels.length) this._one(syms[0], wires.length);
+    else if (labels.length === 1 && !syms.length) this._label(labels[0], wires.length);
+    else this._many(syms, wires, labels);
     if (focused && focused.getAttribute('aria-label')) {
       const again = this.el.querySelector(`[aria-label="${CSS.escape(focused.getAttribute('aria-label'))}"]`);
       if (again) again.focus({ preventScroll: true });
@@ -105,7 +108,7 @@ export class SchematicInspector {
         if (!Number.isFinite(v)) { inp.value = fmtMm(sym.at[axis]); return; }
         const target = snap(mm(v), SCH_GRID);
         const delta = axis ? [0, target - sym.at[1]] : [target - sym.at[0], 0];
-        if (delta[0] || delta[1]) this._edit(`Move ${comp.ref}`, (p) => { moveSelection(p, p.schematic.sheets[0], [sym.id], delta); cleanupWires(p, p.schematic.sheets[0]); });
+        if (delta[0] || delta[1]) this._edit(`Move ${comp.ref}`, (p) => { moveSelection(p, this.ed._S(p), [sym.id], delta); cleanupWires(p, this.ed._S(p)); });
         else inp.value = fmtMm(sym.at[axis]);
       });
       return inp;
@@ -165,9 +168,48 @@ export class SchematicInspector {
     return h('div', { class: 'param param-wide' }, h('label', {}, 'Field style'), sel);
   }
 
-  _many(syms, wires) {
+  /** One Net label, Global label or Power symbol: its name, kind, position and rotation. */
+  _label(l, extraWires) {
+    const kind = l.style === 'gnd' ? 'Ground' : isPower(l) ? 'Power symbol' : l.scope === 'global' ? 'Global label' : 'Net label';
+    const rows = [];
+    const rename = (v) => {
+      const bad = validateLabelName(v);
+      if (bad) return bad;
+      return this._edit(`Rename ${l.net} to ${v.trim()}`, (p) => { this._find(p, l.id).net = v.trim(); });
+    };
+    const name = this._text('Net name', l.net, rename);
+    if (isPower(l)) {
+      const input = name.querySelector('input');
+      input.setAttribute('list', 'insp-power-names');
+      name.append(h('datalist', { id: 'insp-power-names' }, ...['GND', ...POWER_NAMES].map((n) => h('option', { value: n }))));
+    }
+    rows.push(name);
+    if (!isPower(l)) {
+      const sel = h('select', { class: 'select', 'aria-label': 'Label scope' },
+        h('option', { value: 'local' }, 'Net label: this sheet only'),
+        h('option', { value: 'global' }, 'Global label: every sheet'));
+      sel.value = l.scope === 'global' ? 'global' : 'local';
+      sel.addEventListener('change', () => this._edit(sel.value === 'global' ? `Make ${l.net} global` : `Make ${l.net} local`, (p) => { this._find(p, l.id).scope = sel.value; }));
+      rows.push(h('div', { class: 'param param-wide' }, h('label', {}, 'Joins'), sel));
+    } else {
+      rows.push(h('div', { class: 'insp-note' }, 'Power symbols join every pin with the same name, on every sheet.'));
+    }
+    const rot = h('select', { class: 'select', 'aria-label': 'Rotation' }, ...[0, 90, 180, 270].map((r) => h('option', { value: String(r) }, `${r}°`)));
+    rot.value = String(l.rot || 0);
+    rot.addEventListener('change', () => this._edit(`Rotate ${l.net}`, (p) => { this._find(p, l.id).rot = Number(rot.value); }));
+    rows.push(h('div', { class: 'param' }, h('label', {}, 'Rotation'), rot));
+    if (extraWires) rows.push(h('div', { class: 'insp-note' }, `and ${extraWires} wire${extraWires === 1 ? '' : 's'}`));
+    rows.push(h('div', { class: 'insp-btns' },
+      button({ icon: 'rotate', label: 'Rotate', cls: 'btn-outline', onClick: () => this.ed.rotate() }),
+      button({ icon: 'trash', label: 'Delete', cls: 'btn-outline', onClick: () => this.ed.deleteSelection() })));
+    this.el.replaceChildren(this._head(l.net, kind), h('div', { class: 'insp-body' }, ...rows));
+  }
+
+  _find(p, id) { return (this.ed._S(p).labels || []).find((x) => x.id === id); }
+
+  _many(syms, wires, labels = []) {
     const compIds = [...new Set(syms.map((y) => y.componentId))];
-    const parts = [syms.length ? `${syms.length} part${syms.length === 1 ? '' : 's'}` : null, wires.length ? `${wires.length} wire${wires.length === 1 ? '' : 's'}` : null].filter(Boolean).join(', ');
+    const parts = [syms.length ? `${syms.length} part${syms.length === 1 ? '' : 's'}` : null, labels.length ? `${labels.length} label${labels.length === 1 ? '' : 's'}` : null, wires.length ? `${wires.length} wire${wires.length === 1 ? '' : 's'}` : null].filter(Boolean).join(', ');
     const rows = [];
     if (syms.length) {
       const refs = syms.map((y) => this.project.components[y.componentId].ref).sort();
@@ -175,7 +217,7 @@ export class SchematicInspector {
       rows.push(this._fieldStyle(compIds));
     }
     rows.push(h('div', { class: 'insp-btns' },
-      syms.length ? button({ icon: 'rotate', label: 'Rotate', cls: 'btn-outline', onClick: () => this.ed.rotate() }) : null,
+      syms.length || labels.length ? button({ icon: 'rotate', label: 'Rotate', cls: 'btn-outline', onClick: () => this.ed.rotate() }) : null,
       syms.length ? button({ icon: 'mirror', label: 'Mirror', cls: 'btn-outline', onClick: () => this.ed.mirror() }) : null,
       button({ icon: 'trash', label: 'Delete', cls: 'btn-outline', onClick: () => this.ed.deleteSelection() })));
     this.el.replaceChildren(this._head(parts + ' selected'), h('div', { class: 'insp-body' }, ...rows));

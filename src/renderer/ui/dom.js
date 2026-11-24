@@ -34,6 +34,8 @@ const P = {
   home: 'M3 11.5 12 4l9 7.5M5.5 10v9.5h4.5v-6h4v6h4.5V10',
   fit: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5M9 9h6v6H9z',
   plus: 'M12 5v14M5 12h14',
+  up: 'M6 15l6-6 6 6',
+  down: 'M6 9l6 6 6-6',
   minus: 'M5 12h14',
   ortho: 'M4 7.5 12 4l8 3.5v9L12 20l-8-3.5zM4 7.5l8 3.5 8-3.5M12 11v9',
   persp: 'M3 6.5 12 4l9 2.5v11L12 20l-9-2.5zM12 4v16M3 6.5l9 3 9-3',

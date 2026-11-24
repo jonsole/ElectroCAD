@@ -6,6 +6,7 @@
 // style's candidate slots in order and takes the first that overlaps nothing: other Symbols'
 // bodies and Pins, Wires (inflated by half a grid), and fields already placed. If every slot
 // overlaps, it takes the one with the least overlap and flags it.
+import { labelBounds } from './labels.js';
 import { mm, SCH_GRID } from './units.js';
 import { place } from './geom.js';
 import { partOf } from './project.js';
@@ -167,6 +168,7 @@ export function placeFields(project, sheet, { measure, wires = sheet.wires } = {
   for (const [id, g] of geo) { for (const b of [...g.body, ...g.pins]) fixed.push({ ...b, owner: id }); }
   const half = SCH_GRID / 2;
   for (const w of wires) fixed.push(box(Math.min(w.a[0], w.b[0]) - half / 2, Math.min(w.a[1], w.b[1]) - half / 2, Math.max(w.a[0], w.b[0]) + half / 2, Math.max(w.a[1], w.b[1]) + half / 2, 'wire'));
+  for (const l of sheet.labels || []) { const b = labelBounds(l, measure); fixed.push(box(b.x0, b.y0, b.x1, b.y1, 'label')); }
   const placed = [];
   const out = new Map();
   const order = [...sheet.symbols].filter((s) => geo.has(s.id))

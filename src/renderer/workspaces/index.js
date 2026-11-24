@@ -29,8 +29,8 @@ function schematic(app) {
     hint: '',
     tools: editor.tools(toolButton),
     side: editor.buildPicker(),
-    chips: () => app.project.schematic.sheets.map((s, i) => h('button', { class: 'chip text-chip' + (i === 0 ? ' on' : ''), type: 'button', title: s.name }, String(i + 1))),
-    status: () => { const n = Object.keys(app.project.components).length; return `${n} component${n === 1 ? '' : 's'} · ${app.project.schematic.sheets.length} sheet · grid 50 mil`; },
+    chips: () => editor.sheetChips(),
+    status: () => { const n = Object.keys(app.project.components).length, ns = app.project.schematic.sheets.length; return `${editor.sheet.name} · ${n} component${n === 1 ? '' : 's'} · ${ns} sheet${ns === 1 ? '' : 's'} · grid 50 mil`; },
   });
   ws.editor = editor;
   editor.attach(ws);

@@ -181,6 +181,10 @@ function validate(p) {
   for (const s of p.schematic.sheets) {
     need(['symbols', 'wires', 'labels', 'noConnects'].every((k) => Array.isArray(s[k])), `Sheet "${s.name}" is incomplete`);
     for (const y of s.symbols) need(p.components[y.componentId], `a Symbol on "${s.name}" refers to a missing Component`);
+    for (const l of s.labels) {
+      need(Array.isArray(l.at) && l.at.length === 2 && typeof l.net === 'string', `a label on "${s.name}" is damaged`);
+      need(['label', 'power', 'gnd'].includes(l.style) && ['local', 'global'].includes(l.scope), `the label ${l.net} on "${s.name}" has an unknown kind`);
+    }
   }
   for (const c of Object.values(p.components)) need(p.parts[c.partId], `Component ${c.ref} refers to a missing Part`);
   const b = p.board;

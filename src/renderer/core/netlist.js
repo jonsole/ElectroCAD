@@ -41,22 +41,45 @@ function sheetPins(project, sheet) {
 export function buildNetlist(project) {
   const uf = new UnionFind();
   const pins = [];
-  const wired = new Set(); // point keys touched by a Wire
+  const wired = new Set(); // point keys touched by a Wire or a label
+  const labelsAt = new Map(); // point key -> labels there
+  const sheetName = new Map(); // label id -> its Sheet's name
   for (const sheet of project.schematic.sheets) {
+    for (const l of sheet.labels || []) sheetName.set(l.id, sheet.name);
     const sp = sheetPins(project, sheet);
     pins.push(...sp);
     const prefix = sheet.id + ':';
     const k = (p) => prefix + key(p);
     for (const w of sheet.wires) { uf.union(k(w.a), k(w.b)); wired.add(k(w.a)); wired.add(k(w.b)); }
-    // T-joins: any Wire end or Pin lying on a Wire joins it
-    const points = [...sheet.wires.flatMap((w) => [w.a, w.b]), ...sp.map((x) => x.at)];
+    const labels = sheet.labels || [];
+    // T-joins: any Wire end, Pin or label point lying on a Wire joins it
+    const points = [...sheet.wires.flatMap((w) => [w.a, w.b]), ...sp.map((x) => x.at), ...labels.map((l) => l.at)];
     for (const p of points) {
       for (const w of sheet.wires) {
         if (onSegment(p, w.a, w.b)) { uf.union(k(p), k(w.a)); wired.add(k(p)); }
       }
     }
+    // labels: Net labels join their name on this Sheet; Global labels and Power symbols join
+    // their name on every Sheet
+    for (const l of labels) {
+      const name = String(l.net || '').trim();
+      if (!name) continue;
+      const p = k(l.at);
+      wired.add(p);
+      const global = l.scope === 'global' || l.style === 'power' || l.style === 'gnd';
+      uf.union(p, global ? `global:${name}` : `${prefix}label:${name}`);
+      if (!labelsAt.has(p)) labelsAt.set(p, []);
+      labelsAt.get(p).push(l);
+    }
     for (const x of sp) x.key = k(x.at);
     for (const x of sp) uf.find(x.key);
+  }
+  // labels on each group (for naming): Power symbol > Global label > Net label > generated
+  const groupLabels = new Map();
+  for (const [p, ls] of labelsAt) {
+    const r = uf.find(p);
+    if (!groupLabels.has(r)) groupLabels.set(r, []);
+    groupLabels.get(r).push(...ls);
   }
   // group Pins by root
   const groups = new Map();
@@ -67,15 +90,27 @@ export function buildNetlist(project) {
     g.pins.push(x);
     if (wired.has(x.key)) g.wired = true;
   }
+  const rank = (l) => (l.style === 'power' || l.style === 'gnd' ? 0 : l.scope === 'global' ? 1 : 2);
   const nets = [];
   const unconnected = [];
-  for (const g of groups.values()) {
+  for (const [r, g] of groups) {
     const ps = g.pins.map(({ ref, pin, pad, componentId }) => ({ ref, pin, pad, componentId }))
       .sort((a, b) => compareRefs(a.ref, b.ref) || compareRefs(a.pin, b.pin));
-    if (ps.length < 2 && !g.wired) { unconnected.push(...ps); continue; }
+    const ls = groupLabels.get(r) || [];
+    if (ps.length < 2 && !g.wired && !ls.length) { unconnected.push(...ps); continue; }
     const first = ps[0];
-    nets.push({ name: `Net-(${first.ref}-Pad${first.pad})`, pins: ps });
+    const sorted = [...ls].sort((a, b) => rank(a) - rank(b) || String(a.net).localeCompare(String(b.net)));
+    const names = [...new Set(sorted.map((l) => String(l.net).trim()))];
+    const net = { name: names[0] || `Net-(${first.ref}-Pad${first.pad})`, pins: ps };
+    if (names.length > 1) net.conflict = names;
+    if (sorted[0] && rank(sorted[0]) === 2) net.sheet = sheetName.get(sorted[0].id); // two different names on one Net: an ERC error (#11)
+    nets.push(net);
   }
+  // a Net label name used on several Sheets makes separate Nets: qualify them with the Sheet name
+  const count = new Map();
+  for (const n of nets) count.set(n.name, (count.get(n.name) || 0) + 1);
+  for (const n of nets) if (count.get(n.name) > 1 && n.sheet) n.name = `${n.sheet}/${n.name}`;
+  for (const n of nets) delete n.sheet;
   nets.sort((a, b) => compareRefs(a.pins[0].ref, b.pins[0].ref) || compareRefs(a.pins[0].pad, b.pins[0].pad));
   unconnected.sort((a, b) => compareRefs(a.ref, b.ref) || compareRefs(a.pin, b.pin));
   return { nets, unconnected };
@@ -126,7 +161,7 @@ export function connectedPins(project, sheet) {
   }
   for (const [k, ids] of tips) {
     const at = k.split(',').map(Number);
-    if (ids.length > 1 || sheet.wires.some((w) => onSegment(at, w.a, w.b))) for (const id of ids) out.add(id);
+    if (ids.length > 1 || sheet.wires.some((w) => onSegment(at, w.a, w.b)) || (sheet.labels || []).some((l) => key(l.at) === k)) for (const id of ids) out.add(id);
   }
   return out;
 }

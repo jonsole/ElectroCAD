@@ -69,9 +69,14 @@ export class Workspace {
   }
 
   refresh() {
+    this.renderBar();
+    if (this.cfg.onRefresh) this.cfg.onRefresh();
+  }
+
+  /** The bottom bar only: chips and status. */
+  renderBar() {
     this.chipStrip.replaceChildren(...(this.cfg.chips ? this.cfg.chips() : []));
     this.statusText.textContent = this.cfg.status ? this.cfg.status() : '';
-    if (this.cfg.onRefresh) this.cfg.onRefresh();
   }
 
   /** Redraw after a Colour theme or UI theme change. */

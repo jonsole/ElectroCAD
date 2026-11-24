@@ -5,6 +5,7 @@ import { partOf } from '../core/project.js';
 import { mm } from '../core/units.js';
 import { junctions, connectedPins, wireCrossings } from '../core/netlist.js';
 import { placeFields, styleFor } from '../core/fields.js';
+import { labelShape, labelFrame, labelBounds, isPower, LABEL_TEXT } from '../core/labels.js';
 
 const LINE = mm(0.2);      // symbol body line width
 const PIN_LINE = mm(0.15);
@@ -154,8 +155,54 @@ function drawFields(ctx, view, C, project, sheet, placement) {
   }
 }
 
+/** Draw Net labels, Global labels and Power symbols (text always upright). */
+export function drawLabels(ctx, view, C, labels, { selection = new Set(), alpha = null } = {}) {
+  ctx.save();
+  if (alpha != null) ctx.globalAlpha = alpha;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const lw = Math.max(1.2, mm(0.15) * view.scale);
+  for (const l of labels) {
+    const shape = labelShape(l, measureText);
+    const f = labelFrame(l);
+    const W = (p) => view.toScreen([l.at[0] + f.apply(p)[0], l.at[1] + f.apply(p)[1]]);
+    const color = isPower(l) ? C.power : l.scope === 'global' ? C.globalLabel : C.netLabel;
+    if (selection.has(l.id)) {
+      const b = labelBounds(l, measureText);
+      const [x0, y0] = view.toScreen([b.x0, b.y0]), [x1, y1] = view.toScreen([b.x1, b.y1]);
+      ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = C.selection; ctx.lineWidth = 1;
+      ctx.strokeRect(Math.round(x0) - 3.5, Math.round(y0) - 3.5, x1 - x0 + 7, y1 - y0 + 7);
+      ctx.restore();
+    }
+    ctx.strokeStyle = color; ctx.lineWidth = lw;
+    ctx.beginPath();
+    for (const pts of [...shape.lines, ...shape.polys]) pts.map(W).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.stroke();
+    const px = LABEL_TEXT * view.scale;
+    if (px < 4) continue;
+    ctx.fillStyle = color;
+    ctx.font = `${isPower(l) || l.scope === 'global' ? '600 ' : ''}${px}px ${FONT}`;
+    ctx.textBaseline = 'middle';
+    const [tx, ty] = W(shape.text.at);
+    ctx.save();
+    ctx.translate(tx, ty);
+    let align = shape.text.align;
+    if (isPower(l)) {
+      // centred over the bar when upright; beside it when the symbol is turned sideways
+      const d = f.apply([0, -1]);
+      if (Math.abs(d[0]) > Math.abs(d[1])) align = d[0] < 0 ? 'right' : 'left';
+    } else {
+      if (f.rot === 90) ctx.rotate(-Math.PI / 2);
+      if (f.flip) align = align === 'left' ? 'right' : align === 'right' ? 'left' : align;
+    }
+    ctx.textAlign = align;
+    ctx.fillText(l.net || '?', 0, 0);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
 /** Draw a Sheet: Wires, Symbols, fields, Junctions, then selection, the placement ghost and a Wire being drawn. */
-export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(), ghost = null, bounds, wiring = null, target = null, placement = null, display = DEFAULT_DISPLAY } = {}) {
+export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(), ghost = null, bounds, wiring = null, target = null, placement = null, display = DEFAULT_DISPLAY, ghostLabel = null } = {}) {
   const toScreen = (p) => view.toScreen(p);
   const wireW = Math.max(1.5, WIRE * view.scale);
   ctx.save();
@@ -205,6 +252,7 @@ export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(),
       ctx.restore();
     }
   }
+  drawLabels(ctx, view, C, sheet.labels || [], { selection });
   drawFields(ctx, view, C, project, sheet, placement || placeFields(project, sheet, { measure: measureText }));
   // Junction dots, derived from the Wires and Pins
   ctx.fillStyle = C.junction;
@@ -220,6 +268,7 @@ export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(),
     const [x, y] = view.toScreen(target);
     ctx.save(); ctx.strokeStyle = C.selection; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, Math.max(5, mm(0.8) * view.scale), 0, Math.PI * 2); ctx.stroke(); ctx.restore();
   }
+  if (ghostLabel) drawLabels(ctx, view, C, [ghostLabel], { alpha: 0.6 });
   if (ghost) {
     drawUnit(ctx, toScreen, view.scale, ghost.part, 0, ghost, { reference: ghost.part.prefix + '?', value: ghost.part.defaultValue }, C, { alpha: 0.6 });
   }

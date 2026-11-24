@@ -1,7 +1,8 @@
 // Schematic editing commands (DOM-free). Each is a mutation the editor runs inside one
 // History transaction, so every user action is exactly one undo step.
-import { addComponent, partOf, pruneOrphans, uid, pinPositions, nextRef } from './project.js';
+import { addComponent, partOf, pruneOrphans, uid, pinPositions, nextRef, newSheet } from './project.js';
 import { compareRefs } from './netlist.js';
+import { labelBounds } from './labels.js';
 import { place, eq, distToSegment2, onSegment, rot90 } from './geom.js';
 import { snapPt, SCH_GRID } from './units.js';
 
@@ -18,6 +19,8 @@ function symbolsById(project, ids) {
 /** Rotate 90° counter-clockwise (on screen) about each Symbol's own origin. */
 export function rotateSymbols(project, ids) {
   for (const y of symbolsById(project, ids)) y.rot = ((y.rot || 0) + 90) % 360;
+  const want = new Set(ids);
+  for (const s of project.schematic.sheets) for (const l of s.labels || []) if (want.has(l.id)) l.rot = ((l.rot || 0) + 90) % 360;
 }
 
 /** Mirror left-right. */
@@ -34,6 +37,7 @@ export function deleteItems(project, ids) {
   for (const s of project.schematic.sheets) {
     s.symbols = s.symbols.filter((y) => !gone.has(y.id));
     s.wires = s.wires.filter((w) => !gone.has(w.id));
+    s.labels = (s.labels || []).filter((l) => !gone.has(l.id));
   }
   pruneOrphans(project);
 }
@@ -59,6 +63,18 @@ export function addWire(project, sheet, points) {
   for (let i = 1; i < pts.length; i++) segs.push({ id: uid('w'), a: pts[i - 1], b: pts[i] });
   sheet.wires.push(...segs);
   return segs;
+}
+
+/**
+ * Add a Net label, Global label or Power symbol at a grid point. `scope` is 'local' or 'global';
+ * Power symbols (style 'power' / 'gnd') are always global. Returns the label.
+ */
+export function addLabel(project, sheet, { at, net, rot = 0, scope = 'local', style = 'label' }) {
+  sheet.labels ||= [];
+  const power = style === 'power' || style === 'gnd';
+  const l = { id: uid('l'), at: snapPt(at, SCH_GRID), rot, net: String(net).trim(), scope: power ? 'global' : scope, style };
+  sheet.labels.push(l);
+  return l;
 }
 
 /** The Wire on `sheet` nearest to `pt` within `tol` nm, or null. */
@@ -171,6 +187,8 @@ export function moveSelection(project, sheet, ids, delta) {
   const moving = new Set();
   for (const y of movingSyms) for (const { at } of pinPositions(project, y)) moving.add(ptKey(at));
   for (const w of sheet.wires) if (sel.has(w.id)) { moving.add(ptKey(w.a)); moving.add(ptKey(w.b)); }
+  const labels = sheet.labels || [];
+  const movingLabels = labels.filter((l) => sel.has(l.id));
   for (const y of movingSyms) y.at = add2(y.at, delta);
 
   const fixedPins = new Set();
@@ -206,7 +224,10 @@ export function moveSelection(project, sheet, ids, delta) {
       }
     }
   }
+  // labels sitting on Wires that move as a whole go along (unless selected: they move anyway)
+  for (const l of labels) if (!sel.has(l.id) && whole.some((w) => onSegment(l.at, w.a, w.b))) movingLabels.push(l);
   for (const w of whole) { w.a = add2(w.a, delta); w.b = add2(w.b, delta); }
+  for (const l of movingLabels) l.at = add2(l.at, delta);
   const added = [];
   const slid = new Map(); // corner key -> new point (so two Wires sharing a corner agree)
   for (const { w, end } of stretch) {
@@ -256,7 +277,8 @@ export function copySelection(project, sheet, ids) {
     parts[c.partId] = structuredClone(project.parts[c.partId]);
   }
   const wires = sheet.wires.filter((w) => sel.has(w.id)).map((w) => structuredClone(w));
-  return { kind: 'electrocad-schematic-clip', symbols, wires, components, parts };
+  const labels = (sheet.labels || []).filter((l) => sel.has(l.id)).map((l) => structuredClone(l));
+  return { kind: 'electrocad-schematic-clip', symbols, wires, labels, components, parts };
 }
 
 /**
@@ -285,6 +307,12 @@ export function pasteClip(project, sheet, clip, delta) {
     sheet.wires.push(nw);
     ids.push(nw.id);
   }
+  sheet.labels ||= [];
+  for (const l of clip.labels || []) {
+    const nl = { ...structuredClone(l), id: uid('l'), at: add2(l.at, delta) };
+    sheet.labels.push(nl);
+    ids.push(nl.id);
+  }
   return ids;
 }
 
@@ -294,6 +322,7 @@ export function itemsBounds(project, sheet, ids) {
   const boxes = [];
   for (const y of sheet.symbols) if (sel.has(y.id)) boxes.push(symbolBounds(project, y));
   for (const w of sheet.wires) if (sel.has(w.id)) boxes.push({ x0: Math.min(w.a[0], w.b[0]), y0: Math.min(w.a[1], w.b[1]), x1: Math.max(w.a[0], w.b[0]), y1: Math.max(w.a[1], w.b[1]) });
+  for (const l of sheet.labels || []) if (sel.has(l.id)) boxes.push(labelBounds(l));
   if (!boxes.length) return null;
   return { x0: Math.min(...boxes.map((b) => b.x0)), y0: Math.min(...boxes.map((b) => b.y0)), x1: Math.max(...boxes.map((b) => b.x1)), y1: Math.max(...boxes.map((b) => b.y1)) };
 }
@@ -316,6 +345,7 @@ export function itemsInRect(project, sheet, r, mode = 'window') {
     const b = { x0: Math.min(w.a[0], w.b[0]), y0: Math.min(w.a[1], w.b[1]), x1: Math.max(w.a[0], w.b[0]), y1: Math.max(w.a[1], w.b[1]) };
     if (mode === 'window' ? inside(b) : segTouches(w.a, w.b)) out.push(w.id);
   }
+  for (const l of sheet.labels || []) { const b = labelBounds(l); if (mode === 'window' ? inside(b) : touches(b)) out.push(l.id); }
   return out;
 }
 
@@ -379,4 +409,54 @@ export function cleanupWires(project, sheet) {
     changed = true;
   }
   return changed;
+}
+
+// ------------------------------------------------------------------ Sheets (#7)
+
+/** Add a Sheet after `afterId` (or at the end). Its name is the first free "Sheet N". */
+export function addSheet(project, afterId = null) {
+  const sheets = project.schematic.sheets;
+  const names = new Set(sheets.map((s) => s.name));
+  let n = sheets.length + 1;
+  while (names.has(`Sheet ${n}`)) n++;
+  const s = newSheet(`Sheet ${n}`);
+  const i = afterId ? sheets.findIndex((x) => x.id === afterId) : -1;
+  sheets.splice(i >= 0 ? i + 1 : sheets.length, 0, s);
+  return s;
+}
+
+/** Why a Sheet name can't be used, or null. */
+export function validateSheetName(project, sheetId, name) {
+  const n = String(name ?? '').trim();
+  if (!n) return 'A sheet needs a name.';
+  if (n.includes('/')) return 'Use no "/" in a sheet name.';
+  if (project.schematic.sheets.some((s) => s.id !== sheetId && s.name.toLowerCase() === n.toLowerCase())) return `There is already a sheet called ${n}.`;
+  return null;
+}
+
+export function renameSheet(project, sheetId, name) {
+  const bad = validateSheetName(project, sheetId, name);
+  if (bad) throw new Error(bad);
+  project.schematic.sheets.find((s) => s.id === sheetId).name = String(name).trim();
+}
+
+/** Move a Sheet by `by` places (−1 earlier, +1 later), clamped. */
+export function moveSheet(project, sheetId, by) {
+  const sheets = project.schematic.sheets;
+  const i = sheets.findIndex((s) => s.id === sheetId);
+  const j = Math.max(0, Math.min(sheets.length - 1, i + by));
+  if (i < 0 || i === j) return false;
+  const [s] = sheets.splice(i, 1);
+  sheets.splice(j, 0, s);
+  return true;
+}
+
+/** Delete a Sheet and its Components (the last Sheet can't be deleted). */
+export function deleteSheet(project, sheetId) {
+  const sheets = project.schematic.sheets;
+  if (sheets.length < 2) throw new Error('A project keeps at least one sheet.');
+  const i = sheets.findIndex((s) => s.id === sheetId);
+  if (i < 0) return;
+  sheets.splice(i, 1);
+  pruneOrphans(project);
 }
