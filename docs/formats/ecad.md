@@ -1,4 +1,4 @@
-# The ElectroCAD Project file (`.ecad`), version 3
+# The ElectroCAD Project file (`.ecad`), version 4
 
 A Project is one JSON file, the Native format ([ADR-0004](../adr/0004-native-format-is-json-foreign-formats-are-lossy-converters.md)). This page describes every key the app writes today, for review and for anyone writing a tool that reads or writes `.ecad` files.
 
@@ -24,7 +24,7 @@ A Project is one JSON file, the Native format ([ADR-0004](../adr/0004-native-for
 
 ## Versions and compatibility
 
-- `format` is always `"electrocad"`. `version` is the format version, currently **3**.
+- `format` is always `"electrocad"`. `version` is the format version, currently **4**.
 - **Before 1.0 there is no compatibility** ([ADR-0014](../adr/0014-no-file-compatibility-before-1-0.md)). `version` goes up with every format change, and a file of any other version is refused with a message saying which version wrote it. There are no migrations.
 - **Opening is strict.** The file is checked against the schema, and then against what a schema can't express (`projectProblems()` in `project.js`):
   - ids unique across the file, Reference designators unique, Sheet names unique regardless of case;
@@ -87,6 +87,7 @@ A Unit says nothing about where fields go: Field styles place them ([ADR-0012](.
 | `poly` | `pts` (closed when it has a fill) |
 | `circle` | `c` (centre), `r` (radius, nm) |
 | `arc` | `start`, `mid` (any point on the arc), `end`: three points, so no angles are stored and the ends meet the next segment exactly |
+| `text` | `at` (the centre), `text`, `size` (height, nm); drawn upright whatever the rotation |
 
 Every shape may have `fill` (`none`, `background` = the theme's symbol fill, `outline` = filled with the line colour), `width` (a **multiplier** on the standard line width, not nm) and, in Footprints, `layer` (`F.SilkS`, `F.CrtYd`, `F.Fab`…).
 
@@ -194,6 +195,7 @@ Format version 3 resolved the points raised in the first review of version 2:
 | File | Where | Format |
 | --- | --- | --- |
 | Colour theme (`.json`) | Settings → Colours → Export / Import | `{ format: "electrocad-theme", version: 1, kind: "schematic" \| "board", name, colors: { [token]: "#rrggbb" \| number } }`. Token ids are `TOKENS` in `core/themes.js` (e.g. `wire`, `netLabel`, `F.Cu`; `zoneOpacity` is a number from 0 to 1). On import, missing tokens are filled from Match app (dark), unknown ones are ignored, bad colours are refused. |
+| User Library (`.ecadlib`) | Desktop: `<userData>/libraries/<id>.ecadlib`. Browser: IndexedDB store `libraries` | `{ format: "electrocad-library", version: 1, id, name, parts: { [partId]: Part } }`. A Part is the Native format's Part plus the Library-only `category` and `manufacturer`, with `origin: { library: <Library id>, partId, version }`; the version goes up on each save with changes. The id is made from the first name and kept on rename, so Projects' origins still match. Opening checks every Part against the schema. Code: `core/library.js`. |
 | Field style (`.json`) | Settings → Field styles → Export / Import | `{ format: "electrocad-field-style", version: 1, ...Field style without id and builtin }`. On import, missing settings come from Classic; a bad slot, value format or text size is refused. |
 | Project store, desktop | `<userData>/projects/<id>.ecad`, plus `index.json` | Each Project is an `.ecad` file. `index.json` maps id → `{ id, name, modified (ms), components, layers, thumb }`, where `thumb` is a PNG data URL for the home screen. Both are written atomically (temp file + rename). |
 | Project store, browser | IndexedDB database `electrocad`, stores `projects` and `meta` | Same content: `projects[id]` is the `.ecad` text, `meta[id]` the card metadata. |

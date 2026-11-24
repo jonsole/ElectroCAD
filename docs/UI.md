@@ -221,6 +221,16 @@ There are four workspace tabs: **Schematic · Board · Gerber · Library**. Each
   - **Toolbar:** a segmented **Symbol | Footprint** control picks what the canvas edits.
   - **Tool palette:** changes with that choice. For Symbol: Pin, Line, Rectangle, Circle, Arc, Text. For Footprint: Pad, Line, Rectangle, Circle, Arc, Text, Generator….
   - **Bottom chips:** one per Unit (Symbol) or per footprint layer (Footprint).
+  - **What works today (#13, Symbol):**
+    - **LIBRARIES** lists your Libraries (a gear menu on each: New part here, Rename, Delete) and the read-only Built-in Library. Clicking a Part opens it; a Built-in Part opens as a copy that Save puts in your Library.
+    - **PART** edits the name, prefix, default Value, category, manufacturer, keywords, Units and Preferred footprints (any generated Footprint; Pin n goes to Pad n). A red box lists what stops the Part being saved: no name, a bad prefix, a Unit without Pins, a Pin number used twice, an off-grid Pin, or a Preferred footprint missing a Pad.
+    - **PROPERTIES** edits the selected Pin (number, name, direction, length in grid steps, electrical type) or graphic (fill, line width; text and size).
+    - **Tools:** Select (V), Pin (P: click a grid point; the Pin gets the next free number and points into the body), Line (L), Rectangle (B), Circle (C), Arc (A: start, a point on the arc, end) and Text (T). Pins snap to 50 mil, graphics to 25 mil. R turns the selected Pins, Del deletes, arrow keys nudge.
+    - **Units:** a bottom chip per Unit, + adds one with a copy of the current body.
+    - **Saving:** **Save** (Ctrl+S) writes the Part to its Library and raises its version when it changed. Saved Parts appear in the Schematic picker straight away; each Library is also an entry in the picker's category select. Placing one records its Library origin (`library/part@version`).
+    - **Undo:** Ctrl+Z in the Library tab undoes Part edits only, not the Project.
+    - **The picker's New part** opens the Library tab with a new Part, in "My parts" (made for you if you have no Library yet).
+    - **Footprint** editing is #19.
 
 ## Agents (MCP)
 

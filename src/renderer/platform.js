@@ -23,11 +23,12 @@ let dbPromise = null;
 function db() {
   if (!dbPromise) {
     dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open('electrocad', 1);
+      const req = indexedDB.open('electrocad', 2); // 2: user Libraries
       req.onupgradeneeded = () => {
         const d = req.result;
         if (!d.objectStoreNames.contains('projects')) d.createObjectStore('projects');
         if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta');
+        if (!d.objectStoreNames.contains('libraries')) d.createObjectStore('libraries');
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error || new Error('Browser storage is not available'));
@@ -103,6 +104,13 @@ export const platform = {
     save: (id, text, meta) => (native ? native.storeProject(id, text, meta) : idbStore.save(id, text, meta)),
     delete: (id) => (native ? native.deleteProject(id) : idbStore.delete(id)),
     openFolder: () => (native ? native.openProjectsFolder() : null),
+  },
+
+  // user Libraries (#13): each a .ecadlib text keyed by Library id
+  libraries: {
+    list: () => (native ? native.listLibraries() : tx(['libraries'], 'readonly', (l) => l.getAll()).then((x) => x || [])),
+    save: (id, text) => (native ? native.saveLibrary(id, text) : tx(['libraries'], 'readwrite', (l) => { l.put(text, id); })),
+    delete: (id) => (native ? native.deleteLibrary(id) : tx(['libraries'], 'readwrite', (l) => { l.delete(id); })),
   },
 
   /** Pick an .ecad file to bring into the store. Resolves to { name, text } or null if cancelled. */

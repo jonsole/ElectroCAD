@@ -3,7 +3,7 @@
 import { addComponent, partOf, partKey, pruneOrphans, uid, pinPositions, nextRef, newSheet, addFootprint } from './project.js';
 import { compareRefs } from './netlist.js';
 import { labelBounds } from './labels.js';
-import { place, eq, distToSegment2, onSegment, rot90, key } from './geom.js';
+import { place, eq, distToSegment2, onSegment, rot90, key, shapePoints } from './geom.js';
 import { snapPt, SCH_GRID } from './units.js';
 
 /** Place a new Component's Unit on `sheet`, snapped to the 50 mil grid. */
@@ -158,11 +158,7 @@ export function hitWire(sheet, pt, tol) {
 /** The local-frame points that outline a Unit: its graphics and Pin tips. */
 function unitPoints(unit) {
   const pts = [];
-  for (const g of unit.graphics) {
-    if (g.type === 'rect') pts.push(g.a, g.b, [g.a[0], g.b[1]], [g.b[0], g.a[1]]);
-    else if (g.type === 'circle') pts.push([g.c[0] - g.r, g.c[1] - g.r], [g.c[0] + g.r, g.c[1] + g.r]);
-    else if (g.pts) pts.push(...g.pts);
-  }
+  for (const g of unit.graphics) pts.push(...shapePoints(g));
   for (const pin of unit.pins) pts.push(pin.at);
   return pts;
 }

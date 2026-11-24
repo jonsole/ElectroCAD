@@ -479,3 +479,34 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .pg-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pg-count { color: var(--muted); font-weight: 600; font-size: 11px; min-width: 20px; padding: 0 6px; height: 18px; line-height: 18px; text-align: center; border-radius: 9px; background: var(--panel-2); }
 .view-details .pg-head { margin-top: 2px; }
+
+/* ---------- Library tab (#13): Libraries tree, Part and Properties sections ---------- */
+.lib-side .panel-section { flex: none; }
+.lib-list { display: flex; flex-direction: column; gap: 2px; max-height: 300px; overflow-y: auto; }
+.lib-group { display: flex; flex-direction: column; }
+.lib-row { display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 6px; border-radius: 6px; font-size: 12.5px; }
+.lib-head { font-weight: 600; color: var(--text); }
+.lib-head .icon { color: var(--muted); flex: none; }
+.lib-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-count { color: var(--muted); font-size: 11px; font-weight: 600; }
+.lib-head .btn { height: 24px; min-width: 24px; padding: 0; }
+.lib-part-row { width: 100%; padding-left: 28px; border: 1px solid transparent; background: transparent; color: var(--text); cursor: pointer; text-align: left; }
+.lib-part-row:hover { background: var(--panel-2); }
+.lib-part-row.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.lib-part-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-badge { padding: 0 5px; height: 16px; line-height: 16px; border-radius: 8px; background: var(--accent); color: var(--accent-text, #fff); font-size: 10.5px; font-weight: 700; }
+.lib-ver { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.lib-empty { padding-left: 28px; font-size: 11.5px; }
+.lib-actions { display: flex; justify-content: flex-end; padding-top: 8px; }
+.lib-actions .btn { height: 28px; }
+.param-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.lib-units, .lib-fps { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.lib-units .btn, .lib-fps .btn { height: 26px; }
+.lib-fp { display: inline-flex; align-items: center; gap: 4px; padding-right: 4px; cursor: default; }
+.lib-fp-x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; }
+.lib-fp-x:hover { color: var(--danger); }
+.lib-problems { margin-top: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); font-size: 12px; }
+.lib-problems ul { margin: 4px 0 0; padding-left: 16px; }
+.lib-ok { margin-top: 8px; color: var(--muted); font-size: 12px; }
+.lib-search { padding: 0 0 8px; }
+.lib-search .icon { left: 9px; top: 9px; }

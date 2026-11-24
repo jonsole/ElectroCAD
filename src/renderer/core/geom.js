@@ -20,6 +20,30 @@ export function rot90(p, rot = 0, mirror = false) {
   }
 }
 
+/** The circle through three points (an arc's start, mid and end), or null when they are in line. */
+export function arcCircle([ax, ay], [bx, by], [cx, cy]) {
+  const d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+  if (!d) return null;
+  const a2 = ax * ax + ay * ay, b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+  const x = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d;
+  const y = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d;
+  return { c: [x, y], r: Math.hypot(ax - x, ay - y) };
+}
+
+/**
+ * Points that bound a Symbol or Footprint shape (rect corners, a circle's box, a line's points,
+ * an arc's three points, a text's centre with an estimate of its extent).
+ */
+export function shapePoints(g) {
+  switch (g.type) {
+    case 'rect': return [g.a, g.b, [g.a[0], g.b[1]], [g.b[0], g.a[1]]];
+    case 'circle': return [[g.c[0] - g.r, g.c[1] - g.r], [g.c[0] + g.r, g.c[1] + g.r]];
+    case 'arc': return [g.start, g.mid, g.end];
+    case 'text': { const w = String(g.text).length * g.size * 0.3, h = g.size / 2; return [[g.at[0] - w, g.at[1] - h], [g.at[0] + w, g.at[1] + h]]; }
+    default: return g.pts || [];
+  }
+}
+
 /** Local -> world for a placed symbol. */
 export const place = (p, at, rot, mirror) => add(rot90(p, rot, mirror), at);
 

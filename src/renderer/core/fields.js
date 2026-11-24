@@ -8,7 +8,7 @@
 // overlaps, it takes the one with the least overlap and flags it.
 import { labelBounds } from './labels.js';
 import { mm, SCH_GRID, snapPt } from './units.js';
-import { place, unplace } from './geom.js';
+import { place, unplace, shapePoints } from './geom.js';
 import { partOf, footprintOf } from './project.js';
 import { compareRefs } from './netlist.js';
 import { formatValue } from './values.js';
@@ -119,7 +119,8 @@ function symbolGeometry(project, sym) {
   const add = ([x, y]) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); };
   const body = [];
   for (const g of unit.graphics) {
-    const pts = g.type === 'rect' ? [g.a, g.b] : g.type === 'circle' ? [[g.c[0] - g.r, g.c[1] - g.r], [g.c[0] + g.r, g.c[1] + g.r]] : g.pts || [];
+    if (g.type === 'text') continue; // text isn't body: fields may sit over it
+    const pts = shapePoints(g);
     const w = pts.map(P);
     w.forEach(add);
     // inflate by a stroke so thin lines (a capacitor's plates) still take up space

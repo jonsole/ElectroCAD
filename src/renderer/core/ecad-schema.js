@@ -1,11 +1,11 @@
-// The JSON Schema of the Native format (.ecad), version 3. The single source: opening a file
+// The JSON Schema of the Native format (.ecad), version 4. The single source: opening a file
 // checks it (core/project.js), the tests check what the app writes, and
 // tools/write-format-example.js publishes it as docs/formats/ecad.schema.json.
 // Meaning of each field: docs/formats/ecad.md.
 export const ECAD_SCHEMA = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://jonsole.github.io/ElectroCAD/formats/ecad.schema.json",
-  "title": "ElectroCAD Project (.ecad), format version 3",
+  "title": "ElectroCAD Project (.ecad), format version 4",
   "description": "The Native format. See docs/formats/ecad.md for the meaning of each field. Strict on purpose: the tests check that every key the app writes is described here. Opening a file refuses anything it doesn't describe (ADR-0014). Uses only a plain subset of JSON Schema (type, const, enum, required, properties, additionalProperties, items, minItems, maxItems, minimum, minLength, oneOf, $ref).",
   "type": "object",
   "required": [
@@ -26,7 +26,7 @@ export const ECAD_SCHEMA = {
       "const": "electrocad"
     },
     "version": {
-      "const": 3,
+      "const": 4,
       "description": "Goes up with every format change. Before 1.0 there is no compatibility: a file of any other version is refused (ADR-0014)."
     },
     "id": {
@@ -288,6 +288,18 @@ export const ECAD_SCHEMA = {
     },
     "shape": {
       "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "at", "text", "size"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "text" },
+            "at": { "$ref": "#/$defs/point", "description": "The centre of the text; it is drawn upright, whatever the Symbol's rotation." },
+            "text": { "type": "string", "minLength": 1 },
+            "size": { "$ref": "#/$defs/nm", "description": "Text height." },
+            "layer": { "type": "string" }
+          }
+        },
         {
           "type": "object",
           "required": [

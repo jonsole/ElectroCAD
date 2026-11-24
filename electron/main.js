@@ -92,6 +92,28 @@ ipcMain.handle('store:delete', (_e, id) => {
   writeIndex(index);
   return true;
 });
+// ---------------------------------------------------------------- user Libraries (#13)
+// Each Library is <userData>/libraries/<id>.ecadlib. Ids are checked, so the renderer can't
+// reach other files. Libraries are small, so list returns every file's text.
+const librariesDir = () => path.join(app.getPath('userData'), 'libraries');
+const SAFE_LIB = /^[a-z0-9][a-z0-9-]{0,40}$/;
+const libraryPath = (id) => {
+  if (typeof id !== 'string' || !SAFE_LIB.test(id)) throw new Error('Bad library id');
+  return path.join(librariesDir(), id + '.ecadlib');
+};
+ipcMain.handle('lib:list', () => {
+  try {
+    return fs.readdirSync(librariesDir()).filter((f) => f.endsWith('.ecadlib'))
+      .map((f) => { try { return fs.readFileSync(path.join(librariesDir(), f), 'utf8'); } catch { return null; } }).filter(Boolean);
+  } catch { return []; }
+});
+ipcMain.handle('lib:save', (_e, id, text) => {
+  if (typeof text !== 'string') throw new Error('Nothing to save');
+  writeAtomic(libraryPath(id), text);
+  return true;
+});
+ipcMain.handle('lib:delete', (_e, id) => { const f = libraryPath(id); if (fs.existsSync(f)) fs.rmSync(f); return true; });
+
 ipcMain.handle('store:folder', () => { fs.mkdirSync(projectsDir(), { recursive: true }); shell.openPath(projectsDir()); });
 
 // ---------------------------------------------------------------- .ecad files on disk (import / export)

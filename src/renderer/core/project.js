@@ -11,7 +11,8 @@ import { checkSchema } from './schema-check.js';
 export const FORMAT = 'electrocad';
 // Goes up with every format change. Before 1.0 files of other versions are refused (ADR-0014).
 // 3: Parts keyed by Library origin, Project footprints table, no Unit.fields, Board object shapes.
-export const VERSION = 3;
+// 4: text in Symbol and Footprint graphics (#13).
+export const VERSION = 4;
 
 /** Thrown when a file can't be opened as a Project; the message is shown to the user. */
 export class ProjectFileError extends Error {

@@ -6,6 +6,7 @@ import { Workspace, later, sep, spacer, section, segmented, toolButton } from '.
 import { SCH_GRID, mm } from '../core/units.js';
 import { copperLayers } from '../core/project.js';
 import { SchematicEditor } from '../schematic/editor.js';
+import { LibraryEditor } from '../libedit/editor.js';
 
 
 const editTools = () => [ // Board, Gerber and Library editing arrives with their tickets
@@ -95,25 +96,24 @@ function gerber(app) {
 }
 
 function library(app) {
-  const side = h('div', { class: 'side-panel' },
-    section('Libraries',
-      h('div', { class: 'side-search', style: { padding: '0 0 8px' } }, icon('search', 16), h('input', { class: 'input', type: 'search', placeholder: 'Search libraries', disabled: true })),
-      h('p', { class: 'side-note' }, 'No user Libraries yet. The built-in starter Library arrives with #12.')),
-    section('Part', h('p', { class: 'side-note' }, 'Select or create a Part to edit its prefix, default Value, Units and Preferred footprints.')),
-    section('Properties', h('p', { class: 'side-note' }, 'Nothing selected.')));
-  return new Workspace({
+  // the editor lives on the app, so an unsaved Part survives switching Projects
+  const editor = (app.libEditor ||= new LibraryEditor(app));
+  const ws = new Workspace({
     colors: () => app.canvasColors('schematic'), // the Symbol editor; the Footprint editor (#19) switches to the Board theme
+    draw: (ctx, view, C) => editor.draw(ctx, view, C),
+    onRefresh: () => editor.refresh(),
     id: 'library', label: 'Library', icon: 'library', title: 'Library: your Libraries, and the Symbol and Footprint editors',
     grid: SCH_GRID, home: { x0: -20e6, y0: -15e6, x1: 20e6, y1: 15e6 },
-    toolbar: [segmented([['symbol', 'Symbol', 'schematic', 'Edit the Symbol', 13], ['footprint', 'Footprint', 'pad', 'Edit the Footprint', 19]], 'symbol'), sep(),
-      later({ label: 'New part', icon: 'plus', title: 'New Part' }, 13), later({ label: 'Save', icon: 'check', title: 'Save to Library' }, 13)],
-    hint: 'Pick a Library and Part on the right, or create a new Part.',
-    tools: [toolButton('select', 'Select (V)', { active: true }), toolButton('pin', 'Pin', { ticket: 13 }), toolButton('pad', 'Pad', { ticket: 19 }), null,
-      toolButton('lline', 'Line', { ticket: 13 }), toolButton('lrect', 'Rectangle', { ticket: 13 }), toolButton('lellipse', 'Circle', { ticket: 13 }),
-      toolButton('arc', 'Arc', { ticket: 13 }), toolButton('ltext', 'Text', { ticket: 13 }), toolButton('wand', 'Footprint generator', { ticket: 19 })],
-    side,
-    status: () => 'No Part open',
+    toolbar: [segmented([['symbol', 'Symbol', 'schematic', 'Edit the Symbol'], ['footprint', 'Footprint', 'pad', 'Edit the Footprint', 19]], 'symbol'), sep(), ...editor.toolbar()],
+    hint: '',
+    tools: editor.tools(),
+    side: editor.buildSide(),
+    chips: () => editor.chips(),
+    status: () => editor.status(),
   });
+  ws.editor = editor;
+  editor.attach(ws);
+  return ws;
 }
 
 export function buildWorkspaces(app) {

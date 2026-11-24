@@ -83,7 +83,6 @@ export class SchematicEditor {
     this.preview = null; // a copy of the Project showing a move in progress
     this.clipboard = null;
     this.query = '';
-    this.parts = STARTER_LIBRARY;
     this.category = 'All';
     // the picker's layout, like Explorer's View menu; a per-browser preference
     this.pickerView = readPref('electrocad.pickerView', 'icons');
@@ -101,6 +100,22 @@ export class SchematicEditor {
   }
 
   get project() { return this.app.project; }
+
+  /** The picker's Parts: the built-in starter Library, then the user's own Libraries (#13). */
+  get parts() { return [...STARTER_LIBRARY, ...(this.app.userParts?.() || [])]; }
+
+  /** A user Library was saved, renamed or deleted: refresh the categories and tiles. */
+  librariesChanged() { this._fillCategories(); this.renderTiles(); }
+
+  _fillCategories() {
+    const sel = this.catSel;
+    if (!sel) return;
+    const libs = this.app.libraries || [];
+    sel.replaceChildren(h('option', { value: 'All' }, 'All parts'), ...CATEGORIES.map((c) => h('option', { value: c }, c)),
+      libs.length ? h('optgroup', { label: 'My libraries' }, ...libs.map((l) => h('option', { value: `lib:${l.id}` }, l.name))) : '');
+    if (![...sel.options].some((o) => o.value === this.category)) this.category = 'All';
+    sel.value = this.category;
+  }
   /** The Sheet being edited (the first one if it went away, e.g. after undo or opening a project). */
   get sheet() {
     const sheets = this.project.schematic.sheets;
@@ -128,8 +143,8 @@ export class SchematicEditor {
     const search = h('input', { class: 'input', type: 'search', placeholder: 'Search parts', 'aria-label': 'Search parts' });
     search.addEventListener('input', () => { this.query = search.value; this.renderTiles(); });
     search.addEventListener('keydown', (e) => e.stopPropagation());
-    const catSel = h('select', { class: 'select', 'aria-label': 'Part category', title: 'Part category' },
-      h('option', { value: 'All' }, 'All parts'), ...CATEGORIES.map((c) => h('option', { value: c }, c)));
+    const catSel = this.catSel = h('select', { class: 'select', 'aria-label': 'Part category', title: 'Part category, or one of your Libraries' });
+    this._fillCategories();
     catSel.addEventListener('change', () => { this.category = catSel.value; this.renderTiles(); });
     this.grid.addEventListener('pointerleave', () => { if (this.fpHover) { this.fpHover = null; this.renderFootprintRow(); } });
     this.panel = h('div', { class: 'side-panel picker', 'aria-label': 'Part picker' },
@@ -138,7 +153,7 @@ export class SchematicEditor {
       this.grid,
       this.fpRow = h('div', { class: 'fp-row', 'aria-label': 'Footprint for the next part' }),
       this.styleFoot = h('div', { class: 'side-foot field-style-foot' }),
-      h('div', { class: 'side-foot' }, later({ label: 'Import', icon: 'import', title: 'Import KiCad or Eagle libraries' }, 32), later({ label: 'New part', icon: 'plus', title: 'Create a Part in the Library tab' }, 13)));
+      h('div', { class: 'side-foot' }, later({ label: 'Import', icon: 'import', title: 'Import KiCad or Eagle libraries' }, 32), button({ label: 'New part', icon: 'plus', title: 'Draw a new Part in the Library tab', onClick: () => { this.app.setWorkspace('library'); this.app.libEditor?.createPart(); } })));
     return this.panel;
   }
 
@@ -226,7 +241,9 @@ export class SchematicEditor {
   renderTiles() {
     if (!this.grid) return;
     const C = this.app.canvasColors('schematic');
-    let list = searchParts(this.parts, this.query, this.category);
+    // a user Library in the category select shows just its Parts
+    const lib = this.category.startsWith('lib:') ? this.category.slice(4) : null;
+    let list = lib ? searchParts(this.parts.filter((p) => p.origin?.library === lib), this.query, 'All') : searchParts(this.parts, this.query, this.category);
     this.grid.className = `shape-grid picker-grid view-${this.pickerView}`;
     const items = [];
     if (this.pickerView === 'details') {

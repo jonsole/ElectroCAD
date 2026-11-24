@@ -1,6 +1,6 @@
 {
  "format": "electrocad",
- "version": 3,
+ "version": 4,
  "id": "p1",
  "name": "LED indicator",
  "parts": {

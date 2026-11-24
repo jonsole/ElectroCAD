@@ -3,6 +3,7 @@
 import { APP_NAME, LOGO_SVG } from './brand.js';
 import { h, button, modal, popupMenu, toast } from './ui/dom.js';
 import { platform } from './platform.js';
+import { parseLibrary, serializeLibrary } from './core/library.js';
 import { newProject, serialize, deserialize, ProjectFileError } from './core/project.js';
 import { History } from './core/history.js';
 import { projectMeta, importProject, duplicateProject, exportFileName } from './core/store.js';
@@ -27,6 +28,7 @@ export class App {
     this.project = await this._startupProject();
     this.save = { dirty: false, saving: false, timer: null, pending: null };
     this.history = new History(() => this.project, (p) => { this.project = p; }, () => this._afterEdit());
+    this.libraries = await this._loadLibraries();
     this.workspaces = buildWorkspaces(this);
     this._build();
     this.projects = new ProjectsScreen(this);
@@ -153,8 +155,34 @@ export class App {
 
   /** Run one edit of the open Project as a single undo step. Returns fn's result. */
   edit(label, fn) { return this.history.transact(label, fn); }
-  undo() { this.history.undo(); }
-  redo() { this.history.redo(); }
+  // a workspace with its own history (the Library tab's Part editor) undoes its own edits
+  undo() { const ed = this.active?.editor; if (ed?.ownHistory) ed.undo(); else this.history.undo(); }
+  redo() { const ed = this.active?.editor; if (ed?.ownHistory) ed.redo(); else this.history.redo(); }
+
+  // ---------------------------------------------------------------- user Libraries (#13)
+
+  async _loadLibraries() {
+    const out = [];
+    let texts = [];
+    try { texts = await platform.libraries.list(); } catch (err) { console.warn('Library store unavailable', err); }
+    for (const t of texts) { try { out.push(parseLibrary(t)); } catch (err) { console.warn('Skipped a library file', err.message); } }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** Every Part in the user's Libraries (for the Schematic's picker). */
+  userParts() { return this.libraries.flatMap((l) => Object.values(l.parts)); }
+
+  async saveLibrary(lib) {
+    if (!this.libraries.includes(lib)) { this.libraries.push(lib); this.libraries.sort((a, b) => a.name.localeCompare(b.name)); }
+    await platform.libraries.save(lib.id, serializeLibrary(lib));
+    this.workspace('schematic')?.editor?.librariesChanged?.();
+  }
+
+  async deleteLibrary(id) {
+    this.libraries = this.libraries.filter((l) => l.id !== id);
+    await platform.libraries.delete(id);
+    this.workspace('schematic')?.editor?.librariesChanged?.();
+  }
 
   _afterEdit() {
     this.markDirty();
@@ -392,7 +420,7 @@ export class App {
       else if (mod && k === 'y') { e.preventDefault(); this.redo(); }
       else if (mod && !e.shiftKey && this.active?.editor?.onModKey?.(e)) { e.preventDefault(); }
       else if (!mod && !e.altKey && this.active?.editor?.onKey(e)) { e.preventDefault(); }
-      else if (mod && k === 's') { e.preventDefault(); if (e.shiftKey) this.exportFile(); else this.saveNow(); }
+      else if (mod && k === 's') { e.preventDefault(); if (!e.shiftKey && this.active?.editor?.ownHistory) this.active.editor.onModKey(e); else if (e.shiftKey) this.exportFile(); else this.saveNow(); }
       else if (mod && k === 'o') { e.preventDefault(); this.importFile(); }
       else if (mod && k === 'n') { e.preventDefault(); this.newProject(); }
       else if (e.key === '?') this.help();

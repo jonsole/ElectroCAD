@@ -1,6 +1,6 @@
 // Draws Symbols on the schematic canvas with the Schematic Colour theme (#51).
 // Graphics are in the Symbol's local frame (nm); `place` applies the Symbol's rotation/mirror.
-import { place } from '../core/geom.js';
+import { place, arcCircle, shapePoints } from '../core/geom.js';
 import { partOf } from '../core/project.js';
 import { mm } from '../core/units.js';
 import { junctions, connectedPins, wireCrossings } from '../core/netlist.js';
@@ -32,8 +32,30 @@ export function drawUnit(ctx, toScreen, scale, part, unitIndex, sym, fields, C, 
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   const bodyW = Math.max(1, LINE * scale);
   for (const g of unit.graphics) {
+    if (g.type === 'text') {
+      // text stays upright whatever the Symbol's rotation
+      const [tx, ty] = P(g.at);
+      const px = g.size * scale;
+      if (px < 3 || opts.bare) continue;
+      ctx.save(); ctx.fillStyle = C.symbolBody; ctx.font = `${px}px "Segoe UI", system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(g.text, tx, ty); ctx.restore();
+      continue;
+    }
     ctx.beginPath();
-    if (g.type === 'rect') {
+    if (g.type === 'arc') {
+      const c = arcCircle(g.start, g.mid, g.end);
+      const pts = [g.start, g.mid, g.end].map(P);
+      if (!c) { pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); }
+      else {
+        const [cx, cy] = P(c.c);
+        const ang = ([x, y]) => Math.atan2(y - cy, x - cx);
+        const a0 = ang(pts[0]), a1 = ang(pts[1]), a2 = ang(pts[2]);
+        // go the way that passes through the middle point
+        const norm = (a) => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+        const ccw = norm(a1 - a0) > norm(a2 - a0);
+        ctx.arc(cx, cy, Math.hypot(pts[0][0] - cx, pts[0][1] - cy), a0, a2, ccw);
+      }
+    } else if (g.type === 'rect') {
       const pts = [g.a, [g.b[0], g.a[1]], g.b, [g.a[0], g.b[1]]].map(P);
       pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
       ctx.closePath();
@@ -100,7 +122,7 @@ export function drawUnit(ctx, toScreen, scale, part, unitIndex, sym, fields, C, 
 function bodyHalfHeight(unit) {
   let m = 0;
   for (const g of unit.graphics) {
-    const pts = g.type === 'rect' ? [g.a, g.b] : g.type === 'circle' ? [[0, g.c[1] - g.r], [0, g.c[1] + g.r]] : g.pts || [];
+    const pts = shapePoints(g);
     for (const p of pts) m = Math.max(m, Math.abs(p[1]));
   }
   return m;
@@ -324,7 +346,7 @@ export function symbolThumbnail(part, C, size = 144) {
   const unit = part.units[0];
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   const add = ([x, y]) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); };
-  for (const g of unit.graphics) { if (g.a) { add(g.a); add(g.b); } if (g.pts) g.pts.forEach(add); if (g.c) { add([g.c[0] - g.r, g.c[1] - g.r]); add([g.c[0] + g.r, g.c[1] + g.r]); } }
+  for (const g of unit.graphics) shapePoints(g).forEach(add);
   for (const p of unit.pins) add(p.at);
   const pad = size * 0.14;
   const scale = Math.min((size - 2 * pad) / Math.max(1, x1 - x0), (size - 2 * pad) / Math.max(1, y1 - y0));
