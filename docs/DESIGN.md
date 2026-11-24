@@ -115,6 +115,8 @@ Junction dots are *drawn* where three or more Wire ends meet or a Wire end lands
 
 ## 5. Editors
 
+The look, layout and components follow the DabbleCAD fork; see [UI.md](UI.md) and [ADR-0007](adr/0007-look-and-feel-follows-the-dabblecad-fork.md).
+
 Both editors share `view/canvas.js`: a Canvas2D viewport with wheel zoom about the cursor, middle- or right-drag pan, a grid, and a screen↔world transform. Rendering redraws the whole scene each frame and only runs when something changes. A spatial index (an R-tree or uniform grid) arrives at M2 for hit testing, routing and DRC. If large boards get slow, WebGL is a renderer swap behind the same draw-list interface.
 
 **Schematic tools:** Select/move (V), Place part (A, then choose the Unit for multi-Unit Parts), Wire (W, orthogonal, auto-ends on a Pin or Wire), Net label (L), Global label (Ctrl+L), GND/Power (G/P), No-connect (Q), Rotate (R), Mirror (X), Delete, plus Undo/Redo (Ctrl+Z / Ctrl+Shift+Z). Grid: 50 mil (1.27 mm), the KiCad convention, so KiCad symbols land on-grid.
