@@ -7,6 +7,7 @@ import { SCH_GRID, mm } from '../core/units.js';
 import { copperLayers } from '../core/project.js';
 import { SchematicEditor } from '../schematic/editor.js';
 import { LibraryEditor } from '../libedit/editor.js';
+import { openPrintDialog } from '../print/dialog.js';
 
 
 const editTools = () => [ // Board, Gerber and Library editing arrives with their tickets
@@ -25,7 +26,7 @@ function schematic(app) {
     grid: SCH_GRID,
     frame: { x0: 0, y0: 0, x1: mm(297), y1: mm(210) }, // A4 landscape sheet
     toolbar: [...editor.toolbar(), spacer(),
-      later({ label: 'Print', icon: 'print', title: 'Print or export to PDF/SVG' }, 14)],
+      button({ label: 'Print', icon: 'print', title: 'Print or export the schematic to PDF or SVG (Ctrl+P)', onClick: () => openPrintDialog(app) })],
     hint: '',
     tools: editor.tools(toolButton),
     side: editor.buildPicker(),

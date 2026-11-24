@@ -137,6 +137,17 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
   - this Sheet's paper size (A4, A3, A2, Letter, Tabloid) and orientation; the canvas frame and Home follow it, and Print (#14) will use it;
   - the Project's title block fields.
 
+## Print and export
+
+**Print** (toolbar, or Ctrl+P) opens a dialog with a live preview of the first page:
+
+- **Sheets:** all of them, or one.
+- **Colours:** ElectroCAD Light (the default), Classic paper, or black and white. They don't follow the editor's theme.
+- **Export PDF:** the chosen Sheets in one file, each page at its Sheet's paper size, with a border and the title block. Text uses the standard Helvetica font. Characters it can't show become `?`, except Ω, which is written "Ohm". Open the PDF in any viewer to print it.
+- **Export SVG:** one Sheet per file, at its paper size in millimetres.
+
+Output is drawn by the editor's own drawing code through vector back ends (`print/vector.js`), so it matches the screen. Editor-only marks (unconnected pin rings, ERC markers, selection) are left out.
+
 ## No-connects and ERC
 
 - **No-connect (Q)** in the tool palette: click a Pin tip to mark it as left open on purpose (a cross in the theme's No-connect colour); click a marker to remove it. Markers move, copy and delete with their part, and can be selected and deleted on their own.

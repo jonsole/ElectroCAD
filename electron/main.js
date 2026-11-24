@@ -120,6 +120,8 @@ ipcMain.handle('store:folder', () => { fs.mkdirSync(projectsDir(), { recursive: 
 const FILE_KINDS = {
   project: { ext: 'ecad', filters: [{ name: 'ElectroCAD project', extensions: ['ecad'] }, { name: 'All files', extensions: ['*'] }], open: 'Open project file', save: 'Save project as file' },
   theme: { ext: 'json', filters: [{ name: 'ElectroCAD colour theme', extensions: ['json'] }, { name: 'All files', extensions: ['*'] }], open: 'Import colour theme', save: 'Export colour theme' },
+  pdf: { ext: 'pdf', filters: [{ name: 'PDF', extensions: ['pdf'] }], save: 'Export schematic as PDF' },
+  svg: { ext: 'svg', filters: [{ name: 'SVG image', extensions: ['svg'] }], save: 'Export sheet as SVG' },
 };
 const fileKind = (k) => FILE_KINDS[k] || FILE_KINDS.project;
 const smokeDialogs = []; // smoke tests queue dialog answers here instead of clicking

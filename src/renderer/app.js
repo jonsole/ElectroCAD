@@ -4,6 +4,7 @@ import { APP_NAME, LOGO_SVG } from './brand.js';
 import { h, button, modal, popupMenu, toast } from './ui/dom.js';
 import { platform } from './platform.js';
 import { parseLibrary, serializeLibrary } from './core/library.js';
+import { openPrintDialog } from './print/dialog.js';
 import { newProject, serialize, deserialize, ProjectFileError } from './core/project.js';
 import { History } from './core/history.js';
 import { projectMeta, importProject, duplicateProject, exportFileName } from './core/store.js';
@@ -422,6 +423,7 @@ export class App {
       else if (!mod && !e.altKey && this.active?.editor?.onKey(e)) { e.preventDefault(); }
       else if (mod && k === 's') { e.preventDefault(); if (!e.shiftKey && this.active?.editor?.ownHistory) this.active.editor.onModKey(e); else if (e.shiftKey) this.exportFile(); else this.saveNow(); }
       else if (mod && k === 'o') { e.preventDefault(); this.importFile(); }
+      else if (mod && k === 'p') { e.preventDefault(); openPrintDialog(this); }
       else if (mod && k === 'n') { e.preventDefault(); this.newProject(); }
       else if (e.key === '?') this.help();
     });
@@ -439,7 +441,7 @@ export class App {
   help() {
     if (document.querySelector('.modal-backdrop')) return;
     const m = modal({ title: 'Shortcuts', width: 440 });
-    const rows = [['Select tool', 'V'], ['Wire tool (click to start, click a Pin or Wire to finish)', 'W'], ['Flip the wire corner', '/'], ['Undo last wire corner', 'Backspace'], ['Net label (joins by name on this sheet)', 'L'], ['Global label (joins on every sheet)', 'Ctrl+L'], ['Power symbol (last net used; double-click its name to change)', 'P'], ['Ground', 'G'], ['No-connect marker (click a Pin tip; again to remove)', 'Q'], ['Text note (Shift+Enter: new line; ${TITLE}, ${SHEET_NAME}… work)', 'T'], ['Line (arrows in the inspector) / Rectangle / Circle / Arc', 'I / B / C / A'], ['Sheet setup (paper size, title block)', 'Double-click the title block'], ['Rename a label', 'Double-click it'], ['Move a part\'s name or value by hand (pins it)', 'Drag the text'], ['Context menu (Re-apply style, Rotate, …)', 'Right-click'], ['Switch sheet / add a sheet', 'Sheet chips at the bottom / +'], ['Sheets · Netlist cards', 'Icon buttons after Fields on the toolbar'], ['Undo', 'Ctrl+Z'], ['Redo', 'Ctrl+Shift+Z / Ctrl+Y'], ['Rotate (placing or selected)', 'R'], ['Mirror', 'X'], ['Delete selected', 'Del'], ['Move selection (drag, or one grid step; Shift for ten)', 'Arrow keys'], ['Copy / Paste / Duplicate', 'Ctrl+C / Ctrl+V / Ctrl+D'], ['Select all', 'Ctrl+A'], ['Box select (left→right: inside, right→left: touching)', 'Drag on empty canvas'], ['Stop placing / deselect', 'Esc'], ['New project', 'Ctrl+N'], ['Open file (import)', 'Ctrl+O'], ['Save now', 'Ctrl+S'], ['Save as file', 'Ctrl+Shift+S'], ['Pan', 'Middle- or right-drag'], ['Zoom', 'Scroll wheel'], ['Fit the view', 'Home'], ['Schematic · Board · Gerber · Library', 'Ctrl+1 … Ctrl+4'], ['This help', '?']];
+    const rows = [['Select tool', 'V'], ['Wire tool (click to start, click a Pin or Wire to finish)', 'W'], ['Flip the wire corner', '/'], ['Undo last wire corner', 'Backspace'], ['Net label (joins by name on this sheet)', 'L'], ['Global label (joins on every sheet)', 'Ctrl+L'], ['Power symbol (last net used; double-click its name to change)', 'P'], ['Ground', 'G'], ['No-connect marker (click a Pin tip; again to remove)', 'Q'], ['Text note (Shift+Enter: new line; ${TITLE}, ${SHEET_NAME}… work)', 'T'], ['Line (arrows in the inspector) / Rectangle / Circle / Arc', 'I / B / C / A'], ['Sheet setup (paper size, title block)', 'Double-click the title block'], ['Print / export to PDF or SVG', 'Ctrl+P'], ['Rename a label', 'Double-click it'], ['Move a part\'s name or value by hand (pins it)', 'Drag the text'], ['Context menu (Re-apply style, Rotate, …)', 'Right-click'], ['Switch sheet / add a sheet', 'Sheet chips at the bottom / +'], ['Sheets · Netlist cards', 'Icon buttons after Fields on the toolbar'], ['Undo', 'Ctrl+Z'], ['Redo', 'Ctrl+Shift+Z / Ctrl+Y'], ['Rotate (placing or selected)', 'R'], ['Mirror', 'X'], ['Delete selected', 'Del'], ['Move selection (drag, or one grid step; Shift for ten)', 'Arrow keys'], ['Copy / Paste / Duplicate', 'Ctrl+C / Ctrl+V / Ctrl+D'], ['Select all', 'Ctrl+A'], ['Box select (left→right: inside, right→left: touching)', 'Drag on empty canvas'], ['Stop placing / deselect', 'Esc'], ['New project', 'Ctrl+N'], ['Open file (import)', 'Ctrl+O'], ['Save now', 'Ctrl+S'], ['Save as file', 'Ctrl+Shift+S'], ['Pan', 'Middle- or right-drag'], ['Zoom', 'Scroll wheel'], ['Fit the view', 'Home'], ['Schematic · Board · Gerber · Library', 'Ctrl+1 … Ctrl+4'], ['This help', '?']];
     m.body.append(h('div', { class: 'shortcut-group' }, h('h4', {}, 'Every workspace'),
       ...rows.map(([a, b]) => h('div', { class: 'shortcut-row' }, h('span', {}, a), h('span', { class: 'kbd' }, b)))));
   }

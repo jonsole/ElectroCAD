@@ -145,6 +145,7 @@ const FONT = '"Segoe UI", system-ui, sans-serif';
 let measureCtx = null;
 /** Text width in nm for a text size in nm, measured with the canvas font (used by the field placer). */
 export function measureText(text, sizeNm) {
+  if (typeof document === 'undefined') return Math.round(String(text).length * sizeNm * 0.6); // no DOM (tests, print in a worker)
   measureCtx ||= document.createElement('canvas').getContext('2d');
   measureCtx.font = `100px ${FONT}`;
   return Math.round((measureCtx.measureText(String(text)).width / 100) * sizeNm);

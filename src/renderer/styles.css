@@ -520,3 +520,12 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
 .setup-group .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
 .setup-group .field .input, .setup-group .field .select { height: 32px; }
+
+/* ---------- Print dialog (#14) ---------- */
+.print-grid { display: grid; grid-template-columns: 200px 1fr; gap: 16px; align-items: start; }
+.print-side { display: flex; flex-direction: column; gap: 10px; }
+.print-side .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.print-side .select { height: 32px; }
+.print-view { display: flex; flex-direction: column; gap: 6px; }
+.print-preview { width: 100%; max-height: 330px; object-fit: contain; background: #fff; border: 1px solid var(--border); border-radius: 6px; box-shadow: var(--shadow); }
+.print-info { color: var(--muted); font-size: 12px; }
