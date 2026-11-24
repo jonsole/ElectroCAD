@@ -13,6 +13,7 @@ A schematic-capture and PCB-layout editor for 2- and 4-layer hobbyist boards. It
 | Output | Gerber RS-274X (X2 attributes), Excellon drill, BOM CSV, pick-and-place CSV, PDF/SVG schematic print | ODB++, IPC-2581, STEP |
 | Interchange | Native `.ecad`. KiCad: read 6+, write 9 (`.kicad_sch`, `.kicad_pcb`, `.kicad_sym`, `.kicad_mod`). Eagle XML 6+ / Fusion Electronics: read and write (`.sch`, `.brd`, `.lbr`) | KiCad 5 legacy, Eagle binary, Altium, EasyEDA |
 | 3D | Board preview with three.js (reusing DabbleCAD's viewer): board, copper, silk, box bodies | STEP models |
+| Agents (MCP) | One MCP tool layer for Parts, Schematics, Boards and Fab output; headless `electrocad-mcp` (stdio, `.ecad` files) and a live server in the desktop app (ADR-0009) | Browser bridge, autorouting tool |
 | Platforms | Browser and Electron desktop, both from M1 | Google Drive (reuse DabbleCAD's `drive.js`) |
 
 Non-goals: simulation, autorouting, multi-user real-time editing, and board-only design with no Schematic ([ADR-0002](adr/0002-schematic-is-the-source-of-truth-for-nets.md)).
@@ -186,7 +187,34 @@ Converters live in `io/kicad/*` and `io/eagle/*`, and each one returns `{ projec
   - **IndexedDB** holds the recent-project list, autosave copies and user Libraries.
   - **Open/Save** uses the File System Access API where the browser has it (Chrome and Edge), so Save writes back to the same file. Elsewhere it falls back to upload and download.
 
-## 11. Milestones
+## 11. Agents (MCP server)
+
+[ADR-0009](adr/0009-mcp-server-over-core-commands.md). `src/mcp/` holds the tool layer. It depends only on `core/` and `library/`, so it runs in Node.
+
+- **Transports:**
+  - `electrocad-mcp` (stdio): tools take a project path, and `open_project`/`save_project` manage the file.
+  - The desktop app (Streamable HTTP on 127.0.0.1, off by default, per-install token) works on the open Project and routes every call through `history.transact('MCP: …')`, so the user sees the changes live and can undo them.
+- **Read:**
+  - the Project resource (JSON, read-only);
+  - `list_parts`, `get_component`, `get_netlist`, `get_board_summary`;
+  - `run_erc`, `run_drc`.
+- **Library:** `create_part` (Units, Pins, graphics), `generate_footprint` (SOIC-n, headers, chips…), `create_footprint`, `set_preferred_footprints`, `save_to_library`.
+- **Schematic:**
+  - `add_sheet`;
+  - `place_component(part, unit?, footprint?, value?, at?)`, which auto-places on a free spot when `at` is missing;
+  - `connect_pins(['R1.2','U1.3'], net?)`, which joins Pins with Wire stubs and Net labels;
+  - `add_wire`, `add_net_label`, `add_global_label`, `add_power`, `add_no_connect`;
+  - `set_component` (Reference designator, Value, MPN, fields), `set_footprint`, `delete`.
+- **Board:**
+  - `set_stack`, `set_outline`, `apply_fab_preset`, `set_rules`, `set_net_class`;
+  - `forward_annotate`, `place_footprint(ref, at, rot, side)`;
+  - `route_track(net, layer, waypoints, width?)`, which runs through the Walkaround router and fails with the blocking object and its clearance;
+  - `add_via`, `add_zone`, `delete`.
+- **Fab output:** `generate_fab_output(options)`, which returns file names and writes a zip (headless) or offers it in the Gerber tab (desktop); `export_bom`, `export_pick_and_place`.
+- **Errors:** every tool validates through the same commands as the UI. A failed call changes nothing and returns a precise, glossary-worded reason.
+- **Tests:** the tool layer is pure (Project in, Project plus result out), so it is tested on the core seam. One smoke test drives the headless server end to end, from creating a Part to generating Gerbers.
+
+## 12. Milestones
 
 | # | Milestone | Done when |
 |---|---|---|
@@ -199,6 +227,6 @@ Converters live in `io/kicad/*` and `io/eagle/*`, and each one returns `{ projec
 | M7 | Interchange | KiCad (read 6+, write 9) and Eagle XML import/export of libraries, then schematics and boards, with loss reports |
 | M8 | Polish | 3D preview (three.js, a 2D \| 3D switch on the Board toolbar), Back annotation, "Update from Library" diff, Electron packaging like DabbleCAD |
 
-## 12. Open questions
+## 13. Open questions
 
 None at present. All earlier questions were settled in the design review of 2026-11-24 (see ADR-0005 and ADR-0006).

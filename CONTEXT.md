@@ -170,6 +170,19 @@ Pushing Reference designators renumbered on the Board back to the Schematic.
 The files a board house needs: Gerber, Excellon drill, BOM and pick-and-place.
 _Avoid_: CAM files, production files
 
+### Agents
+
+**Agent**:
+An external AI client, such as Claude, that reads and edits a Project through ElectroCAD's MCP server.
+_Avoid_: Bot, assistant, AI (as a noun for the client)
+
+**Agent tool**:
+One domain-level operation the MCP server offers, such as `place_component` or `connect_pins`. Each call is one validated edit, and in the desktop app one undo step.
+_Avoid_: Command, endpoint, API call
+
+**Agent activity**:
+The desktop app's log of Agent tool calls made on the open Project, each of which can be undone.
+
 ### Interchange
 
 **Native format**:
