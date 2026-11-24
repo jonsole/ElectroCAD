@@ -11,8 +11,8 @@ import { buildNetlist } from '../core/netlist.js';
 import { runErc, filterViolations } from '../core/erc.js';
 import { shapeHandles, hitHandle, dragHandle, snapPoint } from '../core/handles.js';
 import { drawHandles, drawSnapMark } from '../view/handles.js';
-import { snapToGrid, gridLabel } from '../core/grid.js';
-import { watchAlt } from '../ui/grid.js';
+import { snapToGrid, gridLabel, SCHEMATIC_GRIDS, setGridStep } from '../core/grid.js';
+import { gridPanel, watchAlt } from '../ui/grid.js';
 import { hitDrawing, drawingDefaults, paperRect, titleBlockLayout, PAPER_SIZES, TITLE_FIELDS, LINE_STYLES } from '../core/drawings.js';
 import { pinPositions, nextRef, partOf } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
@@ -466,7 +466,7 @@ export class SchematicEditor {
       this.toolBtn.noConnect, null,
       ...Object.entries(DRAW_TOOLS).map(([id, t]) => (this.toolBtn[id] = button({ icon: t.icon, title: t.title, onClick: () => this.setTool(id) }))),
       toolButton('ruler', 'Measure', { ticket: 8 }),
-      (this.toolBtn.origin = button({ icon: 'target', title: 'Grid origin (O): click to move the origin there; it snaps onto Pins, Wire ends and handles. Reset it in the Sheet card', onClick: () => this.setTool('origin') }))];
+      (this.toolBtn.origin = button({ icon: 'target', title: 'Grid origin (O): click to move the origin there; it snaps onto Pins, Wire ends and handles. Reset it in the Sheets card', onClick: () => this.setTool('origin') }))];
   }
 
   setTool(tool) {
@@ -1486,8 +1486,25 @@ export class SchematicEditor {
       h('div', { class: 'fp-head' }, h('b', {}, 'Sheets'), h('span', { class: 'fp-count' }, `${sheets.length}`),
         button({ icon: 'close', title: 'Close', cls: 'btn-ghost', onClick: () => this.toggleSheets(false) })),
       h('div', { class: 'fp-body' }, ...sheets.map(row),
-        h('p', { class: 'side-note' }, 'Net labels join on their own sheet; Global labels and Power symbols join across sheets.')),
-      h('div', { class: 'fp-foot' }, button({ icon: 'plus', label: 'Add sheet', cls: 'btn-outline', onClick: () => this.addSheet() })));
+        h('div', { class: 'sheets-add' }, button({ icon: 'plus', label: 'Add sheet', cls: 'btn-outline', onClick: () => this.addSheet() })),
+        h('p', { class: 'side-note' }, 'Net labels join on their own sheet; Global labels and Power symbols join across sheets.'),
+        this._gridFrame()));
+  }
+
+  /** The grid and origin, in a frame under the list of Sheets (they apply to every Sheet). */
+  _gridFrame() {
+    const sch = this.project.schematic, o = sch.origin;
+    const fmt = (nm) => String(+(nm / 1e6).toFixed(2));
+    return h('div', { class: 'sheets-grid', role: 'group', 'aria-label': 'Grid' },
+      h('div', { class: 'sheets-grid-head' }, 'Grid'),
+      gridPanel({
+        grid: sch.grid, choices: SCHEMATIC_GRIDS,
+        onGrid: (which, nm) => this.app.edit(`${which === 'alt' ? 'Alt grid' : 'Grid'}: ${gridLabel(nm)}`, (p) => setGridStep(p.schematic.grid, which, nm)),
+        originText: o[0] || o[1] ? `${fmt(o[0])}, ${fmt(o[1])} mm from the paper's corner` : "the paper's top-left corner",
+        onResetOrigin: o[0] || o[1] ? () => this.app.edit('Reset grid origin', (p) => { p.schematic.origin = [0, 0]; }) : null,
+        resetTitle: "Put the grid origin back at the paper's top-left corner",
+      }),
+      h('p', { class: 'side-note' }, 'Hold Alt while drawing, moving or resizing for the Alt grid. Markup snaps to half the grid. The Origin tool (O) moves the origin.'));
   }
 
   renameSheetInline(id) {

@@ -10,7 +10,7 @@ const put = (x, y) => { ed.beginPlace(R); ed.placing.at = [x * G, y * G]; const 
 const a = put(40, 40), b = put(60, 40);
 const insp = () => document.querySelector('.inspector');
 ed.selection = new Set(); ed.refresh();
-check('sheet-card-when-empty', !!insp().querySelector('select[aria-label="Grid"]'));
+check('hidden-when-empty', insp().childElementCount === 0);
 ed.selection = new Set([a.sym.id]); ed.refresh();
 check('shown-on-select', /R1/.test(insp().querySelector('.insp-title').textContent));
 check('header-icons', ['Rotate (R)', 'Mirror (X)', 'Duplicate (Ctrl+D)', 'Delete (Del)'].every((t) => insp().querySelector(`.insp-head button[title="${t}"]`)));
@@ -63,7 +63,7 @@ const fs = insp().querySelector('select[data-role="field-style-part"]');
 fs.value = 'compact'; fs.dispatchEvent(new Event('change'));
 check('multi-field-style', [a.comp.id, b.comp.id].every((id) => app.project.components[id].fieldStyle === 'compact'));
 document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-check('esc-sheet-card', !!insp().querySelector('select[aria-label="Grid"]'));
+check('esc-hides', insp().childElementCount === 0);
 
 // Double-click a field on the canvas to edit it in place.
 const ws = app.workspace('schematic');

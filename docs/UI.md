@@ -249,7 +249,7 @@ The Schematic, Board and Library editors work the same way here.
   - Hold **Alt** while drawing, moving or resizing to snap to the Alt grid. The canvas shows the Alt grid while Alt is held, and the status bar says "(Alt)".
   - Choose both grids where the properties are shown when nothing is selected:
     - Board: PROPERTIES;
-    - Schematic: the inspector's Sheet card;
+    - Schematic: a **Grid** frame under the list of sheets in the Sheets card (toolbar Sheets button). It applies to every sheet;
     - Library: PROPERTIES.
   - Defaults:
     - Schematic: 50 mil, Alt 25 mil. Markup snaps to half the grid.

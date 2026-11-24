@@ -75,12 +75,15 @@ key('i'); click(60, 40); click(45.3, 35.2); click(45.3, 35.2, 2);
 const snapped = sheet().drawings.filter((d) => d.type === 'line').at(-1);
 check('snap-to-corner', snapped.pts.at(-1)[0] === 45 * G && snapped.pts.at(-1)[1] === 35 * G, snapped.pts);
 key('Escape'); ed.setTool('select'); ed.selection.clear(); ed.refresh();
-// grid and origin: the Sheet card (inspector with nothing selected) sets the grid; O moves the origin
-const gsel = document.querySelector('.inspector select[aria-label="Grid"]');
+// grid and origin: the frame under the list in the Sheets card sets the grid; O moves the origin
+ed.toggleSheets(true);
+check('grid-in-sheets', !!document.querySelector('.sheets-panel .sheets-grid select[aria-label="Grid"]') && document.querySelector('.inspector').childElementCount === 0);
+const gsel = document.querySelector('.sheets-panel select[aria-label="Grid"]');
 gsel.value = String(G * 2); gsel.dispatchEvent(new Event('change'));
 check('sch-grid', app.project.schematic.grid.main === 2 * G && ws.view.grid === 2 * G);
-const gsel2 = document.querySelector('.inspector select[aria-label="Grid"]');
+const gsel2 = document.querySelector('.sheets-panel select[aria-label="Grid"]');
 gsel2.value = String(G); gsel2.dispatchEvent(new Event('change'));
+ed.toggleSheets(false);
 key('o'); click(10.2, 10.1);
 check('sch-origin', JSON.stringify(app.project.schematic.origin) === JSON.stringify([10 * G, 10 * G]) && ws.view.origin === app.project.schematic.origin, app.project.schematic.origin);
 key('z', { ctrlKey: true });

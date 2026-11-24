@@ -10,8 +10,6 @@ import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { partOf } from '../core/project.js';
 import { validateLabelName, isPower, netNameChoices, canonicalNetName } from '../core/labels.js';
 import { snap, SCH_GRID, mm } from '../core/units.js';
-import { SCHEMATIC_GRIDS, gridLabel, setGridStep } from '../core/grid.js';
-import { gridPanel } from '../ui/grid.js';
 
 const fmtMm = (nm) => String(+(nm / 1e6).toFixed(2));
 
@@ -36,12 +34,12 @@ export class SchematicInspector {
     const labels = (this.ed.sheet.labels || []).filter((l) => this.ed.selection.has(l.id));
     const drawings = (this.ed.sheet.drawings || []).filter((d) => this.ed.selection.has(d.id));
     const comps = syms.map((y) => this.project.components[y.componentId]);
-    const sig = JSON.stringify([[...this.ed.selection], syms, wires.length, labels, drawings, comps, this.project.fieldStyles?.default, this.project.schematic.grid, this.project.schematic.origin, this.ed.sheet.id, this.ed.sheet.name]);
+    const sig = JSON.stringify([[...this.ed.selection], syms, wires.length, labels, drawings, comps, this.project.fieldStyles?.default]);
     const focused = this.el.contains(document.activeElement) ? document.activeElement : null;
     const typing = focused && /^(INPUT|TEXTAREA)$/.test(focused.tagName);
     if (typing && sig === this.sig) return;
     this.sig = sig;
-    if (!syms.length && !wires.length && !labels.length && !drawings.length) { this._sheetCard(); return; }
+    if (!syms.length && !wires.length && !labels.length && !drawings.length) { this.el.replaceChildren(); return; }
     if (drawings.length === 1 && !syms.length && !labels.length && !wires.length) { this._drawing(drawings[0]); return this._refocus(focused); }
     if (syms.length === 1 && !labels.length) this._one(syms[0], wires.length);
     else if (labels.length === 1 && !syms.length) this._label(labels[0], wires.length);
@@ -283,22 +281,6 @@ export class SchematicInspector {
     }
     rows.push(h('div', { class: 'insp-note' }, 'Markup never connects to wires or pins.'));
     this.el.replaceChildren(this._head(title, null, { rotate: true }), h('div', { class: 'insp-body' }, ...rows));
-  }
-
-  /** Nothing selected: the Sheet, with the grid and origin (as the Board's and Library's Properties). */
-  _sheetCard() {
-    const sch = this.project.schematic, o = sch.origin;
-    const panel = gridPanel({
-      grid: sch.grid, choices: SCHEMATIC_GRIDS,
-      onGrid: (which, nm) => this._edit(`${which === 'alt' ? 'Alt grid' : 'Grid'}: ${gridLabel(nm)}`, (p) => setGridStep(p.schematic.grid, which, nm)),
-      originText: o[0] || o[1] ? `${fmtMm(o[0])}, ${fmtMm(o[1])} mm from the paper's corner` : "at the paper's top-left corner",
-      onResetOrigin: o[0] || o[1] ? () => this._edit('Reset grid origin', (p) => { p.schematic.origin = [0, 0]; }) : null,
-      resetTitle: "Put the grid origin back at the paper's top-left corner",
-    });
-    this.el.replaceChildren(
-      h('div', { class: 'insp-head', title: 'Drag to move · double-click here to put the card back' }, h('div', { class: 'insp-title' }, this.ed.sheet.name, h('span', { class: 'insp-sub' }, ' · nothing selected')),
-        button({ icon: 'settings', title: 'Sheet setup: paper size and title block', onClick: () => this.ed.sheetSetup() })),
-      h('div', { class: 'insp-body' }, panel, h('div', { class: 'insp-note' }, 'Hold Alt while drawing, moving or resizing for the Alt grid. Pins connect where they meet, so keep parts on one grid. Markup snaps to half the grid. The Origin tool (O) moves the origin.')));
   }
 
   _find(p, id) { return (this.ed._S(p).labels || []).find((x) => x.id === id); }
