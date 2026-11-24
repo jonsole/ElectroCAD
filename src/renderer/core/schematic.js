@@ -1,6 +1,7 @@
 // Schematic editing commands (DOM-free). Each is a mutation the editor runs inside one
 // History transaction, so every user action is exactly one undo step.
-import { addComponent, partOf, pruneOrphans, uid, pinPositions } from './project.js';
+import { addComponent, partOf, pruneOrphans, uid, pinPositions, nextRef } from './project.js';
+import { compareRefs } from './netlist.js';
 import { place, eq, distToSegment2, onSegment, rot90 } from './geom.js';
 import { snapPt, SCH_GRID } from './units.js';
 
@@ -146,4 +147,158 @@ export function routeWire(project, sheet, from, to, { axis = 'h', auto = true } 
   const pins = sheet.symbols.flatMap((y) => pinPositions(project, y).map((x) => x.at)).filter((q) => !eq(q, from) && !eq(q, to));
   const crosses = ([c]) => pins.some((q) => onSegment(q, from, c) || onSegment(q, c, to));
   return !crosses(first) ? first : !crosses(second) ? second : first;
+}
+
+// ---------------------------------------------------------------- moving with rubber-banding Wires (#8)
+
+const add2 = (p, d) => [p[0] + d[0], p[1] + d[1]];
+const ptKey = (p) => p[0] + ',' + p[1];
+
+/**
+ * Move Symbols and Wires by `delta` (grid-snapped by the caller). Wires attached to what moves
+ * follow and stay orthogonal:
+ *   - a Wire whose both ends move (or that is selected) moves as a whole;
+ *   - a Wire with one moving end stretches; if its far end is a plain corner (joined only to
+ *     Wires running across it), that corner slides along so the shape is kept; otherwise a corner
+ *     is added so nothing goes diagonal.
+ * Connectivity is unchanged.
+ */
+export function moveSelection(project, sheet, ids, delta) {
+  if (!delta[0] && !delta[1]) return;
+  const sel = new Set(ids);
+  const movingSyms = sheet.symbols.filter((y) => sel.has(y.id));
+  // points that move: Pins of moving Symbols and ends of selected Wires (old positions)
+  const moving = new Set();
+  for (const y of movingSyms) for (const { at } of pinPositions(project, y)) moving.add(ptKey(at));
+  for (const w of sheet.wires) if (sel.has(w.id)) { moving.add(ptKey(w.a)); moving.add(ptKey(w.b)); }
+  for (const y of movingSyms) y.at = add2(y.at, delta);
+
+  const fixedPins = new Set();
+  for (const y of sheet.symbols) if (!sel.has(y.id)) for (const { at } of pinPositions(project, y)) fixedPins.add(ptKey(at));
+
+  const whole = [], stretch = [];
+  for (const w of sheet.wires) {
+    const am = moving.has(ptKey(w.a)), bm = moving.has(ptKey(w.b));
+    if (sel.has(w.id) || (am && bm)) whole.push(w);
+    else if (am || bm) stretch.push({ w, end: am ? 'a' : 'b' });
+  }
+  // a Wire end resting in the middle of a Wire that moves as a whole (a T-join) moves with it
+  for (const w of sheet.wires) {
+    if (whole.includes(w) || stretch.some((x) => x.w === w)) continue;
+    const onMoving = (pt) => whole.some((m) => onSegment(pt, m.a, m.b));
+    const am = onMoving(w.a), bm = onMoving(w.b);
+    if (am && bm) whole.push(w);
+    else if (am || bm) { moving.add(ptKey(am ? w.a : w.b)); stretch.push({ w, end: am ? 'a' : 'b' }); }
+  }
+  for (const w of whole) { w.a = add2(w.a, delta); w.b = add2(w.b, delta); }
+  const added = [];
+  const slid = new Map(); // corner key -> new point (so two Wires sharing a corner agree)
+  for (const { w, end } of stretch) {
+    const other = end === 'a' ? 'b' : 'a';
+    const A = w[end], B = w[other];
+    const horiz = A[1] === B[1];
+    const A2 = add2(A, delta);
+    const B2 = horiz ? [B[0], B[1] + delta[1]] : [B[0] + delta[0], B[1]];
+    const bKey = ptKey(B);
+    // can B slide? only if it's a plain corner: no fixed Pin there, not moving, not mid-Wire,
+    // and every other Wire at B runs across this one (so it can stretch along its own axis)
+    const others = sheet.wires.filter((x) => x !== w && (ptKey(x.a) === bKey || ptKey(x.b) === bKey));
+    const midWire = sheet.wires.some((x) => x !== w && onSegment(B, x.a, x.b) && ptKey(x.a) !== bKey && ptKey(x.b) !== bKey);
+    const across = others.every((x) => (horiz ? x.a[0] === x.b[0] : x.a[1] === x.b[1]) && !whole.includes(x) && !stretch.some((s) => s.w === x));
+    // sliding moves the whole run sideways, which would break a T-join resting on it
+    const tJoinOnIt = sheet.wires.some((x) => x !== w && [x.a, x.b].some((pt) => ptKey(pt) !== ptKey(A) && ptKey(pt) !== bKey && onSegment(pt, A, B)))
+      || [...fixedPins].some((k) => { const [x, y] = k.split(',').map(Number); return k !== bKey && k !== ptKey(A) && onSegment([x, y], A, B); });
+    const canSlide = (B2[0] !== B[0] || B2[1] !== B[1]) && others.length > 0 && !fixedPins.has(bKey) && !moving.has(bKey) && !midWire && across && !tJoinOnIt;
+    if (canSlide || (B2[0] === B[0] && B2[1] === B[1])) {
+      const target = slid.get(bKey) || B2;
+      slid.set(bKey, target);
+      w[end] = A2; w[other] = target;
+      for (const x of others) { if (ptKey(x.a) === bKey) x.a = target; else x.b = target; }
+    } else {
+      // keep the original run on its line (so T-joins onto it stay connected): B runs along the
+      // original axis to a corner level with the moved end, then a short run reaches A2
+      const C = horiz ? [A2[0], B[1]] : [B[0], A2[1]];
+      w[end] = C; w[other] = B;
+      added.push({ id: uid('w'), a: C, b: A2 });
+    }
+  }
+  sheet.wires.push(...added);
+  // tidy: drop zero-length runs
+  sheet.wires = sheet.wires.filter((w) => w.a[0] !== w.b[0] || w.a[1] !== w.b[1]);
+}
+
+// ---------------------------------------------------------------- copy / paste / box select (#8)
+
+/** A clipboard of the selected Symbols (with their Components and Parts) and the selected Wires. */
+export function copySelection(project, sheet, ids) {
+  const sel = new Set(ids);
+  const symbols = sheet.symbols.filter((y) => sel.has(y.id)).map((y) => structuredClone(y));
+  const components = {}, parts = {};
+  for (const y of symbols) {
+    const c = project.components[y.componentId];
+    components[c.id] = structuredClone(c);
+    parts[c.partId] = structuredClone(project.parts[c.partId]);
+  }
+  const wires = sheet.wires.filter((w) => sel.has(w.id)).map((w) => structuredClone(w));
+  return { kind: 'electrocad-schematic-clip', symbols, wires, components, parts };
+}
+
+/**
+ * Paste a clipboard onto `sheet`, offset by `delta`. Pasted Components get new ids and the next
+ * free Reference designators; Units of one copied Component stay together. Returns new item ids.
+ */
+export function pasteClip(project, sheet, clip, delta) {
+  const newComp = new Map();
+  for (const [id, part] of Object.entries(clip.parts)) if (!project.parts[id]) project.parts[id] = structuredClone(part);
+  const ids = [];
+  const order = [...clip.symbols].sort((a, b) => compareRefs(clip.components[a.componentId].ref, clip.components[b.componentId].ref));
+  for (const y of order) {
+    const src = clip.components[y.componentId];
+    if (!newComp.has(src.id)) {
+      const prefix = project.parts[src.partId].prefix;
+      const c = { ...structuredClone(src), id: uid('c'), ref: nextRef(project, prefix) };
+      project.components[c.id] = c;
+      newComp.set(src.id, c);
+    }
+    const sym = { ...structuredClone(y), id: uid('y'), componentId: newComp.get(src.id).id, at: add2(y.at, delta) };
+    sheet.symbols.push(sym);
+    ids.push(sym.id);
+  }
+  for (const w of clip.wires) {
+    const nw = { id: uid('w'), a: add2(w.a, delta), b: add2(w.b, delta) };
+    sheet.wires.push(nw);
+    ids.push(nw.id);
+  }
+  return ids;
+}
+
+/** Bounding box of selected items (Symbols and Wires), or null. */
+export function itemsBounds(project, sheet, ids) {
+  const sel = new Set(ids);
+  const boxes = [];
+  for (const y of sheet.symbols) if (sel.has(y.id)) boxes.push(symbolBounds(project, y));
+  for (const w of sheet.wires) if (sel.has(w.id)) boxes.push({ x0: Math.min(w.a[0], w.b[0]), y0: Math.min(w.a[1], w.b[1]), x1: Math.max(w.a[0], w.b[0]), y1: Math.max(w.a[1], w.b[1]) });
+  if (!boxes.length) return null;
+  return { x0: Math.min(...boxes.map((b) => b.x0)), y0: Math.min(...boxes.map((b) => b.y0)), x1: Math.max(...boxes.map((b) => b.x1)), y1: Math.max(...boxes.map((b) => b.y1)) };
+}
+
+/**
+ * Items in a rectangle. 'window' (dragged left to right) takes only items fully inside;
+ * 'crossing' (right to left) takes anything that touches it — the KiCad convention.
+ */
+export function itemsInRect(project, sheet, r, mode = 'window') {
+  const inside = (b) => b.x0 >= r.x0 && b.x1 <= r.x1 && b.y0 >= r.y0 && b.y1 <= r.y1;
+  const touches = (b) => b.x0 <= r.x1 && b.x1 >= r.x0 && b.y0 <= r.y1 && b.y1 >= r.y0;
+  const segTouches = (a, b) => {
+    if (inside({ x0: Math.min(a[0], b[0]), y0: Math.min(a[1], b[1]), x1: Math.max(a[0], b[0]), y1: Math.max(a[1], b[1]) })) return true;
+    // orthogonal segment vs rect
+    return touches({ x0: Math.min(a[0], b[0]), y0: Math.min(a[1], b[1]), x1: Math.max(a[0], b[0]), y1: Math.max(a[1], b[1]) });
+  };
+  const out = [];
+  for (const y of sheet.symbols) { const b = symbolBounds(project, y); if (b && (mode === 'window' ? inside(b) : touches(b))) out.push(y.id); }
+  for (const w of sheet.wires) {
+    const b = { x0: Math.min(w.a[0], w.b[0]), y0: Math.min(w.a[1], w.b[1]), x1: Math.max(w.a[0], w.b[0]), y1: Math.max(w.a[1], w.b[1]) };
+    if (mode === 'window' ? inside(b) : segTouches(w.a, w.b)) out.push(w.id);
+  }
+  return out;
 }

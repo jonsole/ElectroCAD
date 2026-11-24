@@ -5,7 +5,7 @@ import { h, icon, button, popupMenu } from '../ui/dom.js';
 import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { later } from '../workspaces/workspace.js';
 import { MINI_LIBRARY, searchParts } from '../library/mini.js';
-import { placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, hitWire, preferredAxis, routeWire } from '../core/schematic.js';
+import { placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, hitWire, preferredAxis, routeWire, moveSelection, copySelection, pasteClip, itemsInRect, itemsBounds } from '../core/schematic.js';
 import { buildNetlist } from '../core/netlist.js';
 import { pinPositions } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
@@ -24,6 +24,10 @@ export class SchematicEditor {
     this.tool = 'select'; // 'select' | 'wire'
     this.wiring = null;   // { points: [committed…], cursor, posture: 'h' | 'v' }
     this.netlistOpen = false;
+    this.drag = null;    // moving the selection: { start, ids, snapshot, delta, moved }
+    this.marquee = null; // box select: { a, b } in world
+    this.preview = null; // a copy of the Project showing a move in progress
+    this.clipboard = null;
     this.query = '';
     this.parts = MINI_LIBRARY;
   }
@@ -101,13 +105,15 @@ export class SchematicEditor {
       undo: button({ icon: 'undo', title: 'Undo (Ctrl+Z)', onClick: () => this.app.undo() }),
       redo: button({ icon: 'redo', title: 'Redo (Ctrl+Shift+Z)', onClick: () => this.app.redo() }),
       del: button({ icon: 'trash', title: 'Delete (Del)', onClick: () => this.deleteSelection() }),
+      copy: button({ icon: 'copy', title: 'Copy (Ctrl+C)', onClick: () => this.copy() }),
+      paste: button({ icon: 'paste', title: 'Paste (Ctrl+V)', onClick: () => this.paste() }),
+      dup: button({ icon: 'duplicate', title: 'Duplicate (Ctrl+D)', onClick: () => this.duplicate() }),
       rotate: button({ icon: 'rotate', title: 'Rotate (R)', onClick: () => this.rotate() }),
       mirror: button({ icon: 'mirror', title: 'Mirror (X)', onClick: () => this.mirror() }),
       fields: button({ label: 'Fields', icon: 'ltext', title: 'Field style for the selected parts', onClick: (e) => this.fieldsMenu(e.currentTarget) }),
     };
     return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }),
-      later({ icon: 'copy', title: 'Copy (Ctrl+C)' }, 8), later({ icon: 'paste', title: 'Paste (Ctrl+V)' }, 8),
-      later({ icon: 'duplicate', title: 'Duplicate (Ctrl+D)' }, 8), this.btn.del, h('span', { class: 'sep' }),
+      this.btn.copy, this.btn.paste, this.btn.dup, this.btn.del, h('span', { class: 'sep' }),
       this.btn.rotate, this.btn.mirror, h('span', { class: 'sep' }), this.btn.fields];
   }
 
@@ -146,6 +152,9 @@ export class SchematicEditor {
       const anySym = this.sheet.symbols.some((y) => this.selection.has(y.id));
       if (!this.placing) { this.btn.rotate.disabled = !anySym; this.btn.mirror.disabled = !anySym; }
       this.btn.fields.disabled = !anySym;
+      this.btn.copy.disabled = this.selection.size === 0;
+      this.btn.dup.disabled = this.selection.size === 0;
+      this.btn.paste.disabled = !this.clipboard;
     }
     if (this.toolBtn) for (const [t, b] of Object.entries(this.toolBtn)) b.classList.toggle('active', this.tool === t && !this.placing);
     this.renderNetlist();
@@ -166,7 +175,7 @@ export class SchematicEditor {
       const refs = this.sheet.symbols.filter((y) => this.selection.has(y.id)).map((y) => this.project.components[y.componentId]?.ref);
       const nw = this.sheet.wires.filter((w) => this.selection.has(w.id)).length;
       const what = [...refs, ...(nw ? [`${nw} wire${nw === 1 ? '' : 's'}`] : [])].join(', ');
-      text = `Selected ${what}${refs.length ? ' · R rotate · X mirror' : ''} · Del delete · Esc deselect`;
+      text = `Selected ${what} · drag or arrow keys to move${refs.length ? ' · R rotate · X mirror' : ''} · Ctrl+C/V/D · Del delete · Esc deselect`;
     }
     this.ws.hint.textContent = text;
   }
@@ -183,13 +192,61 @@ export class SchematicEditor {
       if (this.tool === 'wire') { this._wireClick(world, e.detail >= 2); return; }
       const tol = 4 / ws.view.view.scale;
       const hit = hitSymbol(this.project, this.sheet, world, 3 / ws.view.view.scale) || hitWire(this.sheet, world, tol);
-      if (e.shiftKey && hit) { if (this.selection.has(hit.id)) this.selection.delete(hit.id); else this.selection.add(hit.id); }
-      else this.selection = new Set(hit ? [hit.id] : []);
+      if (e.shiftKey && hit) { if (this.selection.has(hit.id)) this.selection.delete(hit.id); else this.selection.add(hit.id); this.refresh(); return; }
+      if (hit) {
+        if (!this.selection.has(hit.id)) this.selection = new Set([hit.id]);
+        // press on a selected item: dragging moves the selection, wires following
+        this.drag = { start: snapPt(world, SCH_GRID), startPx: [e.clientX, e.clientY], ids: [...this.selection], snapshot: structuredClone(this.project), delta: [0, 0], moved: false };
+      } else {
+        if (!e.shiftKey) this.selection = new Set();
+        this.marquee = { a: world, b: world, startPx: [e.clientX, e.clientY], add: e.shiftKey, base: new Set(this.selection) };
+      }
+      c.setPointerCapture(e.pointerId);
       this.refresh();
+    });
+    c.addEventListener('pointerup', (e) => {
+      if (e.button !== 0) return;
+      if (this.drag) {
+        const d = this.drag;
+        this.drag = null; this.preview = null;
+        if (d.moved && (d.delta[0] || d.delta[1])) {
+          const ids = d.ids, delta = d.delta;
+          this.app.edit('Move', (p) => moveSelection(p, p.schematic.sheets[0], ids, delta));
+        }
+        this.refresh();
+      } else if (this.marquee) {
+        this.marquee = null;
+        this.refresh();
+      }
     });
     c.addEventListener('pointermove', (e) => {
       if (this.placing && !this.placing.drag) this._update(ws.view.view.toWorld(ws.view.local(e)));
-      if (this.tool === 'wire') { this.cursor = snapPt(ws.view.view.toWorld(ws.view.local(e)), SCH_GRID); ws.view.invalidate(); }
+      const world = ws.view.view.toWorld(ws.view.local(e));
+      this.cursor = snapPt(world, SCH_GRID);
+      if (this.tool === 'wire') ws.view.invalidate();
+      if (this.drag && (e.buttons & 1)) {
+        const d = this.drag;
+        if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 4) return;
+        d.moved = true;
+        const delta = [this.cursor[0] - d.start[0], this.cursor[1] - d.start[1]];
+        if (delta[0] !== d.delta[0] || delta[1] !== d.delta[1]) {
+          d.delta = delta;
+          const pv = structuredClone(d.snapshot);
+          moveSelection(pv, pv.schematic.sheets[0], d.ids, delta);
+          this.preview = pv;
+          ws.view.canvas.style.cursor = 'move';
+          ws.view.invalidate();
+        }
+      } else if (this.marquee && (e.buttons & 1)) {
+        const m = this.marquee;
+        if (Math.hypot(e.clientX - m.startPx[0], e.clientY - m.startPx[1]) < 4) return;
+        m.b = world;
+        const r = { x0: Math.min(m.a[0], m.b[0]), y0: Math.min(m.a[1], m.b[1]), x1: Math.max(m.a[0], m.b[0]), y1: Math.max(m.a[1], m.b[1]) };
+        const mode = m.b[0] >= m.a[0] ? 'window' : 'crossing';
+        this.selection = new Set([...(m.add ? m.base : []), ...itemsInRect(this.project, this.sheet, r, mode)]);
+        this.refresh();
+      }
+      if (!this.drag && ws.view.canvas.style.cursor === 'move') ws.view.canvas.style.cursor = '';
     });
     // the floating Netlist panel lives over the canvas, like DabbleCAD's inspector card
     this.netlistEl = h('div', { class: 'float-panel netlist-panel', role: 'region', 'aria-label': 'Netlist' });
@@ -205,8 +262,21 @@ export class SchematicEditor {
       target = this._endTarget(this.cursor) ? this.cursor : null;
       if (this.wiring) wiring = [...this.wiring.points, ...this._route(this.wiring.points[this.wiring.points.length - 1], this.cursor)];
     }
-    this.placement = placeFields(this.project, this.sheet, { measure: measureText });
-    drawSheet(ctx, view, C, this.project, this.sheet, { selection: this.selection, ghost, bounds: (s) => symbolBounds(this.project, s), wiring, target, placement: this.placement });
+    const proj = this.preview || this.project;
+    const sheet = proj.schematic.sheets[0];
+    this.placement = placeFields(proj, sheet, { measure: measureText });
+    drawSheet(ctx, view, C, proj, sheet, { selection: this.selection, ghost, bounds: (s) => symbolBounds(proj, s), wiring, target, placement: this.placement });
+    if (this.marquee && (this.marquee.a[0] !== this.marquee.b[0] || this.marquee.a[1] !== this.marquee.b[1])) {
+      const m = this.marquee;
+      const [x0, y0] = view.toScreen(m.a), [x1, y1] = view.toScreen(m.b);
+      const crossing = m.b[0] < m.a[0];
+      ctx.save();
+      ctx.fillStyle = C.selection; ctx.globalAlpha = 0.1; ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+      ctx.globalAlpha = 1; ctx.strokeStyle = C.selection; ctx.lineWidth = 1;
+      if (crossing) ctx.setLineDash([5, 4]);
+      ctx.strokeRect(Math.round(x0) + 0.5, Math.round(y0) + 0.5, x1 - x0, y1 - y0);
+      ctx.restore();
+    }
     const warn = fieldWarnings(this.project, this.sheet, this.placement);
     if (warn.join() !== (this.fieldWarnings || []).join()) { this.fieldWarnings = warn; this._hint(); }
   }
@@ -379,6 +449,60 @@ export class SchematicEditor {
     this.refresh();
   }
 
+  copy() {
+    if (!this.selection.size) return;
+    this.clipboard = copySelection(this.project, this.sheet, [...this.selection]);
+    this.refresh();
+  }
+
+  /** Paste so the copied group sits under the cursor (or beside the original when the cursor is off the sheet). */
+  paste(offset = null) {
+    const clip = this.clipboard;
+    if (!clip) return;
+    const ids0 = [...clip.symbols.map((y) => y.id), ...clip.wires.map((w) => w.id)];
+    const tmp = { components: clip.components, parts: clip.parts, schematic: { sheets: [{ symbols: clip.symbols, wires: clip.wires }] } };
+    const b = itemsBounds(tmp, tmp.schematic.sheets[0], ids0);
+    let delta = offset;
+    if (!delta) {
+      const anchor = snapPt([(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2], SCH_GRID);
+      delta = this.cursor ? [this.cursor[0] - anchor[0], this.cursor[1] - anchor[1]] : [SCH_GRID * 4, SCH_GRID * 4];
+      if (!delta[0] && !delta[1]) delta = [SCH_GRID * 4, SCH_GRID * 4];
+    }
+    const ids = this.app.edit('Paste', (p) => pasteClip(p, p.schematic.sheets[0], clip, delta));
+    this.selection = new Set(ids);
+    this.refresh();
+  }
+
+  duplicate() {
+    if (!this.selection.size) return;
+    const saved = this.clipboard;
+    this.clipboard = copySelection(this.project, this.sheet, [...this.selection]);
+    this.paste([SCH_GRID * 4, SCH_GRID * 4]);
+    this.clipboard = saved || this.clipboard;
+  }
+
+  nudge(dx, dy) {
+    if (!this.selection.size) return;
+    const ids = [...this.selection];
+    this.app.edit('Move', (p) => moveSelection(p, p.schematic.sheets[0], ids, [dx * SCH_GRID, dy * SCH_GRID]));
+    this.refresh();
+  }
+
+  selectAll() {
+    this.selection = new Set([...this.sheet.symbols.map((y) => y.id), ...this.sheet.wires.map((w) => w.id)]);
+    this.refresh();
+  }
+
+  /** Ctrl/Cmd shortcuts the app routes here (copy, paste, duplicate, select all). */
+  onModKey(e) {
+    const k = e.key.toLowerCase();
+    if (k === 'c') { this.copy(); return true; }
+    if (k === 'v') { this.paste(); return true; }
+    if (k === 'd') { this.duplicate(); return true; }
+    if (k === 'a') { this.selectAll(); return true; }
+    return false;
+  }
+
   /** Workspace keys (the app routes plain keys here when this workspace is active). */
   onKey(e) {
     const k = e.key.toLowerCase();
@@ -395,6 +519,8 @@ export class SchematicEditor {
       if (e.key === 'Backspace' && this.wiring) { if (this.wiring.points.length > 1) this.wiring.points.pop(); else this.wiring = null; this.refresh(); return true; }
       if (e.key === 'Enter' && this.wiring) { this.finishWire(); return true; }
     }
+    const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    if (arrows[e.key] && this.selection.size && this.tool === 'select') { const [dx, dy] = arrows[e.key]; const n = e.shiftKey ? 10 : 1; this.nudge(dx * n, dy * n); return true; }
     if (k === 'w') { this.setTool('wire'); return true; }
     if (k === 'v') { this.setTool('select'); return true; }
     if (k === 'r') { this.rotate(); return true; }

@@ -367,6 +367,7 @@ export class App {
       if (mod && /^[1-4]$/.test(e.key)) { this.setWorkspace(order[+e.key - 1]); e.preventDefault(); }
       else if (mod && k === 'z') { e.preventDefault(); if (e.shiftKey) this.redo(); else this.undo(); }
       else if (mod && k === 'y') { e.preventDefault(); this.redo(); }
+      else if (mod && !e.shiftKey && this.active?.editor?.onModKey?.(e)) { e.preventDefault(); }
       else if (!mod && !e.altKey && this.active?.editor?.onKey(e)) { e.preventDefault(); }
       else if (mod && k === 's') { e.preventDefault(); if (e.shiftKey) this.exportFile(); else this.saveNow(); }
       else if (mod && k === 'o') { e.preventDefault(); this.importFile(); }
@@ -387,7 +388,7 @@ export class App {
   help() {
     if (document.querySelector('.modal-backdrop')) return;
     const m = modal({ title: 'Shortcuts', width: 440 });
-    const rows = [['Select tool', 'V'], ['Wire tool (click to start, click a Pin or Wire to finish)', 'W'], ['Flip the wire corner', '/'], ['Undo last wire corner', 'Backspace'], ['Netlist', 'Netlist button above the parts'], ['Undo', 'Ctrl+Z'], ['Redo', 'Ctrl+Shift+Z / Ctrl+Y'], ['Rotate (placing or selected)', 'R'], ['Mirror', 'X'], ['Delete selected', 'Del'], ['Stop placing / deselect', 'Esc'], ['New project', 'Ctrl+N'], ['Open file (import)', 'Ctrl+O'], ['Save now', 'Ctrl+S'], ['Save as file', 'Ctrl+Shift+S'], ['Pan', 'Middle- or right-drag'], ['Zoom', 'Scroll wheel'], ['Fit the view', 'Home'], ['Schematic · Board · Gerber · Library', 'Ctrl+1 … Ctrl+4'], ['This help', '?']];
+    const rows = [['Select tool', 'V'], ['Wire tool (click to start, click a Pin or Wire to finish)', 'W'], ['Flip the wire corner', '/'], ['Undo last wire corner', 'Backspace'], ['Netlist', 'Netlist button above the parts'], ['Undo', 'Ctrl+Z'], ['Redo', 'Ctrl+Shift+Z / Ctrl+Y'], ['Rotate (placing or selected)', 'R'], ['Mirror', 'X'], ['Delete selected', 'Del'], ['Move selection (drag, or one grid step; Shift for ten)', 'Arrow keys'], ['Copy / Paste / Duplicate', 'Ctrl+C / Ctrl+V / Ctrl+D'], ['Select all', 'Ctrl+A'], ['Box select (left→right: inside, right→left: touching)', 'Drag on empty canvas'], ['Stop placing / deselect', 'Esc'], ['New project', 'Ctrl+N'], ['Open file (import)', 'Ctrl+O'], ['Save now', 'Ctrl+S'], ['Save as file', 'Ctrl+Shift+S'], ['Pan', 'Middle- or right-drag'], ['Zoom', 'Scroll wheel'], ['Fit the view', 'Home'], ['Schematic · Board · Gerber · Library', 'Ctrl+1 … Ctrl+4'], ['This help', '?']];
     m.body.append(h('div', { class: 'shortcut-group' }, h('h4', {}, 'Every workspace'),
       ...rows.map(([a, b]) => h('div', { class: 'shortcut-row' }, h('span', {}, a), h('span', { class: 'kbd' }, b)))));
   }

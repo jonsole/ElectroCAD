@@ -84,6 +84,17 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 - **If that would run through another Pin,** the corner goes the other way.
 - **`/`** flips the corner for the rest of the Wire.
 
+## Selecting and moving
+
+- **Selecting:** click to select, Shift-click to add or remove an item, and drag on an empty canvas to box-select. Dragging **left to right** takes only items fully inside the box (solid outline); **right to left** takes anything the box touches (dashed outline). Ctrl+A selects all.
+- **Moving:** drag a selected item to move the whole selection, with a live preview. Arrow keys nudge by one grid step, or ten with Shift. Every move is one undo step.
+- **Wires follow what moves and stay square:**
+  - a Wire whose both ends move goes with them;
+  - a Wire with one moving end stretches. If its far end is a plain corner, the corner slides along so an L stays an L; otherwise the original run stays on its line, so T-joins onto it stay connected, and a new corner reaches the moved end;
+  - a Wire T-joined onto a Wire that moves goes along with it.
+- **Connectivity never changes when you move things.**
+- **Copy, paste, duplicate:** Ctrl+C, Ctrl+V (pastes under the cursor) and Ctrl+D (a copy four grid steps away). Pasted Components get the next free Reference designators and keep their Value, Footprint and Field style. Wires between copied parts come along.
+
 ## Field styles
 
 - **Where styles are chosen:**
