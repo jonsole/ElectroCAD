@@ -1,6 +1,6 @@
 {
  "format": "electrocad",
- "version": 6,
+ "version": 7,
  "id": "p1",
  "name": "LED indicator",
  "parts": {
@@ -708,7 +708,12 @@
     "paper": {
      "size": "A4",
      "orientation": "landscape"
-    }
+    },
+    "grid": {
+     "main": 1270000,
+     "alt": 635000
+    },
+    "origin": [0, 0]
    },
    {
     "id": "s2",
@@ -805,14 +810,14 @@
     "paper": {
      "size": "A3",
      "orientation": "portrait"
-    }
+    },
+    "grid": {
+     "main": 1270000,
+     "alt": 635000
+    },
+    "origin": [0, 0]
    }
-  ],
-  "grid": {
-   "main": 1270000,
-   "alt": 635000
-  },
-  "origin": [0, 0]
+  ]
  },
  "board": {
   "stack": {

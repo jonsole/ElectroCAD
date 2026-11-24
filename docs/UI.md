@@ -139,8 +139,9 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 - **Colour:** markup uses the theme's **Notes and markup** colour.
 - **Text variables:** `${TITLE}`, `${COMPANY}`, `${AUTHOR}`, `${REV}`, `${DATE}`, `${COMMENT}`, `${SHEET_NAME}`, `${SHEET_NUMBER}`, `${SHEET_COUNT}` and `${PROJECT}` are drawn filled in. The raw text is what you edit, and an unknown variable is left as typed.
 - **Title block:** the bottom-right corner of every Sheet shows the title (the Project name when empty), the Sheet name, "Sheet n of N", company, revision, date, author and comment, in the theme's sheet-edge colour.
-- **Sheet setup** opens by double-clicking the title block, or from **Sheet setup…** in the right-click menu on empty canvas. It sets:
-  - this Sheet's paper size (A4, A3, A2, Letter, Tabloid) and orientation; the canvas frame and Home follow it, and Print (#14) will use it;
+- **Sheet setup** opens with the gear on a sheet's row in the Sheets card, by double-clicking the title block, or from **Sheet setup…** in the right-click menu on empty canvas. It sets:
+  - that Sheet's paper size (A4, A3, A2, Letter, Tabloid) and orientation; the canvas frame and Home follow it, and Print uses it;
+  - that Sheet's grid, Alt grid and origin (X and Y in mm from the paper's top-left corner, with Reset);
   - the Project's title block fields.
 
 ## Print and export
@@ -249,16 +250,16 @@ The Schematic, Board and Library editors work the same way here.
   - Hold **Alt** while drawing, moving or resizing to snap to the Alt grid. The canvas shows the Alt grid while Alt is held, and the status bar says "(Alt)".
   - Choose both grids where the properties are shown when nothing is selected:
     - Board: PROPERTIES;
-    - Schematic: a **Grid** frame under the list of sheets in the Sheets card (toolbar Sheets button). It applies to every sheet;
+    - Schematic: **each sheet has its own** grid, Alt grid and origin, set in its **Sheet setup** dialog. Open it with the gear on the sheet's row in the Sheets card, by double-clicking the title block, or from **Sheet setup…** in the right-click menu. The dialog also sets the sheet's paper size and orientation, and the title block for every sheet;
     - Library: PROPERTIES.
   - Defaults:
-    - Schematic: 50 mil, Alt 25 mil. Markup snaps to half the grid.
+    - Schematic: 50 mil, Alt 25 mil, for each new sheet. Markup snaps to half the grid.
     - Board: 0.5 mm, Alt 0.1 mm.
     - Library: 50 mil, Alt 25 mil. Pins snap to the grid and graphics to half of it.
   - The Schematic and Board grids are saved in the Project. The Library's are a per-browser preference.
   - Arrow keys nudge by one main-grid step.
 - **Origin tool (O)** in each palette.
-  - Schematic and Board: click to move the grid origin. The grid lines, rulers and the coordinate pill then measure from it. **Reset** next to the origin puts it back.
+  - Schematic (per sheet) and Board: click to move the grid origin. The grid lines, rulers and the coordinate pill then measure from it. **Reset** puts it back: next to the origin in the Board's PROPERTIES, and in the Sheet setup dialog, which also takes X and Y in mm.
   - Library: the origin is the Symbol's anchor (where it is placed from). Clicking a point shifts the whole Part, every Unit, so that point becomes the anchor. The drawing stays where it is on screen and the origin mark moves.
   - The origin snaps onto handles like everything else.
   - The origin is marked by a cross with a small ring in every workspace, drawn over the content in the theme's **Origin mark** colour.

@@ -12,7 +12,7 @@ import { runErc, filterViolations } from '../core/erc.js';
 import { shapeHandles, hitHandle, dragHandle, snapPoint } from '../core/handles.js';
 import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { snapToGrid, gridLabel, SCHEMATIC_GRIDS, setGridStep } from '../core/grid.js';
-import { gridPanel, watchAlt } from '../ui/grid.js';
+import { watchAlt } from '../ui/grid.js';
 import { hitDrawing, drawingDefaults, paperRect, titleBlockLayout, PAPER_SIZES, TITLE_FIELDS, LINE_STYLES } from '../core/drawings.js';
 import { pinPositions, nextRef, partOf } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
@@ -466,7 +466,7 @@ export class SchematicEditor {
       this.toolBtn.noConnect, null,
       ...Object.entries(DRAW_TOOLS).map(([id, t]) => (this.toolBtn[id] = button({ icon: t.icon, title: t.title, onClick: () => this.setTool(id) }))),
       toolButton('ruler', 'Measure', { ticket: 8 }),
-      (this.toolBtn.origin = button({ icon: 'target', title: 'Grid origin (O): click to move the origin there; it snaps onto Pins, Wire ends and handles. Reset it in the Sheets card', onClick: () => this.setTool('origin') }))];
+      (this.toolBtn.origin = button({ icon: 'target', title: 'Grid origin (O): click to move the origin there; it snaps onto Pins, Wire ends and handles. Reset it with the sheet\'s gear in the Sheets card', onClick: () => this.setTool('origin') }))];
   }
 
   setTool(tool) {
@@ -502,7 +502,7 @@ export class SchematicEditor {
     }
     if (this.toolBtn) for (const [t, b] of Object.entries(this.toolBtn)) b.classList.toggle('active', this.tool === t && !this.placing);
     this._syncFrame();
-    if (this.ws) { this.ws.view.grid = this.gridStep; this.ws.view.origin = this.project.schematic.origin; }
+    if (this.ws) { this.ws.view.grid = this.gridStep; this.ws.view.origin = this.sheet.origin; }
     this.renderNetlist();
     this.renderSheets();
     this.renderErc();
@@ -950,9 +950,9 @@ export class SchematicEditor {
   // ---------------------------------------------------------------- grid, origin and snapping
 
   /** The grid in use: the Alt grid while Alt is held. */
-  get gridStep() { const g = this.project.schematic.grid; return this.alt ? g.alt : g.main; }
+  get gridStep() { const g = this.sheet.grid; return this.alt ? g.alt : g.main; }
   /** Snap to the grid (or `step`), measured from the grid origin. */
-  snapG(w, step = this.gridStep) { return snapToGrid(w, step, this.project.schematic.origin); }
+  snapG(w, step = this.gridStep) { return snapToGrid(w, step, this.sheet.origin); }
 
   setAlt(on) {
     if (!!on === !!this.alt) return;
@@ -968,7 +968,7 @@ export class SchematicEditor {
     for (const l of sh.labels || []) out.push(l.at);
     for (const n of sh.noConnects || []) out.push(n.at);
     for (const d of sh.drawings || []) if (d.id !== skipId) for (const hd of shapeHandles(d)) out.push(hd.at);
-    out.push(this.project.schematic.origin);
+    out.push(this.sheet.origin);
     return out;
   }
 
@@ -983,9 +983,9 @@ export class SchematicEditor {
 
   /** Origin tool: move the grid origin (snapping onto objects), then back to Select. */
   placeOrigin(world) {
-    const at = this.snapAt(world, { not: this.project.schematic.origin });
+    const at = this.snapAt(world, { not: this.sheet.origin });
     this.snapMark = null;
-    this.app.edit('Move grid origin', (p) => { p.schematic.origin = [...at]; });
+    this.app.edit(`Move ${this.sheet.name} grid origin`, (p) => { this._S(p).origin = [...at]; });
     this.setTool('select');
   }
 
@@ -1097,35 +1097,58 @@ export class SchematicEditor {
     this.labelEdit = { input: box, commit, close };
   }
 
-  /** Sheet setup: this Sheet's paper size and orientation, and the Project's title block. */
-  sheetSetup() {
-    const m = modal({ title: 'Sheet setup', width: 520 });
-    const sheet = this.sheet;
+  /** A Sheet's setup: paper size, grid, Alt grid and origin (this Sheet), and the title block (every Sheet). */
+  sheetSetup(sheetId = this.sheet.id) {
+    const sheet = this.project.schematic.sheets.find((x) => x.id === sheetId) || this.sheet;
+    const m = modal({ title: `Sheet setup: ${sheet.name}`, width: 540 });
     const tb = this.project.titleBlock || {};
+    const stop = (el) => { el.addEventListener('keydown', (e) => e.stopPropagation()); return el; };
     const size = h('select', { class: 'select', 'aria-label': 'Paper size' }, ...Object.keys(PAPER_SIZES).map((k) => h('option', { value: k }, `${k} (${PAPER_SIZES[k].join(' × ')} mm)`)));
     size.value = sheet.paper?.size || 'A4';
     const orient = h('select', { class: 'select', 'aria-label': 'Orientation' }, h('option', { value: 'landscape' }, 'Landscape'), h('option', { value: 'portrait' }, 'Portrait'));
     orient.value = sheet.paper?.orientation || 'landscape';
-    const inputs = TITLE_FIELDS.map(([k, label]) => [k, h('input', { class: 'input', type: 'text', value: tb[k] || '', 'aria-label': label, placeholder: k === 'title' ? this.project.name : '' }), label]);
-    for (const [, i] of inputs) i.addEventListener('keydown', (e) => e.stopPropagation());
+    const gridSel = (label, cur) => {
+      const el = h('select', { class: 'select', 'aria-label': label }, ...SCHEMATIC_GRIDS.map(([v, l]) => h('option', { value: String(v) }, l)));
+      if (!SCHEMATIC_GRIDS.some(([v]) => v === cur)) el.prepend(h('option', { value: String(cur) }, gridLabel(cur)));
+      el.value = String(cur);
+      return el;
+    };
+    const g = sheet.grid || { main: SCH_GRID, alt: SCH_GRID / 2 };
+    const main = gridSel('Grid', g.main), alt = gridSel('Alt grid', g.alt);
+    const fmt = (nm) => String(+(nm / 1e6).toFixed(3));
+    const o = sheet.origin || [0, 0];
+    const ox = stop(h('input', { class: 'input', type: 'number', step: '0.01', value: fmt(o[0]), 'aria-label': 'Origin X (mm)' }));
+    const oy = stop(h('input', { class: 'input', type: 'number', step: '0.01', value: fmt(o[1]), 'aria-label': 'Origin Y (mm)' }));
+    const reset = button({ label: 'Reset', cls: 'btn-ghost', title: "Put the origin back at the paper's top-left corner", onClick: () => { ox.value = '0'; oy.value = '0'; } });
+    const inputs = TITLE_FIELDS.map(([k, label]) => [k, stop(h('input', { class: 'input', type: 'text', value: tb[k] || '', 'aria-label': label, placeholder: k === 'title' ? this.project.name : '' })), label]);
     const apply = () => {
-      this.app.edit('Sheet setup', (p) => {
-        const s = this._S(p);
+      const nx = Math.round((parseFloat(ox.value) || 0) * 1e6), ny = Math.round((parseFloat(oy.value) || 0) * 1e6);
+      this.app.edit(`Sheet setup: ${sheet.name}`, (p) => {
+        const s = p.schematic.sheets.find((x) => x.id === sheet.id);
         s.paper = { size: size.value, orientation: orient.value };
+        s.grid = { ...s.grid };
+        setGridStep(s.grid, 'main', +main.value);
+        setGridStep(s.grid, 'alt', +alt.value);
+        s.origin = [nx, ny];
         p.titleBlock = Object.fromEntries(inputs.map(([k, i]) => [k, i.value.trim()]));
       });
       m.close();
       this.refresh();
-      this.ws?.view.fitHome?.();
+      if (sheet.id === this.sheet.id) this.ws?.view.fitHome?.();
     };
     m.body.append(
-      h('div', { class: 'setup-group' }, h('div', { class: 'setup-head' }, `Paper for "${sheet.name}"`),
+      h('div', { class: 'setup-group' }, h('div', { class: 'setup-head' }, 'Paper'),
         h('div', { class: 'param-pair' }, h('label', { class: 'field' }, h('span', {}, 'Size'), size), h('label', { class: 'field' }, h('span', {}, 'Orientation'), orient))),
+      h('div', { class: 'setup-group' }, h('div', { class: 'setup-head' }, 'Grid'),
+        h('div', { class: 'param-pair' }, h('label', { class: 'field' }, h('span', {}, 'Grid'), main), h('label', { class: 'field' }, h('span', {}, 'Alt grid (hold Alt)'), alt)),
+        h('p', { class: 'side-note' }, 'Pins connect where they meet, so keep the parts on a sheet on one grid. Markup snaps to half the grid.')),
+      h('div', { class: 'setup-group' }, h('div', { class: 'setup-head' }, 'Origin'),
+        h('div', { class: 'param-pair origin-pair' }, h('label', { class: 'field' }, h('span', {}, 'X (mm)'), ox), h('label', { class: 'field' }, h('span', {}, 'Y (mm)'), oy), reset),
+        h('p', { class: 'side-note' }, "From the paper's top-left corner. The grid, rulers and coordinates measure from it; the Origin tool (O) sets it by clicking.")),
       h('div', { class: 'setup-group' }, h('div', { class: 'setup-head' }, 'Title block (every sheet)'),
         h('div', { class: 'setup-grid' }, ...inputs.map(([, i, label]) => h('label', { class: 'field' }, h('span', {}, label), i))),
         h('p', { class: 'side-note' }, 'The sheet name and "Sheet n of N" are filled in for each sheet. Text notes can show these fields too: ${TITLE}, ${COMPANY}, ${AUTHOR}, ${REV}, ${DATE}, ${COMMENT}, ${SHEET_NAME}, ${SHEET_NUMBER}, ${SHEET_COUNT}, ${PROJECT}.')),
       h('div', { class: 'modal-actions' }, button({ label: 'Cancel', cls: 'btn-outline', onClick: () => m.close() }), button({ label: 'Apply', cls: 'btn-primary', onClick: apply })));
-    setTimeout(() => inputs[0][1].focus(), 30);
   }
 
   // ---------------------------------------------------------------- ERC panel (#11)
@@ -1477,6 +1500,7 @@ export class SchematicEditor {
         h('span', { class: 'sheet-name', title: 'Double-click to rename', onDblclick: (e) => { e.stopPropagation(); this.renameSheetInline(s.id); } }, s.name),
         h('span', { class: 'sheet-count' }, `${parts} part${parts === 1 ? '' : 's'}`),
         h('span', { class: 'sheet-btns', onClick: (e) => e.stopPropagation() },
+          button({ icon: 'settings', title: 'Sheet setup: paper size, grid and origin', cls: 'btn-ghost btn-xs', onClick: () => this.sheetSetup(s.id) }),
           button({ icon: 'ltext', title: 'Rename', cls: 'btn-ghost btn-xs', onClick: () => this.renameSheetInline(s.id) }),
           button({ icon: 'up', title: 'Move up', cls: 'btn-ghost btn-xs', disabled: i === 0, onClick: () => this.app.edit(`Move ${s.name} up`, (p) => moveSheet(p, s.id, -1)) }),
           button({ icon: 'down', title: 'Move down', cls: 'btn-ghost btn-xs', disabled: i === sheets.length - 1, onClick: () => this.app.edit(`Move ${s.name} down`, (p) => moveSheet(p, s.id, 1)) }),
@@ -1487,24 +1511,7 @@ export class SchematicEditor {
         button({ icon: 'close', title: 'Close', cls: 'btn-ghost', onClick: () => this.toggleSheets(false) })),
       h('div', { class: 'fp-body' }, ...sheets.map(row),
         h('div', { class: 'sheets-add' }, button({ icon: 'plus', label: 'Add sheet', cls: 'btn-outline', onClick: () => this.addSheet() })),
-        h('p', { class: 'side-note' }, 'Net labels join on their own sheet; Global labels and Power symbols join across sheets.'),
-        this._gridFrame()));
-  }
-
-  /** The grid and origin, in a frame under the list of Sheets (they apply to every Sheet). */
-  _gridFrame() {
-    const sch = this.project.schematic, o = sch.origin;
-    const fmt = (nm) => String(+(nm / 1e6).toFixed(2));
-    return h('div', { class: 'sheets-grid', role: 'group', 'aria-label': 'Grid' },
-      h('div', { class: 'sheets-grid-head' }, 'Grid'),
-      gridPanel({
-        grid: sch.grid, choices: SCHEMATIC_GRIDS,
-        onGrid: (which, nm) => this.app.edit(`${which === 'alt' ? 'Alt grid' : 'Grid'}: ${gridLabel(nm)}`, (p) => setGridStep(p.schematic.grid, which, nm)),
-        originText: o[0] || o[1] ? `${fmt(o[0])}, ${fmt(o[1])} mm from the paper's corner` : "the paper's top-left corner",
-        onResetOrigin: o[0] || o[1] ? () => this.app.edit('Reset grid origin', (p) => { p.schematic.origin = [0, 0]; }) : null,
-        resetTitle: "Put the grid origin back at the paper's top-left corner",
-      }),
-      h('p', { class: 'side-note' }, 'Hold Alt while drawing, moving or resizing for the Alt grid. Markup snaps to half the grid. The Origin tool (O) moves the origin.'));
+        h('p', { class: 'side-note' }, 'Net labels join on their own sheet; Global labels and Power symbols join across sheets. The gear sets a sheet\'s paper size, grid and origin.')));
   }
 
   renameSheetInline(id) {
@@ -1550,8 +1557,8 @@ export class SchematicEditor {
     let delta = offset;
     if (!delta) {
       const anchor = this.snapG([(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2]);
-      delta = this.cursor ? [this.cursor[0] - anchor[0], this.cursor[1] - anchor[1]] : [this.project.schematic.grid.main * 4, this.project.schematic.grid.main * 4];
-      if (!delta[0] && !delta[1]) delta = [this.project.schematic.grid.main * 4, this.project.schematic.grid.main * 4];
+      delta = this.cursor ? [this.cursor[0] - anchor[0], this.cursor[1] - anchor[1]] : [this.sheet.grid.main * 4, this.sheet.grid.main * 4];
+      if (!delta[0] && !delta[1]) delta = [this.sheet.grid.main * 4, this.sheet.grid.main * 4];
     }
     const ids = this.app.edit('Paste', (p) => pasteClip(p, this._S(p), clip, delta));
     this.selection = new Set(ids);
@@ -1562,14 +1569,14 @@ export class SchematicEditor {
     if (!this.selection.size) return;
     const saved = this.clipboard;
     this.clipboard = copySelection(this.project, this.sheet, [...this.selection]);
-    this.paste([this.project.schematic.grid.main * 4, this.project.schematic.grid.main * 4]);
+    this.paste([this.sheet.grid.main * 4, this.sheet.grid.main * 4]);
     this.clipboard = saved || this.clipboard;
   }
 
   nudge(dx, dy) {
     if (!this.selection.size) return;
     const ids = [...this.selection];
-    this.app.edit('Move', (p) => { moveSelection(p, this._S(p), ids, [dx * this.project.schematic.grid.main, dy * this.project.schematic.grid.main]); cleanupWires(p, this._S(p)); });
+    this.app.edit('Move', (p) => { moveSelection(p, this._S(p), ids, [dx * this.sheet.grid.main, dy * this.sheet.grid.main]); cleanupWires(p, this._S(p)); });
     this.refresh();
   }
 

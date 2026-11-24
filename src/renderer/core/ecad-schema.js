@@ -27,7 +27,7 @@ export const ECAD_SCHEMA = {
       "const": "electrocad"
     },
     "version": {
-      "const": 6,
+      "const": 7,
       "description": "Goes up with every format change. Before 1.0 there is no compatibility: a file of any other version is refused (ADR-0014)."
     },
     "id": {
@@ -60,23 +60,11 @@ export const ECAD_SCHEMA = {
     "schematic": {
       "type": "object",
       "required": [
-        "sheets",
-        "grid",
-        "origin"
+        "sheets"
       ],
       "additionalProperties": false,
       "properties": {
-        "grid": {
-          "type": "object",
-          "required": ["main", "alt"],
-          "additionalProperties": false,
-          "description": "The snap grids. Holding Alt while drawing, moving or resizing uses the alt grid. Markup snaps to half the grid.",
-          "properties": { "main": { "$ref": "#/$defs/nm" }, "alt": { "$ref": "#/$defs/nm" } }
-        },
-        "origin": {
-          "$ref": "#/$defs/point",
-          "description": "The grid origin on every Sheet: the grid, rulers and coordinates measure from it."
-        },
+
         "sheets": {
           "type": "array",
           "minItems": 1,
@@ -652,11 +640,22 @@ export const ECAD_SCHEMA = {
     },
     "sheet": {
       "type": "object",
-      "required": ["id", "name", "symbols", "wires", "labels", "noConnects", "drawings", "paper"],
+      "required": ["id", "name", "symbols", "wires", "labels", "noConnects", "drawings", "paper", "grid", "origin"],
       "additionalProperties": false,
       "properties": {
         "id": {
           "$ref": "#/$defs/id"
+        },
+        "grid": {
+          "type": "object",
+          "required": ["main", "alt"],
+          "additionalProperties": false,
+          "description": "This Sheet's snap grids. Holding Alt while drawing, moving or resizing uses the alt grid. Markup snaps to half the grid.",
+          "properties": { "main": { "$ref": "#/$defs/nm" }, "alt": { "$ref": "#/$defs/nm" } }
+        },
+        "origin": {
+          "$ref": "#/$defs/point",
+          "description": "This Sheet's grid origin: the grid, rulers and coordinates measure from it."
         },
         "name": {
           "type": "string",

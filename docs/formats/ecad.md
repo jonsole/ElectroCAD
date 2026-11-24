@@ -24,7 +24,7 @@ A Project is one JSON file, the Native format ([ADR-0004](../adr/0004-native-for
 
 ## Versions and compatibility
 
-- `format` is always `"electrocad"`. `version` is the format version, currently **6** (version 6 added the snap grids and grid origins, and the Board's `annotation`).
+- `format` is always `"electrocad"`. `version` is the format version, currently **7** (version 6 added the snap grids, grid origins and the Board's `annotation`; version 7 moved the Schematic's grid and origin onto each Sheet).
 - **Before 1.0 there is no compatibility** ([ADR-0014](../adr/0014-no-file-compatibility-before-1-0.md)). `version` goes up with every format change, and a file of any other version is refused with a message saying which version wrote it. There are no migrations.
 - **Opening is strict.** The file is checked against the schema, and then against what a schema can't express (`projectProblems()` in `project.js`):
   - ids unique across the file, Reference designators unique, Sheet names unique regardless of case;
@@ -45,7 +45,7 @@ A Project is one JSON file, the Native format ([ADR-0004](../adr/0004-native-for
 | `parts` | `{ [partKey]: Part }` | A frozen copy of every Part in use ([ADR-0004](../adr/0004-native-format-is-json-foreign-formats-are-lossy-converters.md)), keyed by Library origin `library/partId@version` so Parts from different Libraries never clash. A Part with no origin (made in the Project) uses its own id. Parts nothing uses are removed. |
 | `components` | `{ [componentId]: Component }` | The Components: one per Reference designator. |
 | `footprints` | `{ [fpKey]: { library, footprint } }` | Footprints Components use that are not one of their Part's Preferred footprints, each stored once (`library/name`, with `~2`… if two differ). Unused ones are removed. |
-| `schematic` | `{ sheets: [Sheet], grid: { main, alt }, origin }` | At least one Sheet, in display order. `grid` holds the snap grids in nm (default 50 and 25 mil); Alt selects `alt` while drawing, moving or resizing. `origin` is where the grid, rulers and coordinates measure from, on every Sheet. |
+| `schematic` | `{ sheets: [Sheet] }` | At least one Sheet, in display order. |
 | `board` | Board | The PCB: the layer stack, the Outline and rules today. |
 | `fieldStyles` | `{ default, styles }` | `default` is a key in `styles`; `styles` holds every Field style the Project uses ([ADR-0012](../adr/0012-fields-are-placed-automatically-by-field-styles.md)). |
 | `titleBlock` | `{ title, company, author, revision, date, comment }` | The title block on every Sheet (#59); an empty title shows the Project name. Sheet name and number are filled in per Sheet. |
@@ -119,6 +119,8 @@ Every shape may have `fill` (`none`, `background` = the theme's symbol fill, `ou
 | `noConnects` | `[{ id, at }]` | No-connect markers on Pin tips (#11); always empty today. |
 | `drawings` | `[Drawing]` | Markup (#59): text notes, lines, rectangles, circles and arcs. Never connects. |
 | `paper` | `{ size, orientation }` | `A4`, `A3`, `A2`, `Letter` or `Tabloid`; `landscape` or `portrait`. Sets the frame and the print size. |
+| `grid` | `{ main, alt }` | This Sheet's snap grids in nm (default 50 and 25 mil). Alt selects `alt` while drawing, moving or resizing; markup snaps to half the grid. |
+| `origin` | point | This Sheet's grid origin, from the paper's top-left corner (default `[0, 0]`). The grid, rulers and coordinates measure from it. |
 
 **Symbol** (one placed Unit):
 

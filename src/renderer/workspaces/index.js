@@ -17,7 +17,7 @@ function schematic(app) {
     draw: (ctx, view, C) => editor.draw(ctx, view, C),
     onRefresh: () => { editor.renderTiles(); editor.refresh(); },
     id: 'schematic', label: 'Schematic', icon: 'schematic', title: 'Schematic: place Parts, wire them and check the Netlist',
-    grid: app.project.schematic.grid.main,
+    grid: app.project.schematic.sheets[0].grid.main,
     frame: { x0: 0, y0: 0, x1: mm(297), y1: mm(210) }, // A4 landscape sheet
     toolbar: [...editor.toolbar(), spacer(),
       button({ label: 'Print', icon: 'print', title: 'Print or export the schematic to PDF or SVG (Ctrl+P)', onClick: () => openPrintDialog(app) })],

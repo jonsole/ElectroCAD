@@ -99,3 +99,17 @@ test('markup, paper and the title block survive save and load', () => {
   const d = structuredClone(s.drawings[0]); rotateDrawing(d); rotateDrawing(d);
   assert.equal(d.rot, 0, 'text turns between 0 and 90 only');
 });
+
+test('each Sheet has its own grid and origin, saved with it', () => {
+  const p = newProject('Grids');
+  const a = p.schematic.sheets[0];
+  assert.deepEqual(a.grid, { main: mm(1.27), alt: mm(0.635) });
+  assert.deepEqual(a.origin, [0, 0]);
+  const b = newSheet('Power');
+  p.schematic.sheets.push(b);
+  b.grid.main = mm(2.54); b.origin = [mm(10), mm(5)];
+  const back = deserialize(serialize(p));
+  assert.equal(back.schematic.sheets[0].grid.main, mm(1.27));
+  assert.equal(back.schematic.sheets[1].grid.main, mm(2.54));
+  assert.deepEqual(back.schematic.sheets[1].origin, [mm(10), mm(5)]);
+});

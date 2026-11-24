@@ -572,3 +572,5 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .sheets-grid-head { font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 4px; }
 .sheets-grid .le-row { grid-template-columns: 64px 1fr auto; }
 .sheets-grid .side-note { margin: 6px 0 0; }
+.param-pair.origin-pair { grid-template-columns: 1fr 1fr auto; align-items: end; }
+.origin-pair .btn { height: 32px; }

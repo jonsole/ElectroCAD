@@ -13,7 +13,7 @@ export const FORMAT = 'electrocad';
 // 3: Parts keyed by Library origin, Project footprints table, no Unit.fields, Board object shapes.
 // 4: text in Symbol and Footprint graphics (#13).
 // 5: Schematic markup, Sheet paper sizes and the title block (#59).
-export const VERSION = 6;
+export const VERSION = 7;
 
 /** Thrown when a file can't be opened as a Project; the message is shown to the user. */
 export class ProjectFileError extends Error {
@@ -30,7 +30,7 @@ export function newProject(name = 'Untitled') {
   return {
     format: FORMAT, version: VERSION, id: uid('p'), name,
     parts: {}, components: {}, footprints: {},
-    schematic: { sheets: [newSheet('Sheet 1')], grid: { main: mil(50), alt: mil(25) }, origin: [0, 0] },
+    schematic: { sheets: [newSheet('Sheet 1')] },
     board: newBoard(),
     fieldStyles: defaultFieldStyles(),
     titleBlock: { title: '', company: '', author: '', revision: '', date: '', comment: '' },
@@ -49,7 +49,7 @@ const CLASSIC_STYLE = {
 const defaultFieldStyles = () => ({ default: 'classic', styles: { classic: structuredClone(CLASSIC_STYLE) } });
 
 export function newSheet(name) {
-  return { id: uid('s'), name, symbols: [], wires: [], labels: [], noConnects: [], drawings: [], paper: { size: 'A4', orientation: 'landscape' } };
+  return { id: uid('s'), name, symbols: [], wires: [], labels: [], noConnects: [], drawings: [], paper: { size: 'A4', orientation: 'landscape' }, grid: { main: mil(50), alt: mil(25) }, origin: [0, 0] };
 }
 
 export function newBoard(copper = 2) {
