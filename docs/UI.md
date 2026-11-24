@@ -34,10 +34,29 @@ Copy these rather than restyle them, and keep the attribution in `NOTICE`:
 |---|---|---|
 | **Tool palette** (left, icon buttons, active = accent) | Select, Wire, Net label, Global label, Power, No-connect, Text, Measure | Select, Route, Drag track, Via, Zone, Outline, Text, Measure |
 | **Toolbar** | Import/Export, undo/redo, copy/paste/duplicate/delete, Rotate, Mirror, Annotate, ERC, Print | Import/Export, undo/redo, clipboard, Forward annotation, DRC, Fab output, plus the **Routing mode** `.mode-group` (Shove / Walkaround / Free) |
-| **Side panel sections** (`details` with an uppercase summary, like the Laser workspace's LAYERS / LASER) | LIBRARY (search plus Part tiles, like the 3D shape grid), PROPERTIES (inspector rows `label │ input │ unit`), NETLIST, ERC | LAYERS (rows with a coloured chip, name, visibility, active), PROPERTIES, NET CLASSES, DRC |
+| **Right side panel** | **Part picker**, modelled on the fork's 3D Design shape panel (see below) | Collapsible uppercase sections like the Laser workspace's LAYERS / LASER: LAYERS (rows with a coloured chip, name, visibility, active), PROPERTIES, NET CLASSES, DRC |
+| **Inspector** | Floating card at the top-right of the canvas, like the 3D Design inspector ("Box" card). It shows the selected Component's Reference designator, Value, MPN, Footprint and fields, and hides when nothing is selected | In the PROPERTIES section |
 | **Bottom chips** (like the Laser workspace's colour palette) | One chip per Sheet; click to switch | One chip per Copper layer (and silk/mask); click to set the active layer |
 | **Coordinate pill** | Bottom-left of the canvas, monospace, as in the Laser workspace | Same |
 | **Mode banner** | Shows tool hints with `kbd` keys, e.g. "Wire: click to bend · Esc to finish" | e.g. "Routing: V via · / posture · Backspace undo segment" |
+
+## Schematic Part picker
+
+The Schematic's right-hand panel works like the fork's **3D Design shape panel**, with Parts in place of shapes:
+
+![DabbleCAD fork, 3D Design shape panel (reference)](images/dabblecad-3d-reference.png)
+
+- **Top row of tool buttons** (`.side-tools`, like Workplane / Ruler / Notes): **Netlist**, **ERC** and **Sheets**. Each opens a floating panel over the canvas; active means accent.
+- **Category select** (`.side-filter`): All, Passives, Semiconductors, Connectors, ICs, Power, then one entry per user Library ("My parts").
+- **Search** (`.side-search`): matches Part name, keywords and Value. It searches all categories when "All" is chosen.
+- **Tile grid** (`.shape-grid` / `.shape-tile`, 3 columns): each tile is a thumbnail of the Part's Symbol (Unit A) drawn from its graphics, with the Part name underneath. Hovering highlights it in accent; a multi-Unit Part shows a small Unit count badge.
+- **Placing:**
+  - **Drag a tile onto the Sheet:** a ghost of the Symbol follows the cursor, snapped to the 50 mil grid. R rotates and X mirrors while dragging, releasing places it, and Esc or dropping outside the canvas cancels.
+  - **Click a tile, then click on the Sheet:** places it. You stay in place mode for more copies until Esc.
+  - **Enter or Space on a focused tile:** drops it in the middle of the view.
+  - **Every drop:** creates a Component with the next free Reference designator and the Part's default Value, as one undo step.
+  - **Multi-Unit Parts:** dropping one again offers the next unplaced Unit of the last Component (U1B…) before starting a new Component.
+- **Footer** (`.side-foot`): **Import** (KiCad/Eagle libraries) and **New part** (opens the Library tab with an empty Part).
 
 ## Workspaces
 
