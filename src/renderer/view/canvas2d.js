@@ -147,14 +147,21 @@ export class Canvas2D {
       const [x1, y1] = v.toScreen([this.frame.x1, this.frame.y1]);
       ctx.strokeStyle = C.sheetEdge; ctx.lineWidth = 1.2;
       ctx.strokeRect(Math.round(x0) + 0.5, Math.round(y0) + 0.5, x1 - x0, y1 - y0);
-    } else {
-      // origin cross
-      const [ox, oy] = v.toScreen(this.origin);
-      ctx.strokeStyle = C.origin; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(ox - 8, oy + 0.5); ctx.lineTo(ox + 8, oy + 0.5); ctx.moveTo(ox + 0.5, oy - 8); ctx.lineTo(ox + 0.5, oy + 8); ctx.stroke();
     }
     if (this.drawContent) this.drawContent(ctx, v, C);
+    this._drawOrigin(ctx, C);
     this._drawRulers(ctx, C, chromeColors());
+  }
+
+  /** The grid origin: a cross with a small ring, on top of the content, in every workspace. */
+  _drawOrigin(ctx, C) {
+    const [x, y] = this.view.toScreen(this.origin);
+    const ox = Math.round(x) + 0.5, oy = Math.round(y) + 0.5;
+    ctx.save();
+    ctx.strokeStyle = C.origin || '#e5484d'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(ox - 10, oy); ctx.lineTo(ox + 10, oy); ctx.moveTo(ox, oy - 10); ctx.lineTo(ox, oy + 10); ctx.stroke();
+    ctx.beginPath(); ctx.arc(ox, oy, 4, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
   }
 
   _drawGrid(ctx, C) {

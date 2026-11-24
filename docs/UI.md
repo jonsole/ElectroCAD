@@ -261,6 +261,7 @@ The Schematic, Board and Library editors work the same way here.
   - Schematic and Board: click to move the grid origin. The grid lines, rulers and the coordinate pill then measure from it. **Reset** next to the origin puts it back.
   - Library: the origin is the Symbol's anchor (where it is placed from). Clicking a point shifts the whole Part, every Unit, so that point becomes the anchor. The drawing stays where it is on screen and the origin mark moves.
   - The origin snaps onto handles like everything else.
+  - The origin is marked by a cross with a small ring in every workspace, drawn over the content in the theme's **Origin mark** colour.
 - **Snapping to objects.** While drawing, moving or resizing, a point that comes near another object's snap point jumps onto it, and a diamond marks the spot. Snap points are:
   - handles (corners, ends and arc mid-points);
   - on the Schematic: Pin ends, Wire ends, labels and no-connects;

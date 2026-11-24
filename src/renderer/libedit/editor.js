@@ -540,9 +540,7 @@ export class LibraryEditor {
 
   draw(ctx, view, C) {
     const toScreen = (p) => view.toScreen(p);
-    // the origin: where the Symbol is placed from
-    const [ox, oy] = view.toScreen([0, 0]);
-    ctx.save(); ctx.strokeStyle = C.origin; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(ox - 8, oy); ctx.lineTo(ox + 8, oy); ctx.moveTo(ox, oy - 8); ctx.lineTo(ox, oy + 8); ctx.stroke(); ctx.restore();
+    // the origin (where the Symbol is placed from) is drawn by the canvas, as in every workspace
     if (!this.draft) return;
     const part = this.draft, u = this.unitObj;
     drawUnit(ctx, toScreen, view.scale, part, this.unit, { at: [0, 0], rot: 0, mirror: false }, null, C, {});
