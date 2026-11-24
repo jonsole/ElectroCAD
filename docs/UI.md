@@ -333,6 +333,29 @@ The Board tab (#15) edits the board's layer stack and its Outline. Footprints, T
   - Footprint swaps are not in the list: they apply straight away (ADR-0008).
 - **Snapping:** pad centres are snap targets.
 
+## Placing Footprints and the Ratsnest
+
+#17 covers moving Footprints on the Board, the inspector in PROPERTIES, live Footprint swaps and the Ratsnest.
+
+- **Select and move.**
+  - Click a Footprint to select it; Shift-click adds to the selection. Front-side Footprints are picked first, or back-side ones while a B.* layer is active.
+  - Drag to move: the Footprint's origin lands on the grid (hold Alt for the Alt grid). Arrow keys nudge.
+  - A selected Footprint's courtyard is outlined in the selection colour, dashed when it is locked.
+- **Keys** (also on the toolbar):
+  - **R** turns the selection 90° (Shift+R the other way). Several Footprints turn about the middle of their origins.
+  - **F** flips to the other side. The Footprint mirrors left-right, its pads move to B.Cu / B.Paste / B.Mask, and its silk text reads mirrored.
+  - **L** locks or unlocks. A locked Footprint can't be moved, turned or flipped; a toast says so.
+  - **Del** doesn't delete Footprints: they come from the Schematic.
+- **PROPERTIES** for one Footprint:
+  - **Reference**, **Value** and **MPN** edit the Component, so the Schematic changes too, and the Board's record with it.
+  - **Footprint**: Preferred footprints first, then any other. A swap applies at once and keeps position, rotation and side (ADR-0008). The same happens from the Schematic inspector's Footprint select. Pad nets follow the Pin map.
+  - **X**, **Y** (from the grid origin), **Rotation** (any angle, to 0.01°), **Side** and **Locked**.
+  - Each change is one undo step.
+- **Ratsnest.**
+  - A thin line in the theme's Ratsnest colour for each unrouted connection: a minimum spanning tree per net over its pads and the copper already joining them.
+  - It follows a drag live, and changes straight away after a swap or a flip.
+  - The status bar counts the unrouted connections.
+
 ## Workspaces
 
 There are four workspace tabs: **Schematic · Board · Gerber · Library**. Each keeps its own pan/zoom and selection when you switch away and back.

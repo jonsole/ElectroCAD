@@ -1,6 +1,6 @@
 // Component edits for the inspector (#9): Reference designator, Value, MPN, custom fields and
 // Footprint (a Preferred footprint, or any other, which uses the identity Pin map: ADR-0008).
-import { partOf, footprintRef, footprintOf, pruneOrphans } from './project.js';
+import { partOf, footprintRef, footprintOf, pruneOrphans, padForPin } from './project.js';
 
 /** Why a Reference designator can't be used, or null when it's fine. */
 export function validateRef(project, compId, ref) {
@@ -36,7 +36,11 @@ export function updateComponent(project, compId, patch) {
     c.fields = f;
   }
   if ('footprint' in patch) {
+    // a swap is live on the Board (ADR-0008): the Board's record of Pad nets follows the Pin map
+    const pins = (partOf(project, c)?.units || []).flatMap((u) => u.pins.map((p) => p.number));
+    const before = new Map(pins.map((n) => [n, padForPin(project, c, n)]));
     c.footprint = footprintRef(project, patch.footprint);
+    remapPadNets(project, c, pins, before);
     pruneOrphans(project); // drops a table Footprint nothing uses any more
   }
 }
@@ -69,3 +73,20 @@ export function footprintChoices(project, comp, library, footprints = []) {
 
 /** The key of a Component's current choice in footprintChoices. */
 export const footprintKey = (project, comp) => (!comp.footprint ? '' : comp.footprint.fpId ? 'p:' + comp.footprint.fpId : 'o:' + footprintOf(project, comp)?.name);
+
+/** After a Footprint swap, move the Board's Pad-net record from the old Pads to the new ones (by Pin). */
+function remapPadNets(project, c, pins, before) {
+  const nets = project.board?.annotation?.nets;
+  if (!nets) return;
+  const prefix = `${c.id}:`;
+  for (const [net, pads] of Object.entries(nets)) {
+    if (!pads.some((k) => k.startsWith(prefix))) continue;
+    const out = new Set(pads.filter((k) => !k.startsWith(prefix)));
+    for (const k of pads) {
+      if (!k.startsWith(prefix)) continue;
+      const pad = k.slice(prefix.length);
+      for (const n of pins) if (before.get(n) === pad) out.add(prefix + padForPin(project, c, n));
+    }
+    nets[net] = [...out].sort();
+  }
+}

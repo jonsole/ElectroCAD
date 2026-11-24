@@ -14,7 +14,11 @@ import {
 } from '../core/board.js';
 import { drawBoard } from './render.js';
 import { openAnnotateDialog } from './annotate-dialog.js';
-import { placedPads, padNets } from '../core/footprint.js';
+import { placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation } from '../core/footprint.js';
+import { ratsnest } from '../core/ratsnest.js';
+import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
+import { allFootprints } from '../library/footprints.js';
+import { STARTER_LIBRARY } from '../library/starter.js';
 import { shapeHandles, hitHandle, dragOutlineHandle, snapPoint, handlePoints } from '../core/handles.js';
 import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { watchAlt } from '../ui/grid.js';
@@ -47,6 +51,7 @@ export class BoardEditor {
     this.hidden = new Set(pref.get('boardHidden', []));
     this.radius = mm(pref.get('boardCornerRadius', 0));
     this.selection = new Set(); // indices into board.outline
+    this.fpSel = new Set();     // ids of selected board Footprints
     this.pts = null;            // points clicked so far by the drawing tools
     this.arcNext = false;       // polygon: the next side is an arc (a mid point, then the end)
     this.measure = null;        // { a, b, done }
@@ -86,6 +91,9 @@ export class BoardEditor {
       undo: button({ icon: 'undo', title: 'Undo (Ctrl+Z)', onClick: () => this.app.undo() }),
       redo: button({ icon: 'redo', title: 'Redo (Ctrl+Shift+Z)', onClick: () => this.app.redo() }),
       del: button({ icon: 'trash', title: 'Delete (Del)', onClick: () => this.deleteSelection() }),
+      rotate: button({ icon: 'rotate', title: 'Rotate the selected Footprints 90° (R; Shift+R the other way)', onClick: () => this.rotateSel(90) }),
+      flip: button({ icon: 'flip', title: 'Flip the selected Footprints to the other side (F)', onClick: () => this.flipSel() }),
+      lock: button({ icon: 'lock', title: 'Lock or unlock the selected Footprints (L)', onClick: () => this.lockSel() }),
     };
     this.gridCard = new GridCard({
       key: 'board-grid', choices: GRID_CHOICES,
@@ -94,7 +102,7 @@ export class BoardEditor {
       onOrigin: (at) => this.app.edit('Grid origin', (p) => { p.board.origin = at; }),
       onPick: () => this.setTool('origin'),
     });
-    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.del, h('span', { class: 'sep' }), this.gridCard.button];
+    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.del, this.btn.rotate, this.btn.flip, this.btn.lock, h('span', { class: 'sep' }), this.gridCard.button];
   }
 
   tools(later) {
@@ -160,6 +168,10 @@ export class BoardEditor {
       return h('label', { class: 'le-row' }, h('span', {}, label), input, h('em', {}, 'mm'));
     };
     const parts = [];
+    const fps = this.board.footprints.filter((f) => this.fpSel.has(f.id));
+    if (fps.length === 1 && !sel.length) parts.push(...this.footprintProps(fps[0]));
+    else if (fps.length > 1) parts.push(h('div', { class: 'prop-title' }, `${fps.length} footprints${sel.length ? ` and ${sel.length} outline shape${sel.length === 1 ? '' : 's'}` : ''}`),
+      h('p', { class: 'side-note' }, 'R rotates them 90° about their middle, F flips them to the other side, L locks them. Drag to move.'));
     if (['outline', 'polygon', 'circle'].includes(this.tool) || (!sel.length && this.tool === 'select')) {
       if (this.tool === 'outline') parts.push(field('Corner radius', fmt(this.radius), (v) => { this.radius = mm(Math.max(0, v)); pref.set('boardCornerRadius', toMm(this.radius)); this.ws?.view.invalidate(); }));
     }
@@ -188,6 +200,70 @@ export class BoardEditor {
     el.replaceChildren(...parts);
   }
 
+  /**
+   * PROPERTIES for one Footprint: its Component's Reference, Value, MPN and Footprint (a swap is
+   * live, ADR-0008), then position, rotation, side and lock. Each change is one undo step.
+   */
+  footprintProps(bf) {
+    const comp = this.project.components[bf.componentId];
+    if (!comp) return [h('p', { class: 'side-note' }, 'This Footprint\'s part is no longer on the Schematic: Update from Schematic (F8) removes it.')];
+    const stop = (el) => { el.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter' && el.tagName === 'INPUT') el.blur(); }); return el; };
+    const row = (label, el, unit = '') => h('label', { class: 'le-row' }, h('span', {}, label), el, h('em', {}, unit));
+    const err = h('div', { class: 'insp-error' });
+    const text = (label, value, onSet) => {
+      const i = stop(h('input', { class: 'input', type: 'text', value: value ?? '', 'aria-label': label, spellcheck: false }));
+      i.addEventListener('change', () => { const m = onSet(i.value); err.textContent = typeof m === 'string' ? m : ''; });
+      return row(label, i);
+    };
+    const num = (label, value, onSet, unit = 'mm', step = '0.1') => {
+      const i = stop(h('input', { class: 'input', type: 'number', step, value: String(value), 'aria-label': label, disabled: bf.locked }));
+      i.addEventListener('change', () => { const v = parseFloat(i.value); if (Number.isFinite(v)) onSet(v); });
+      return row(label, i, unit);
+    };
+    const ann = this.board.annotation?.components?.[comp.id];
+    // Reference and Value edit the Component (so the Schematic too) and the Board's record together
+    const setComp = (label, patch) => {
+      try {
+        this.app.edit(label, (p) => {
+          updateComponent(p, comp.id, patch);
+          const rec = p.board.annotation?.components?.[comp.id];
+          if (rec) { if ('ref' in patch) rec.ref = p.components[comp.id].ref; if ('value' in patch) rec.value = p.components[comp.id].value; }
+        });
+        return null;
+      } catch (e) { return e.message; }
+    };
+    const ch = footprintChoices(this.project, comp, [...STARTER_LIBRARY, ...this.app.userParts()], (this._allFp ||= allFootprints()));
+    const fpSel = stop(h('select', { class: 'select', 'aria-label': 'Footprint', title: 'Swapping keeps the position, rotation and side; the Schematic sees it at once' },
+      ch.preferred.length ? h('optgroup', { label: 'Preferred' }, ...ch.preferred.map((c) => h('option', { value: c.key }, c.label))) : null,
+      ch.other.length ? h('optgroup', { label: 'Other footprints (pins map by number)' }, ...ch.other.map((c) => h('option', { value: c.key }, c.label))) : null));
+    fpSel.value = footprintKey(this.project, comp);
+    fpSel.addEventListener('change', () => {
+      const c = [...ch.preferred, ...ch.other].find((x) => x.key === fpSel.value);
+      if (c) setComp(`${comp.ref} footprint`, { footprint: c.value });
+    });
+    const side = stop(h('select', { class: 'select', 'aria-label': 'Side', disabled: bf.locked }, h('option', { value: 'F' }, 'Front (top)'), h('option', { value: 'B' }, 'Back (bottom)')));
+    side.value = bf.side;
+    side.addEventListener('change', () => { if (side.value !== bf.side) this.app.edit(`Flip ${comp.ref}`, (p) => flipFootprints(p, [bf.id])); });
+    const lock = h('input', { type: 'checkbox', checked: !!bf.locked, 'aria-label': 'Locked' });
+    lock.addEventListener('change', () => this.app.edit(`${lock.checked ? 'Lock' : 'Unlock'} ${comp.ref}`, (p) => setLocked(p, [bf.id], lock.checked)));
+    const o = this.board.origin;
+    const mpn = comp.mpn || {};
+    return [
+      h('div', { class: 'prop-title' }, `${comp.ref} · ${this.project.parts[comp.partId]?.name || 'Footprint'}`),
+      text('Reference', comp.ref, (v) => { const m = validateRef(this.project, comp.id, v); return m || setComp(`Rename ${comp.ref}`, { ref: v }); }),
+      text('Value', comp.value, (v) => setComp(`${comp.ref} value`, { value: v })),
+      text('MPN', mpn.number || '', (v) => setComp(`${comp.ref} MPN`, { mpn: { manufacturer: mpn.manufacturer || '', number: v } })),
+      row('Footprint', fpSel),
+      err,
+      num('X', +((bf.at[0] - o[0]) / 1e6).toFixed(4), (v) => this.app.edit(`Move ${comp.ref}`, (p) => { const f = p.board.footprints.find((x) => x.id === bf.id); if (!f.locked) f.at = [Math.round(v * 1e6) + o[0], f.at[1]]; })),
+      num('Y', +((bf.at[1] - o[1]) / 1e6).toFixed(4), (v) => this.app.edit(`Move ${comp.ref}`, (p) => { const f = p.board.footprints.find((x) => x.id === bf.id); if (!f.locked) f.at = [f.at[0], Math.round(v * 1e6) + o[1]]; })),
+      num('Rotation', bf.rot, (v) => this.app.edit(`Rotate ${comp.ref}`, (p) => setFootprintRotation(p, bf.id, v)), '°', '0.01'),
+      row('Side', side),
+      h('label', { class: 'check-row' }, lock, 'Locked (can\'t be moved, turned or flipped)'),
+      ann && (ann.ref !== comp.ref || ann.value !== comp.value) ? h('p', { class: 'side-note' }, 'The Schematic has changes for this part: Update from Schematic (F8).') : null,
+    ].filter(Boolean);
+  }
+
   chips() {
     return [...copperLayerNames(this.board.stack.copper), 'Edge.Cuts'].map((name) => h('button', {
       class: 'chip' + (name === this.activeLayer ? ' on' : ''), type: 'button', title: `${name}: ${LAYER_HELP[name]} (click to make it the active layer)`,
@@ -198,7 +274,8 @@ export class BoardEditor {
   status() {
     const b = outlineBounds(this.board.outline);
     const size = b ? `${fmt(b.x1 - b.x0)} × ${fmt(b.y1 - b.y0)} mm` : 'no outline';
-    return `${this.board.stack.copper}-layer · ${fmt(this.board.stack.thickness)} mm · ${size} · ${this.board.footprints.length} footprints · active ${this.activeLayer} · grid ${gridLabel(this.gridStep)}${this.alt ? ' (Alt)' : ''}`;
+    const un = Object.values(this._rats?.unrouted || {}).reduce((a, b) => a + b, 0);
+    return `${this.board.stack.copper}-layer · ${fmt(this.board.stack.thickness)} mm · ${size} · ${this.board.footprints.length} footprints${this.board.footprints.length ? ` · ${un} unrouted` : ''} · active ${this.activeLayer} · grid ${gridLabel(this.gridStep)}${this.alt ? ' (Alt)' : ''}`;
   }
 
   // ---------------------------------------------------------------- state
@@ -206,11 +283,18 @@ export class BoardEditor {
   refresh() {
     const n = this.board.outline.length;
     for (const i of [...this.selection]) if (i >= n) this.selection.delete(i);
+    const ids = new Set(this.board.footprints.map((f) => f.id));
+    for (const id of [...this.fpSel]) if (!ids.has(id)) this.fpSel.delete(id);
+    this._rats = ratsnest(this.project);
     if (!copperLayerNames(this.board.stack.copper).includes(this.activeLayer) && /^In\d/.test(this.activeLayer)) this.activeLayer = 'F.Cu';
     if (this.btn) {
       this.btn.undo.disabled = !this.app.history.canUndo;
       this.btn.redo.disabled = !this.app.history.canRedo;
       this.btn.del.disabled = !this.selection.size;
+      const anyFp = this.fpSel.size > 0;
+      for (const k of ['rotate', 'flip', 'lock']) this.btn[k].disabled = !anyFp;
+      const fs = this.board.footprints.filter((f) => this.fpSel.has(f.id));
+      this.btn.lock.replaceChildren(icon(fs.length && fs.every((f) => f.locked) ? 'unlock' : 'lock', 20));
     }
     if (this.toolBtn) for (const [id, b] of Object.entries(this.toolBtn)) b.classList.toggle('active', this.tool === id);
     if (this.stackEl) { this.renderStack(); this.renderLayers(); this.renderProps(); }
@@ -242,7 +326,9 @@ export class BoardEditor {
       case 'circle': t = p ? 'Circle: click a point on the edge' : 'Circle: click the centre (a round board, or a hole inside the board)'; break;
       case 'origin': t = 'Grid origin: click where the grid, rulers and coordinates should measure from (outline corners attract it) · Esc back to Select'; break;
       case 'measure': t = this.measure && !this.measure.done ? 'Measure: click the second point' : 'Measure: click two points · Esc to stop'; break;
-      default: t = this.board.outline.length
+      default: t = this.fpSel.size
+        ? `${this.fpSel.size === 1 ? 'Footprint' : `${this.fpSel.size} footprints`} selected · drag to move (the origin snaps to the grid) · R rotate 90° (Shift+R back) · F flip to the other side · L lock · arrows nudge · exact angle and Footprint in Properties`
+        : this.board.outline.length
         ? (this.selection.size === 1 ? 'Drag a handle to resize (a side handle moves that side; corners stay round) · drag the shape to move · Del delete · arrows nudge one grid step · hold Alt for the Alt grid'
           : 'Click an outline shape to select it, drag to move · Del delete · arrows nudge one grid step · B, P, C draw more outline · hold Alt for the Alt grid')
         : 'No board yet: draw the Outline with B (rectangle), P (polygon) or C (round), then Update from Schematic (F8) to bring the Components over.';
@@ -253,7 +339,7 @@ export class BoardEditor {
   setTool(t) {
     if (!BOARD_TOOLS[t]) return;
     this.tool = t; this.pts = null; this.arcNext = false; this.measure = null;
-    if (t !== 'select') this.selection.clear();
+    if (t !== 'select') { this.selection.clear(); this.fpSel.clear(); }
     if (['outline', 'polygon', 'circle'].includes(t)) this.activeLayer = 'Edge.Cuts'; // the Outline lives on Edge.Cuts
     if (this.ws) this.ws.view.canvas.style.cursor = t === 'select' ? '' : 'crosshair';
     this.refresh();
@@ -293,6 +379,7 @@ export class BoardEditor {
   }
 
   deleteSelection() {
+    if (this.fpSel.size && !this.selection.size) { toast('Footprints come from the Schematic: delete the part there, then Update from Schematic (F8).', 'info', 3500); return; }
     if (!this.selection.size) return;
     const del = new Set(this.selection);
     this.selection.clear();
@@ -300,8 +387,34 @@ export class BoardEditor {
   }
 
   nudge(dx, dy) {
-    const sel = [...this.selection];
-    this.edit('Move outline', (o) => moveOutline(sel.map((i) => o[i]), [dx, dy]));
+    const sel = [...this.selection], fps = [...this.fpSel];
+    this.app.edit(fps.length ? 'Move' : 'Move outline', (p) => { moveOutline(sel.map((i) => p.board.outline[i]), [dx, dy]); moveFootprints(p, fps, [dx, dy]); });
+  }
+
+  _lockedNote(ids) {
+    const locked = this.board.footprints.filter((f) => ids.includes(f.id) && f.locked);
+    if (locked.length) toast(`${locked.map((f) => this.project.components[f.componentId]?.ref || '?').join(', ')} ${locked.length === 1 ? 'is' : 'are'} locked and stayed put.`, 'info', 2500);
+  }
+
+  rotateSel(deg) {
+    const ids = [...this.fpSel];
+    if (!ids.length) return;
+    this.app.edit(`Rotate ${deg}°`, (p) => rotateFootprints(p, ids, deg));
+    this._lockedNote(ids);
+  }
+
+  flipSel() {
+    const ids = [...this.fpSel];
+    if (!ids.length) return;
+    this.app.edit('Flip to the other side', (p) => flipFootprints(p, ids));
+    this._lockedNote(ids);
+  }
+
+  lockSel() {
+    const ids = [...this.fpSel];
+    if (!ids.length) return;
+    const lock = !this.board.footprints.filter((f) => ids.includes(f.id)).every((f) => f.locked);
+    this.app.edit(lock ? 'Lock' : 'Unlock', (p) => setLocked(p, ids, lock));
   }
 
   // ---------------------------------------------------------------- canvas
@@ -323,17 +436,27 @@ export class BoardEditor {
           try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
           return;
         }
-        const hit = this.hidden.has('Edge.Cuts') ? null : hitOutline(this.board.outline, w, tol);
+        const fp = hitFootprint(this.project, w, { preferBack: this.activeLayer.startsWith('B.'), hidden: this.hidden });
+        const hit = fp || this.hidden.has('Edge.Cuts') ? null : hitOutline(this.board.outline, w, tol);
+        if (fp) {
+          if (e.shiftKey) { if (this.fpSel.has(fp.id)) this.fpSel.delete(fp.id); else this.fpSel.add(fp.id); this.refresh(); return; }
+          if (!this.fpSel.has(fp.id)) { this.fpSel = new Set([fp.id]); this.selection.clear(); }
+          // Footprints move by their origin, which lands on the grid
+          this.drag = { start: w, anchor: fp.at, fpAnchor: true, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), fpSnapshot: structuredClone(this.board.footprints), moved: false, delta: [0, 0], onlyFp: fp.id };
+          try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+          this.refresh();
+          return;
+        }
         const i = hit ? this.board.outline.indexOf(hit) : -1;
         if (e.shiftKey && hit) { if (this.selection.has(i)) this.selection.delete(i); else this.selection.add(i); this.refresh(); return; }
         if (hit) {
-          if (!this.selection.has(i)) this.selection = new Set([i]);
+          if (!this.selection.has(i)) { this.selection = new Set([i]); this.fpSel.clear(); }
           // the selection moves by its handle nearest the pointer, so that handle lands on the grid or another object
           const anchors = handlePoints(this.board.outline.filter((_, k) => this.selection.has(k)));
           const anchor = anchors.reduce((b, p) => (Math.hypot(p[0] - w[0], p[1] - w[1]) < Math.hypot(b[0] - w[0], b[1] - w[1]) ? p : b), anchors[0] || w);
-          this.drag = { start: w, anchor, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), moved: false, delta: [0, 0], only: i };
+          this.drag = { start: w, anchor, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), fpSnapshot: structuredClone(this.board.footprints), moved: false, delta: [0, 0], only: i };
           try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
-        } else this.selection.clear();
+        } else { this.selection.clear(); this.fpSel.clear(); }
         this.refresh();
         return;
       }
@@ -359,11 +482,19 @@ export class BoardEditor {
         const d = this.drag;
         if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 4) return;
         d.moved = true;
-        const to = this.snapAt([d.anchor[0] + w[0] - d.start[0], d.anchor[1] + w[1] - d.start[1]], this.selection);
+        const raw = [d.anchor[0] + w[0] - d.start[0], d.anchor[1] + w[1] - d.start[1]];
+        const to = d.fpAnchor ? this.snapPt(raw) : this.snapAt(raw, this.selection);
         d.delta = [to[0] - d.anchor[0], to[1] - d.anchor[1]];
         const moved = structuredClone(d.snapshot);
         moveOutline([...this.selection].map((i) => moved[i]), d.delta);
         this.preview = moved;
+        if (this.fpSel.size) {
+          const fps = structuredClone(d.fpSnapshot);
+          moveFootprints({ board: { footprints: fps } }, [...this.fpSel], d.delta);
+          this.previewFps = fps;
+          // the Ratsnest follows the drag
+          this._rats = ratsnest(this.project, { ...this.board, footprints: fps });
+        }
         ws.view.invalidate();
       } else if (this.tool !== 'select') {
         if (this.measure && !this.measure.done) this.measure.b = this.cursor;
@@ -380,9 +511,14 @@ export class BoardEditor {
         return;
       }
       if (!this.drag) return;
-      const d = this.drag; this.drag = null; this.preview = null;
-      if (d.moved && (d.delta[0] || d.delta[1])) this.nudge(...d.delta);
-      else { if (!d.moved) this.selection = new Set([d.only]); this.refresh(); } // a click picks one shape out of a group
+      const d = this.drag; this.drag = null; this.preview = null; this.previewFps = null;
+      if (d.moved && (d.delta[0] || d.delta[1])) { this.nudge(...d.delta); this._lockedNote([...this.fpSel]); }
+      else {
+        // a click picks one item out of a group
+        if (!d.moved && d.onlyFp) { this.fpSel = new Set([d.onlyFp]); this.selection.clear(); }
+        else if (!d.moved && d.only !== undefined) { this.selection = new Set([d.only]); this.fpSel.clear(); }
+        this.refresh();
+      }
     };
     c.addEventListener('pointerup', up);
     watchAlt(ws, (on) => this.setAlt(on));
@@ -485,8 +621,8 @@ export class BoardEditor {
   }
 
   draw(ctx, view, C) {
-    const board = this.preview ? { ...this.board, outline: this.preview } : this.board;
-    drawBoard(ctx, view, C, board, { project: this.project, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure });
+    const board = { ...this.board, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints };
+    drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: this._rats?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure });
     drawHandles(ctx, view, C, this._handles(), this.handleDrag?.key);
     drawSnapMark(ctx, view, C, this.snapMark);
   }
@@ -500,7 +636,7 @@ export class BoardEditor {
     if (e.key === 'Escape') {
       if (this.pts || (this.measure && !this.measure.done)) { this.pts = null; this.arcNext = false; this.measure = null; this.refresh(); }
       else if (this.tool !== 'select') this.setTool('select');
-      else if (this.selection.size) { this.selection.clear(); this.refresh(); }
+      else if (this.selection.size || this.fpSel.size) { this.selection.clear(); this.fpSel.clear(); this.refresh(); }
       return true;
     }
     if (this.tool === 'polygon' && this.pts) {
@@ -515,7 +651,12 @@ export class BoardEditor {
     }
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selection.size) { this.deleteSelection(); return true; }
     const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
-    if (arrows[e.key] && this.selection.size) { const [dx, dy] = arrows[e.key]; this.nudge(dx * this.board.grid.main, dy * this.board.grid.main); return true; }
+    if (arrows[e.key] && (this.selection.size || this.fpSel.size)) { const [dx, dy] = arrows[e.key]; this.nudge(dx * this.board.grid.main, dy * this.board.grid.main); return true; }
+    if (this.fpSel.size && this.tool === 'select') {
+      if (k === 'r') { this.rotateSel(e.shiftKey ? -90 : 90); return true; }
+      if (k === 'f') { this.flipSel(); return true; }
+      if (k === 'l') { this.lockSel(); return true; }
+    }
     for (const [id, t] of Object.entries(BOARD_TOOLS)) if (k === t.key) { this.setTool(id); return true; }
     return false;
   }
