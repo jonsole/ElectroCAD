@@ -119,3 +119,17 @@ export function insidePolygon([x, y], poly) {
   }
   return inside;
 }
+
+/** The pad under `pt` on a visible side: { bf, pad } or null (front first, unless `preferBack`). */
+export function hitPad(project, pt, { preferBack = false } = {}) {
+  const nets = padNets(project.board);
+  const fs = [...project.board.footprints].sort((a, b) => ((a.side === 'B') === preferBack ? -1 : 1) - ((b.side === 'B') === preferBack ? -1 : 1));
+  for (const bf of fs) {
+    for (const pad of placedPads(project, bf, nets)) {
+      const t = (-pad.rot * Math.PI) / 180, dx = pt[0] - pad.at[0], dy = pt[1] - pad.at[1];
+      const lx = dx * Math.cos(t) - dy * Math.sin(t), ly = dx * Math.sin(t) + dy * Math.cos(t);
+      if (Math.abs(lx) <= pad.size[0] / 2 && Math.abs(ly) <= pad.size[1] / 2) return { bf, pad };
+    }
+  }
+  return null;
+}

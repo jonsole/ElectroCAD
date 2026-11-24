@@ -76,3 +76,23 @@ export const screenBox = (view, b) => {
   const [x0, y0] = view.toScreen([b.x0, b.y0]), [x1, y1] = view.toScreen([b.x1, b.y1]);
   return { x0: Math.min(x0, x1), y0: Math.min(y0, y1), x1: Math.max(x0, x1), y1: Math.max(y0, y1) };
 };
+
+/**
+ * Bring world box `b` into view on a Canvas2D: pan so it is centred when any of it is off
+ * screen, zooming out only if it doesn't fit (cross-probing).
+ */
+export function revealBox(cv, b, margin = 40) {
+  if (!cv.w) return;
+  const v = cv.view, R = 22; // the rulers
+  const [x0, y0] = v.toScreen([b.x0, b.y0]), [x1, y1] = v.toScreen([b.x1, b.y1]);
+  const inside = x0 >= R + margin && y0 >= R + margin && x1 <= cv.w - margin && y1 <= cv.h - margin;
+  if (inside) return;
+  if (x1 - x0 > cv.w - R - 2 * margin || y1 - y0 > cv.h - R - 2 * margin) {
+    const pad = Math.max(b.x1 - b.x0, b.y1 - b.y0) * 0.15 + 1e6;
+    v.fit({ x0: b.x0 - pad, y0: b.y0 - pad, x1: b.x1 + pad, y1: b.y1 + pad }, cv.w - R, cv.h - R, 30);
+    v.pan(R, R);
+  } else {
+    v.pan((R + cv.w) / 2 - (x0 + x1) / 2, (R + cv.h) / 2 - (y0 + y1) / 2);
+  }
+  cv.invalidate();
+}

@@ -5,6 +5,7 @@ import { h, button, modal, popupMenu, toast } from './ui/dom.js';
 import { platform } from './platform.js';
 import { parseLibrary, serializeLibrary } from './core/library.js';
 import { HIGHLIGHT_STYLES, DEFAULT_HIGHLIGHT } from './view/highlight.js';
+import { probeKey, probeIsEmpty } from './core/probe.js';
 import { openPrintDialog } from './print/dialog.js';
 import { newProject, serialize, deserialize, ProjectFileError } from './core/project.js';
 import { History } from './core/history.js';
@@ -39,6 +40,8 @@ export class App {
     // browser: save when the tab is hidden or closed (autosave normally got there first)
     window.addEventListener('pagehide', () => { if (this.save.dirty) this.saveNow(); });
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && this.save.dirty) this.saveNow(); });
+    this.split = !!this.settings.split;
+    this.splitBtn.classList.toggle('active', this.split);
     this.setWorkspace(this.settings.workspace && this.workspaces.some((w) => w.id === this.settings.workspace) ? this.settings.workspace : 'schematic');
     this._keys();
     document.getElementById('boot')?.remove();
@@ -83,8 +86,18 @@ export class App {
         return b;
       }));
 
+    // split view (#18): the Schematic and the Board side by side, each probing the other
+    this.splitBtn = button({ icon: 'split', label: 'Split', title: 'Split view: the Schematic and the Board side by side; selecting in one highlights and scrolls to it in the other', cls: 'ws-split', onClick: () => this.toggleSplit() });
+    tabBar.append(h('span', { class: 'spacer' }), this.splitBtn);
     this.tabBar = tabBar;
-    root.append(topbar, tabBar, ...this.workspaces.map((w) => w.el));
+    this.wsHost = h('div', { class: 'ws-host' }, ...this.workspaces.map((w) => w.el));
+    // in split view, a click in a pane makes that workspace the active one (keys, undo go there)
+    this.wsHost.addEventListener('pointerdown', (e) => {
+      if (!this.split) return;
+      const w = this.workspaces.find((x) => x.el.contains(e.target));
+      if (w && w !== this.active) this.setWorkspace(w.id);
+    }, true);
+    root.append(topbar, tabBar, this.wsHost);
     this._showFileState();
   }
 
@@ -199,8 +212,9 @@ export class App {
     this.nameInput.value = project.name;
     const active = this.active ? this.active.id : 'schematic';
     for (const w of this.workspaces) w.el.remove();
+    this.probe = null;
     this.workspaces = buildWorkspaces(this);
-    this.tabBar.after(...this.workspaces.map((w) => w.el));
+    this.wsHost.append(...this.workspaces.map((w) => w.el));
     this.setWorkspace(active);
     this._rememberLast();
     this._showFileState();
@@ -319,17 +333,53 @@ export class App {
   setWorkspace(id) {
     const ws = this.workspaces.find((w) => w.id === id);
     if (!ws) return;
+    const was = this.active;
     this.active = ws;
+    const pair = this.split && (id === 'schematic' || id === 'board');
+    this.wsHost.classList.toggle('split', !!pair);
     for (const w of this.workspaces) {
-      const on = w === ws;
-      w.show(on);
+      const on = w === ws, shown = on || (pair && (w.id === 'schematic' || w.id === 'board'));
+      if (w.el.classList.contains('active') !== shown || on) w.show(shown);
+      w.el.classList.toggle('focused', !!pair && on);
       this.tabs[w.id].classList.toggle('active', on);
       this.tabs[w.id].setAttribute('aria-selected', String(on));
     }
+    // switching tabs shows the other editor's cross-probe, scrolled into view
+    if (was !== ws && !pair) ws.editor?.revealProbe?.();
     if (this.settings.workspace !== id) { this.settings.workspace = id; platform.setSettings({ workspace: id }); }
   }
 
   workspace(id) { return this.workspaces.find((w) => w.id === id); }
+
+  // ---------------------------------------------------------------- cross-probing (#18)
+
+  /**
+   * The Components and Nets selected in one editor (`source`: 'schematic' or 'board'). The other
+   * editor highlights them; in split view it also scrolls to them.
+   */
+  setProbe(source, probe) {
+    const key = probeKey(probe);
+    if (this.probe && this.probe.source === source && this.probe.key === key) return;
+    if (!this.probe && probeIsEmpty(probe)) return;
+    this.probe = { source, probe, key };
+    for (const w of this.workspaces) {
+      if (w.id === source) continue;
+      w.view.invalidate();
+      if (this.split && w.el.classList.contains('active')) w.editor?.revealProbe?.();
+    }
+  }
+
+  /** The probe another editor set, for `id` to highlight (null when it set it itself, or none). */
+  probeFor(id) { return this.probe && this.probe.source !== id && !probeIsEmpty(this.probe.probe) ? this.probe.probe : null; }
+
+  toggleSplit(on = !this.split) {
+    this.split = on;
+    this.splitBtn.classList.toggle('active', on);
+    this.settings.split = on; platform.setSettings({ split: on });
+    const id = this.active && (this.active.id === 'schematic' || this.active.id === 'board') ? this.active.id : 'schematic';
+    this.setWorkspace(id);
+    for (const w of this.workspaces) requestAnimationFrame(() => w.view.resize());
+  }
 
   // ---------------------------------------------------------------- Colour themes (#51)
 

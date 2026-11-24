@@ -14,7 +14,7 @@ import {
 } from '../core/board.js';
 import { drawBoard } from './render.js';
 import { openAnnotateDialog } from './annotate-dialog.js';
-import { footprintOutline, placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation } from '../core/footprint.js';
+import { hitPad, footprintOutline, placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation } from '../core/footprint.js';
 import { ratsnest } from '../core/ratsnest.js';
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
 import { allFootprints } from '../library/footprints.js';
@@ -23,7 +23,8 @@ import { shapeHandles, hitHandle, dragOutlineHandle, snapPoint, handlePoints } f
 import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { watchAlt } from '../ui/grid.js';
 import { GridCard } from '../ui/gridCard.js';
-import { highlight, screenBox } from '../view/highlight.js';
+import { highlight, screenBox, revealBox } from '../view/highlight.js';
+import { probeFromBoard, boardTargets } from '../core/probe.js';
 
 const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
 
@@ -53,6 +54,7 @@ export class BoardEditor {
     this.radius = mm(pref.get('boardCornerRadius', 0));
     this.selection = new Set(); // indices into board.outline
     this.fpSel = new Set();     // ids of selected board Footprints
+    this.netSel = new Set();    // Net names (as on the Board) selected by double-clicking a pad
     this.pts = null;            // points clicked so far by the drawing tools
     this.arcNext = false;       // polygon: the next side is an arc (a mid point, then the end)
     this.measure = null;        // { a, b, done }
@@ -304,6 +306,7 @@ export class BoardEditor {
     this.gridCard?.render();
     this.ws?.renderBar();
     this._hint();
+    this._publishProbe();
     this.ws?.view.invalidate();
   }
 
@@ -340,7 +343,7 @@ export class BoardEditor {
   setTool(t) {
     if (!BOARD_TOOLS[t]) return;
     this.tool = t; this.pts = null; this.arcNext = false; this.measure = null;
-    if (t !== 'select') { this.selection.clear(); this.fpSel.clear(); }
+    if (t !== 'select') { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); }
     if (['outline', 'polygon', 'circle'].includes(t)) this.activeLayer = 'Edge.Cuts'; // the Outline lives on Edge.Cuts
     if (this.ws) this.ws.view.canvas.style.cursor = t === 'select' ? '' : 'crosshair';
     this.refresh();
@@ -442,6 +445,7 @@ export class BoardEditor {
         if (fp) {
           if (e.shiftKey) { if (this.fpSel.has(fp.id)) this.fpSel.delete(fp.id); else this.fpSel.add(fp.id); this.refresh(); return; }
           if (!this.fpSel.has(fp.id)) { this.fpSel = new Set([fp.id]); this.selection.clear(); }
+          this.netSel.clear();
           // Footprints move by their origin, which lands on the grid
           this.drag = { start: w, anchor: fp.at, fpAnchor: true, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), fpSnapshot: structuredClone(this.board.footprints), moved: false, delta: [0, 0], onlyFp: fp.id };
           try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
@@ -457,7 +461,7 @@ export class BoardEditor {
           const anchor = anchors.reduce((b, p) => (Math.hypot(p[0] - w[0], p[1] - w[1]) < Math.hypot(b[0] - w[0], b[1] - w[1]) ? p : b), anchors[0] || w);
           this.drag = { start: w, anchor, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), fpSnapshot: structuredClone(this.board.footprints), moved: false, delta: [0, 0], only: i };
           try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
-        } else { this.selection.clear(); this.fpSel.clear(); }
+        } else { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); }
         this.refresh();
         return;
       }
@@ -522,6 +526,17 @@ export class BoardEditor {
       }
     };
     c.addEventListener('pointerup', up);
+    // double-clicking a pad selects its Net (its pads light up, here and on the Schematic)
+    c.addEventListener('dblclick', (e) => {
+      if (this.tool !== 'select') return;
+      const hit = hitPad(this.project, world(e), { preferBack: this.activeLayer.startsWith('B.') });
+      if (!hit?.pad.net) return;
+      e.preventDefault();
+      this.netSel = new Set([hit.pad.net]); this.fpSel.clear(); this.selection.clear();
+      const n = [...padNets(this.board).values()].filter((x) => x.toLowerCase() === hit.pad.net.toLowerCase()).length;
+      toast(`Net ${hit.pad.net}: ${n} pad${n === 1 ? '' : 's'}`, 'info', 1800);
+      this.refresh();
+    });
     watchAlt(ws, (on) => this.setAlt(on));
     this.gridCard.mount(ws);
     c.addEventListener('pointercancel', up);
@@ -544,6 +559,51 @@ export class BoardEditor {
     const s = this.board.outline[index];
     const h = s && hitHandle(s, w, tol);
     return h ? { index, key: h.key, cursor: h.cursor } : null;
+  }
+
+  /**
+   * Highlight outline shapes `outlineSel`, whole Footprints `fpIds` and single pads `padKeys`
+   * ("componentId:pad") in the style from Settings, in colour C2.selection.
+   */
+  _highlightBoard(ctx, view, C, board, outlineSel, fpIds, padKeys, C2, noFade = false) {
+    padKeys ||= new Set();
+    const comps = new Set([...padKeys].map((k) => k.slice(0, k.lastIndexOf(':'))));
+    const partial = new Set(board.footprints.filter((f) => !fpIds.has(f.id) && comps.has(f.componentId)).map((f) => f.id));
+    const sub = { ...board, outline: board.outline.filter((_, k) => outlineSel.has(k)), footprints: board.footprints.filter((f) => fpIds.has(f.id) || partial.has(f.id)) };
+    const nets = padNets(board), proj = { ...this.project, board };
+    const boxes = [
+      ...sub.outline.map((sh) => outlineBounds([sh])),
+      ...sub.footprints.filter((f) => !partial.has(f.id)).map((f) => { const q = footprintOutline(proj, f); const xs = q.map((p) => p[0]), ys = q.map((p) => p[1]); return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }; }),
+      ...sub.footprints.filter((f) => partial.has(f.id)).flatMap((f) => placedPads(proj, f, nets).filter((p) => padKeys.has(`${f.componentId}:${p.number}`)).map((p) => { const r = Math.max(...p.size) / 2; return { x0: p.at[0] - r, y0: p.at[1] - r, x1: p.at[0] + r, y1: p.at[1] + r }; })),
+    ].filter(Boolean).map((b) => screenBox(view, b));
+    const style = this.app.highlightStyle() === 'fade' && noFade ? 'glow' : this.app.highlightStyle();
+    highlight(ctx, C2, style, (c, Cx) => drawBoard(c, view, Cx, sub, { project: this.project, hidden: this.hidden, only: true, padsOnly: partial, padKeys }), boxes);
+  }
+
+  /** Tell the Schematic what is selected here (when this is the workspace being used). */
+  _publishProbe() {
+    if (this.app.active !== this.ws) return;
+    const sig = `${[...this.fpSel].sort().join()}|${[...this.netSel].join()}`;
+    if (sig === this._probeSig) return;
+    this._probeSig = sig;
+    this.app.setProbe('board', probeFromBoard(this.project, [...this.fpSel], [...this.netSel]));
+  }
+
+  /** Bring the Schematic's probe into view on the Board. */
+  revealProbe() {
+    const probe = this.app.probeFor('board');
+    if (!probe || !this.ws) return;
+    if (this.app.probe.key === this._revealed) return;
+    this._revealed = this.app.probe.key;
+    const t = boardTargets(this.project, probe);
+    const nets = padNets(this.board), pts = [];
+    for (const f of this.board.footprints) {
+      if (t.footprints.has(f.id)) pts.push(...footprintOutline(this.project, f));
+      else for (const p of placedPads(this.project, f, nets)) if (t.pads.has(`${f.componentId}:${p.number}`)) pts.push(p.at);
+    }
+    if (!pts.length) return;
+    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+    revealBox(this.ws.view, { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) });
   }
 
   /** Pad centres, as snap targets. */
@@ -625,11 +685,16 @@ export class BoardEditor {
     const board = { ...this.board, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints };
     drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: this._rats?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure });
     // the selection, highlighted in the style chosen in Settings (the same in every editor)
-    if (this.selection.size || this.fpSel.size) {
-      const sub = { ...board, outline: board.outline.filter((_, k) => this.selection.has(k)), footprints: board.footprints.filter((f) => this.fpSel.has(f.id)) };
-      const boxes = [...sub.outline.map((sh) => outlineBounds([sh])), ...sub.footprints.map((f) => { const q = footprintOutline(this.project, f); const xs = q.map((p) => p[0]), ys = q.map((p) => p[1]); return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }; })]
-        .filter(Boolean).map((b) => screenBox(view, b));
-      highlight(ctx, C, this.app.highlightStyle(), (c, Cx) => drawBoard(c, view, Cx, sub, { project: this.project, hidden: this.hidden, only: true }), boxes);
+    if (this.selection.size || this.fpSel.size || this.netSel.size) {
+      const t = this.netSel.size ? boardTargets({ ...this.project, board }, probeFromBoard(this.project, [], [...this.netSel])) : null;
+      this._highlightBoard(ctx, view, C, board, this.selection, this.fpSel, t?.pads, C);
+    }
+    // the Schematic's selection (cross-probing), in the theme's Highlight colour
+    const probe = this.app.probeFor('board');
+    if (probe) {
+      const t = boardTargets({ ...this.project, board }, probe);
+      const fps = new Set([...t.footprints].filter((id) => !this.fpSel.has(id)));
+      if (fps.size || t.pads.size) this._highlightBoard(ctx, view, C, board, new Set(), fps, t.pads, { ...C, selection: C.highlight || C.selection }, this.selection.size || this.fpSel.size);
     }
     drawHandles(ctx, view, C, this._handles(), this.handleDrag?.key);
     drawSnapMark(ctx, view, C, this.snapMark);
@@ -644,7 +709,7 @@ export class BoardEditor {
     if (e.key === 'Escape') {
       if (this.pts || (this.measure && !this.measure.done)) { this.pts = null; this.arcNext = false; this.measure = null; this.refresh(); }
       else if (this.tool !== 'select') this.setTool('select');
-      else if (this.selection.size || this.fpSel.size) { this.selection.clear(); this.fpSel.clear(); this.refresh(); }
+      else if (this.selection.size || this.fpSel.size || this.netSel.size) { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); this.refresh(); }
       return true;
     }
     if (this.tool === 'polygon' && this.pts) {

@@ -586,3 +586,16 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .grid-card-note { font-size: 12px; }
 .grid-card .side-note { margin: 6px 0 0; font-size: 11.5px; }
 .grid-card .fp-count { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* split view (#18): Schematic and Board side by side */
+.ws-host { flex: 1; min-height: 0; display: flex; }
+#app .ws-host > .ws-root { display: none; flex: 1; min-width: 0; min-height: 0; flex-direction: column; }
+#app .ws-host > .ws-root.active { display: flex; }
+.ws-host.split > .ws-root + .ws-root.active { border-left: 2px solid var(--border); }
+.ws-host.split > .ws-root.focused .canvas-wrap { box-shadow: inset 0 0 0 2px var(--accent); }
+.ws-host.split > .ws-root:not(.focused) .toolbar, .ws-host.split > .ws-root:not(.focused) .hint-bar { opacity: .55; }
+.ws-host.split .side-panel { width: 260px; }
+.ws-host.split .toolbar { overflow-x: auto; flex-wrap: nowrap; }
+.workspace-bar .spacer { flex: 1; }
+.workspace-bar .ws-split.active { background: var(--accent-soft); color: var(--accent); }
+.ws-host.split .toolbar > * { flex-shrink: 0; }

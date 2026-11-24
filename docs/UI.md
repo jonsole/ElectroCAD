@@ -367,6 +367,25 @@ The Board tab (#15) edits the board's layer stack and its Outline. Footprints, T
   - It follows a drag live, and changes straight away after a swap or a flip.
   - The status bar counts the unrouted connections.
 
+## Cross-probing and split view
+
+Selecting something in one editor highlights the same thing in the other (#18). The other editor uses the same style as selections (Settings → Highlight) in its theme's **Highlight** colour.
+
+- **What links to what:**
+  - A part (Symbol) highlights its Footprint, and a Footprint highlights its Symbol, switching to the Sheet it is on.
+  - A Wire or label highlights its Net's pads (and its tracks, vias and zones once they exist).
+  - A pad's Net highlights its Wires and labels.
+- **Selecting a whole Net:**
+  - On the Schematic, double-clicking a Wire (or a ground symbol) selects its whole Net on that Sheet. Double-clicking other labels still renames them.
+  - On the Board, double-clicking a pad selects its Net and highlights all its pads.
+  - A toast names the Net and counts its pins or pads.
+- **Split view** (the **Split** button at the right of the workspace tabs) shows the Schematic and the Board side by side.
+  - Clicking in a pane makes it the active one (accent frame), and keys and undo go there.
+  - The other pane scrolls to bring the cross-probed item into view, zooming out only if it doesn't fit.
+  - With one view, switching tabs shows the highlight, scrolled into view.
+  - The choice is remembered.
+- Clearing the selection clears the highlight.
+
 ## Workspaces
 
 There are four workspace tabs: **Schematic · Board · Gerber · Library**. Each keeps its own pan/zoom and selection when you switch away and back.

@@ -44,13 +44,14 @@ export function buildNetlist(project) {
   const wired = new Set(); // point keys touched by a Wire or a label
   const labelsAt = new Map(); // point key -> labels there
   const sheetName = new Map(); // label id -> its Sheet's name
+  const wireKeys = []; // [wire id, a point key] to find each Wire's Net afterwards (cross-probing)
   for (const sheet of project.schematic.sheets) {
     for (const l of sheet.labels || []) sheetName.set(l.id, sheet.name);
     const sp = sheetPins(project, sheet);
     pins.push(...sp);
     const prefix = sheet.id + ':';
     const k = (p) => prefix + key(p);
-    for (const w of sheet.wires) { uf.union(k(w.a), k(w.b)); wired.add(k(w.a)); wired.add(k(w.b)); }
+    for (const w of sheet.wires) { uf.union(k(w.a), k(w.b)); wired.add(k(w.a)); wired.add(k(w.b)); wireKeys.push([w.id, k(w.a)]); }
     const labels = sheet.labels || [];
     // T-joins: any Wire end, Pin or label point lying on a Wire joins it
     const points = [...sheet.wires.flatMap((w) => [w.a, w.b]), ...sp.map((x) => x.at), ...labels.map((l) => l.at)];
@@ -91,6 +92,8 @@ export function buildNetlist(project) {
     g.pins.push(x);
     if (wired.has(x.key)) g.wired = true;
   }
+  const wiresOf = new Map();
+  for (const [id, kk] of wireKeys) { const r = uf.find(kk); if (!wiresOf.has(r)) wiresOf.set(r, []); wiresOf.get(r).push(id); }
   const rank = (l) => (l.style === 'power' || l.style === 'gnd' ? 0 : l.scope === 'global' ? 1 : 2);
   const nets = [];
   const unconnected = [];
@@ -106,6 +109,7 @@ export function buildNetlist(project) {
     if (names[0]?.spellings.length > 1) net.spellings = names[0].spellings; // one name, mixed case: an ERC warning (ADR-0013)
     if (names[0] && names[0].rank === 2) net.sheet = sheetName.get(names[0].labels[0].id);
     if (ls.length) net.labels = ls.map((l) => l.id); // for ERC: which labels name this Net
+    net.wires = wiresOf.get(r) || []; // for cross-probing: the Wires that carry it
     nets.push(net);
   }
   // a Net label name used on several Sheets makes separate Nets: qualify them with the Sheet name

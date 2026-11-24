@@ -15,7 +15,8 @@ import { snapToGrid, gridLabel, SCHEMATIC_GRIDS, setGridStep } from '../core/gri
 import { watchAlt } from '../ui/grid.js';
 import { RULER } from '../view/canvas2d.js';
 import { GridCard } from '../ui/gridCard.js';
-import { highlight, screenBox } from '../view/highlight.js';
+import { highlight, screenBox, revealBox } from '../view/highlight.js';
+import { probeFromSchematic, schematicTargets, sheetForProbe } from '../core/probe.js';
 import { hitDrawing, drawingDefaults, paperRect, titleBlockLayout, PAPER_SIZES, TITLE_FIELDS, LINE_STYLES } from '../core/drawings.js';
 import { pinPositions, nextRef, partOf } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
@@ -522,6 +523,7 @@ export class SchematicEditor {
     this.ws?.renderBar();
     this.inspector?.render();
     this._hint();
+    this._publishProbe();
     this.ws?.view.invalidate();
   }
 
@@ -625,6 +627,9 @@ export class SchematicEditor {
       const f = this.placement && hitField(this.project, this.placement, world, 3 / ws.view.view.scale, measureText);
       const l = hitLabel(this.sheet, world, 3 / ws.view.view.scale, measureText);
       if (l && l.style !== 'gnd') { e.preventDefault(); this.editLabel({ label: l }); return; }
+      // double-clicking a Wire (or a ground symbol) selects its whole Net on this Sheet
+      const wire = !f && !l && hitWire(this.sheet, world, 4 / ws.view.view.scale);
+      if (wire || (l && l.style === 'gnd')) { e.preventDefault(); this.selectNet((wire || l).id); return; }
       const d = hitDrawing(this.sheet, world, 3 / ws.view.view.scale, measureText);
       if (d && d.type === 'text') { e.preventDefault(); this.editText({ drawing: d }); return; }
       const tb = titleBlockLayout(this.sheet).box;
@@ -778,6 +783,14 @@ export class SchematicEditor {
       const only = this.selection, display = this.app.schematicDisplay(), placement = this.placement;
       const boxes = [...only].map((id) => itemsBounds(proj, sheet, [id])).filter(Boolean).map((b) => screenBox(view, b));
       highlight(ctx, C, this.app.highlightStyle(), (c, Cx) => drawSheet(c, view, Cx, proj, sheet, { only, placement, display }), boxes);
+    }
+    // the Board's selection (cross-probing), in the theme's Highlight colour
+    const probed = this._probeTargets(proj);
+    if (probed?.size) {
+      const only = new Set([...probed].filter((id) => !this.selection.has(id)));
+      const display = this.app.schematicDisplay(), placement = this.placement;
+      const boxes = [...only].map((id) => itemsBounds(proj, sheet, [id])).filter(Boolean).map((b) => screenBox(view, b));
+      highlight(ctx, { ...C, selection: C.highlight || C.selection }, this.app.highlightStyle() === 'fade' && this.selection.size ? 'glow' : this.app.highlightStyle(), (c, Cx) => drawSheet(c, view, Cx, proj, sheet, { only, placement, display }), boxes);
     }
     drawHandles(ctx, view, C, this._handles(), this.handleDrag?.key);
     drawSnapMark(ctx, view, C, this.snapMark);
@@ -1065,6 +1078,54 @@ export class SchematicEditor {
     this.snapMark = null;
     this.app.edit(`Move ${this.sheet.name} grid origin`, (p) => { this._S(p).origin = [...at]; });
     this.setTool('select');
+  }
+
+  // ---------------------------------------------------------------- cross-probing (#18)
+
+  /** Select the whole Net of a Wire or label on this Sheet: its Wires and labels. */
+  selectNet(id) {
+    const net = buildNetlist(this.project).nets.find((n) => n.wires?.includes(id) || n.labels?.includes(id));
+    if (!net) { this.selection = new Set([id]); this.refresh(); return; }
+    const here = new Set([...this.sheet.wires.map((w) => w.id), ...(this.sheet.labels || []).map((l) => l.id)]);
+    this.selection = new Set([...(net.wires || []), ...(net.labels || [])].filter((x) => here.has(x)));
+    this.refresh();
+    toast(`Net ${net.name}: ${net.pins.length} pin${net.pins.length === 1 ? '' : 's'}`, 'info', 1800);
+  }
+
+  /** Tell the Board what is selected here (when this is the workspace being used). */
+  _publishProbe() {
+    if (this.app.active !== this.ws) return;
+    const sig = `${this.sheet.id}|${[...this.selection].sort().join()}`;
+    if (sig === this._probeSig) return;
+    this._probeSig = sig;
+    this.app.setProbe('schematic', probeFromSchematic(this.project, this.sheet, [...this.selection]));
+  }
+
+  /** The items on this Sheet the Board's selection points at (cached per probe and Project). */
+  _probeTargets(proj) {
+    const probe = this.app.probeFor('schematic');
+    if (!probe) return null;
+    const c = this._probeCache;
+    if (c && c.probe === probe && c.proj === proj && c.sheet === this.sheet.id) return c.ids;
+    const ids = schematicTargets(proj, this._S(proj), probe);
+    this._probeCache = { probe, proj, sheet: this.sheet.id, ids };
+    return ids;
+  }
+
+  /** Bring the Board's probe into view: switch to the Sheet that shows it, and pan if it is off screen. */
+  revealProbe() {
+    const probe = this.app.probeFor('schematic');
+    if (!probe || !this.ws) return;
+    const key = this.app.probe.key;
+    if (key === this._revealed) return;
+    this._revealed = key;
+    if (!schematicTargets(this.project, this.sheet, probe).size) {
+      const s = sheetForProbe(this.project, probe);
+      if (s && s.id !== this.sheet.id) this.switchSheet(s.id);
+    }
+    const ids = [...schematicTargets(this.project, this.sheet, probe)];
+    const b = ids.length && itemsBounds(this.project, this.sheet, ids);
+    if (b) revealBox(this.ws.view, b);
   }
 
   /** The one selected markup shape (not text), or null: it shows resize handles. */

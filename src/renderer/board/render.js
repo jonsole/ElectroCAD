@@ -76,7 +76,7 @@ export function drawBoard(ctx, view, C, board, opts = {}) {
   }
   if (opts.project) {
     const view2 = { ...opts.project, board };
-    drawFootprints(ctx, view, C, view2, board, hidden);
+    drawFootprints(ctx, view, C, view2, board, hidden, opts.padsOnly, opts.padKeys);
     // the Ratsnest: a thin line for each unrouted connection
     if (opts.rats?.length) {
       ctx.save(); ctx.strokeStyle = C.ratsnest || '#98a2b3'; ctx.lineWidth = 1;
@@ -118,7 +118,8 @@ export function drawBoard(ctx, view, C, board, opts = {}) {
  * in the through-hole colour, with the drill), courtyards dashed, the Reference on silk above and
  * the Value on fab below; when zoomed in far enough, each pad shows its number and Net.
  */
-function drawFootprints(ctx, view, C, project, board, hidden) {
+/** `padsOnly`: Footprint ids drawn as just the pads in `padKeys` ("componentId:pad"), for highlighting a Net. */
+function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, padKeys = null) {
   const nets = padNets(board);
   const ann = board.annotation?.components || {};
   const fps = [...board.footprints].sort((a, b) => (a.side === b.side ? 0 : a.side === 'B' ? -1 : 1));
@@ -129,8 +130,9 @@ function drawFootprints(ctx, view, C, project, board, hidden) {
     if (!fp) continue;
     const T = fpTransform(bf);
     const S = (p) => view.toScreen(T(p));
+    const partial = padsOnly?.has(bf.id);
     // courtyard and other graphics
-    for (const g of fp.graphics || []) {
+    for (const g of partial ? [] : fp.graphics || []) {
       const layer = flipLayer(g.layer || 'F.SilkS', bf.side);
       if (!visible(layer) || g.type !== 'rect') continue;
       const pts = [g.a, [g.b[0], g.a[1]], g.b, [g.a[0], g.b[1]]].map(S);
@@ -139,6 +141,7 @@ function drawFootprints(ctx, view, C, project, board, hidden) {
     }
     // pads
     for (const pad of placedPads(project, bf, nets)) {
+      if (partial && !padKeys?.has(`${bf.componentId}:${pad.number}`)) continue;
       const tht = pad.layers.includes('*.Cu');
       const cu = tht ? (visible('F.Cu') || visible('B.Cu') ? (bf.side === 'B' && !visible('F.Cu') ? 'B.Cu' : 'F.Cu') : null)
         : pad.layers.find((l) => /\.Cu$/.test(l) && visible(l));
@@ -170,6 +173,7 @@ function drawFootprints(ctx, view, C, project, board, hidden) {
       }
       ctx.restore();
     }
+    if (partial) continue;
     // Reference on silk above the courtyard, Value on fab below it
     const crt = (fp.graphics || []).find((g) => /CrtYd$/.test(g.layer || '') && g.type === 'rect');
     const top = crt ? Math.min(crt.a[1], crt.b[1]) : -mm(1);
