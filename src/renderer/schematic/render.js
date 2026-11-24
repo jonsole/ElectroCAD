@@ -207,13 +207,6 @@ export function drawLabels(ctx, view, C, labels, { selection = new Set(), alpha 
     const f = labelFrame(l);
     const W = (p) => view.toScreen([l.at[0] + f.apply(p)[0], l.at[1] + f.apply(p)[1]]);
     const color = isPower(l) ? C.power : l.scope === 'global' ? C.globalLabel : C.netLabel;
-    if (selection.has(l.id)) {
-      const b = labelBounds(l, measureText);
-      const [x0, y0] = view.toScreen([b.x0, b.y0]), [x1, y1] = view.toScreen([b.x1, b.y1]);
-      ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = C.selection; ctx.lineWidth = 1;
-      ctx.strokeRect(Math.round(x0) - 3.5, Math.round(y0) - 3.5, x1 - x0 + 7, y1 - y0 + 7);
-      ctx.restore();
-    }
     ctx.strokeStyle = color; ctx.lineWidth = lw;
     ctx.beginPath();
     for (const pts of [...shape.lines, ...shape.polys]) pts.map(W).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
@@ -296,13 +289,6 @@ export function drawDrawings(ctx, view, C, project, sheet, drawings, { selection
       }
     }
     ctx.restore();
-    if (selection.has(d.id)) {
-      const b = drawingBounds(d.type === 'text' ? { ...d, text: expandVariables(d.text, project, sheet) } : d, measureText);
-      const [x0, y0] = S0(view, [b.x0, b.y0]), [x1, y1] = S0(view, [b.x1, b.y1]);
-      ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = C.selection; ctx.lineWidth = 1;
-      ctx.strokeRect(Math.round(x0) - 3.5, Math.round(y0) - 3.5, x1 - x0 + 7, y1 - y0 + 7);
-      ctx.restore();
-    }
   }
 }
 const S0 = (view, p) => view.toScreen(p);
@@ -336,23 +322,22 @@ export function drawTitleBlock(ctx, view, C, project, sheet) {
   ctx.restore();
 }
 
-/** Draw a Sheet: Wires, Symbols, fields, Junctions, then selection, the placement ghost and a Wire being drawn. */
-export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(), ghost = null, bounds, wiring = null, target = null, placement = null, display = DEFAULT_DISPLAY, ghostLabel = null, erc = null, ercFocus = null, ghostDrawing = null } = {}) {
+/**
+ * Draw a Sheet: markup, Wires, Symbols, fields, Junctions, then the placement ghost and a Wire
+ * being drawn. With `only` (a Set of ids) it draws just those items and nothing around them: the
+ * highlight pass (view/highlight.js) uses that to draw the selection in its style.
+ */
+export function drawSheet(ctx, view, C, project, sheet0, { selection = new Set(), only = null, ghost = null, bounds, wiring = null, target = null, placement = null, display = DEFAULT_DISPLAY, ghostLabel = null, erc = null, ercFocus = null, ghostDrawing = null } = {}) {
   const toScreen = (p) => view.toScreen(p);
   const wireW = Math.max(1.5, WIRE * view.scale);
+  const sheet = only ? { ...sheet0, symbols: sheet0.symbols.filter((x) => only.has(x.id)), wires: sheet0.wires.filter((x) => only.has(x.id)), labels: (sheet0.labels || []).filter((x) => only.has(x.id)), noConnects: (sheet0.noConnects || []).filter((x) => only.has(x.id)), drawings: (sheet0.drawings || []).filter((x) => only.has(x.id)) } : sheet0;
+  if (only) { ghost = null; wiring = null; target = null; ghostLabel = null; erc = null; ghostDrawing = null; }
   // the title block and markup go underneath the circuit
-  drawTitleBlock(ctx, view, C, project, sheet);
-  drawDrawings(ctx, view, C, project, sheet, sheet.drawings || [], { selection });
+  if (!only) drawTitleBlock(ctx, view, C, project, sheet);
+  drawDrawings(ctx, view, C, project, sheet, sheet.drawings || []);
   if (ghostDrawing) drawDrawings(ctx, view, C, project, sheet, [ghostDrawing], { alpha: 0.6 });
   ctx.save();
   ctx.lineCap = 'round';
-  // Wires (selected ones get a selection-coloured halo underneath)
-  const selWires = sheet.wires.filter((w) => selection.has(w.id));
-  if (selWires.length) {
-    ctx.strokeStyle = C.selection; ctx.globalAlpha = 0.45; ctx.lineWidth = wireW + 6;
-    ctx.beginPath(); for (const w of selWires) strokeWire(ctx, view, w.a, w.b); ctx.stroke();
-    ctx.globalAlpha = 1;
-  }
   ctx.strokeStyle = C.wire; ctx.lineWidth = wireW;
   // horizontal Wires hop over vertical ones they cross without connecting
   const hops = new Map();
@@ -375,7 +360,7 @@ export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(),
   }
   ctx.stroke();
   ctx.restore();
-  const conn = connectedPins(project, sheet);
+  const conn = connectedPins(project, sheet0);
   for (const sym of sheet.symbols) {
     const comp = project.components[sym.componentId];
     const part = partOf(project, comp);
@@ -383,25 +368,17 @@ export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(),
     const unit = part.units[sym.unit || 0];
     const connected = new Set(unit ? unit.pins.filter((pn) => conn.has(`${sym.id}:${pn.number}`)).map((pn) => pn.number) : []);
     drawUnit(ctx, toScreen, view.scale, part, sym.unit, sym, null, C, { connected, colorConnected: display.colorConnectedPins, markUnconnected: display.markUnconnectedPins }); // fields come from the placer
-    if (selection.has(sym.id) && bounds) {
-      const b = bounds(sym);
-      const [x0, y0] = view.toScreen([b.x0, b.y0]), [x1, y1] = view.toScreen([b.x1, b.y1]);
-      ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = C.selection; ctx.lineWidth = 1;
-      ctx.strokeRect(Math.round(x0) - 3.5, Math.round(y0) - 3.5, x1 - x0 + 7, y1 - y0 + 7);
-      ctx.restore();
-    }
   }
-  drawLabels(ctx, view, C, sheet.labels || [], { selection });
+  drawLabels(ctx, view, C, sheet.labels || []);
   drawFields(ctx, view, C, project, sheet, placement || placeFields(project, sheet, { measure: measureText }), selection);
   // Junction dots, derived from the Wires and Pins
   ctx.fillStyle = C.junction;
   const jr = Math.max(2.5, JUNCTION * view.scale);
-  for (const j of junctions(project, sheet)) { const [x, y] = view.toScreen(j); ctx.beginPath(); ctx.arc(x, y, jr, 0, Math.PI * 2); ctx.fill(); }
+  for (const j of only ? [] : junctions(project, sheet)) { const [x, y] = view.toScreen(j); ctx.beginPath(); ctx.arc(x, y, jr, 0, Math.PI * 2); ctx.fill(); }
   // no-connect markers: a cross on the Pin tip
   const nc = Math.max(3, mm(0.6) * view.scale);
   for (const n of sheet.noConnects || []) {
     const [x, y] = view.toScreen(n.at);
-    if (selection.has(n.id)) { ctx.save(); ctx.strokeStyle = C.selection; ctx.setLineDash([3, 3]); ctx.lineWidth = 1; ctx.strokeRect(x - nc - 4, y - nc - 4, (nc + 4) * 2, (nc + 4) * 2); ctx.restore(); }
     ctx.save(); ctx.strokeStyle = C.noConnect; ctx.lineWidth = Math.max(1.5, mm(0.18) * view.scale); ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(x - nc, y - nc); ctx.lineTo(x + nc, y + nc); ctx.moveTo(x + nc, y - nc); ctx.lineTo(x - nc, y + nc); ctx.stroke();
     ctx.restore();

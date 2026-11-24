@@ -244,6 +244,17 @@ The Part picker draws each part on the Schematic colour theme's paper colour, so
 - **Right-click menu** (as in DabbleCAD): a right-click that doesn't pan opens Copy, Paste, Duplicate, Delete, Rotate, Mirror and Re-apply style for what's under the cursor, or Paste, Select all and Fit on empty canvas. Right-drag still pans.
 - **Crowded spots:** a field that can't find a free spot gets a small amber triangle, a note in the hint bar, and an ERC warning ("R7 fields overlap C3").
 
+## Highlighting the selection
+
+Selected things look the same in every editor: Schematic parts, wires, labels, no-connects and markup; Board footprints and outline shapes; Symbol editor pins and graphics. **Settings → Highlight selected things with** picks the style:
+
+- **Glow** (default): a soft halo in the selection colour around the things' own lines, bodies and text.
+- **Colour:** the selected things are drawn in the selection colour. Symbol bodies keep their fill.
+- **Box:** a dashed box around each selected thing.
+- **Fade the rest:** everything else fades towards the background, so the selection stands out.
+
+The colour is the **Selection** colour of each Colour theme (Settings → Colours), so the Schematic and the Board can differ. Resize handles, the snap mark and a pinned field's tether are drawn on top whatever the style. The future cross-probing (#18) and net highlighting will use the same styles.
+
 ## Grids, origin and snapping
 
 The Schematic, Board and Library editors work the same way here.

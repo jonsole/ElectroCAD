@@ -15,6 +15,7 @@ import { snapToGrid, gridLabel, SCHEMATIC_GRIDS, setGridStep } from '../core/gri
 import { watchAlt } from '../ui/grid.js';
 import { RULER } from '../view/canvas2d.js';
 import { GridCard } from '../ui/gridCard.js';
+import { highlight, screenBox } from '../view/highlight.js';
 import { hitDrawing, drawingDefaults, paperRect, titleBlockLayout, PAPER_SIZES, TITLE_FIELDS, LINE_STYLES } from '../core/drawings.js';
 import { pinPositions, nextRef, partOf } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
@@ -772,6 +773,12 @@ export class SchematicEditor {
     drawSheet(ctx, view, C, proj, sheet, { selection: this.selection, ghost, bounds: (s) => symbolBounds(proj, s), wiring, target, placement: this.placement, display: this.app.schematicDisplay(), ghostLabel,
       erc: this.ercOpen ? (this.ercShown || []).filter((x) => x.sheetId === sheet.id && x.severity !== 'info') : null, ercFocus: this.ercFocus,
       ghostDrawing: this._ghostDrawing() });
+    // the selection, highlighted in the style chosen in Settings (the same in every editor)
+    if (this.selection.size && !this.placing) {
+      const only = this.selection, display = this.app.schematicDisplay(), placement = this.placement;
+      const boxes = [...only].map((id) => itemsBounds(proj, sheet, [id])).filter(Boolean).map((b) => screenBox(view, b));
+      highlight(ctx, C, this.app.highlightStyle(), (c, Cx) => drawSheet(c, view, Cx, proj, sheet, { only, placement, display }), boxes);
+    }
     drawHandles(ctx, view, C, this._handles(), this.handleDrag?.key);
     drawSnapMark(ctx, view, C, this.snapMark);
     if (this.marquee && (this.marquee.a[0] !== this.marquee.b[0] || this.marquee.a[1] !== this.marquee.b[1])) {

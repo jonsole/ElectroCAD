@@ -18,6 +18,7 @@ import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { SCHEMATIC_GRIDS, DEFAULT_SCHEMATIC_GRID, gridLabel, setGridStep, snapToGrid } from '../core/grid.js';
 import { watchAlt } from '../ui/grid.js';
 import { GridCard } from '../ui/gridCard.js';
+import { highlight, screenBox } from '../view/highlight.js';
 
 const HALF = G / 2;
 const snap = (v, step) => Math.round(v / step) * step;
@@ -550,19 +551,22 @@ export class LibraryEditor {
     if (!this.draft) return;
     const part = this.draft, u = this.unitObj;
     drawUnit(ctx, toScreen, view.scale, part, this.unit, { at: [0, 0], rot: 0, mirror: false }, null, C, {});
-    // selection
-    ctx.save(); ctx.strokeStyle = C.selection; ctx.setLineDash([4, 3]); ctx.lineWidth = 1;
-    for (const s of this.selection) {
-      const [k, i] = s.split(':');
-      let pts;
-      if (k === 'pin') { const p = u.pins[+i]; const d = DIRS[p.dir] || [0, 0]; pts = [p.at, [p.at[0] + d[0] * p.length, p.at[1] + d[1] * p.length]]; }
-      else pts = shapePoints(u.graphics[+i]);
-      if (!pts.length) continue;
-      const sp = pts.map(toScreen);
-      const xs = sp.map((p) => p[0]), ys = sp.map((p) => p[1]);
-      ctx.strokeRect(Math.min(...xs) - 4, Math.min(...ys) - 4, Math.max(...xs) - Math.min(...xs) + 8, Math.max(...ys) - Math.min(...ys) + 8);
+    // the selection, highlighted in the style chosen in Settings (the same in every editor)
+    if (this.selection.size) {
+      const boxes = [];
+      const only = { pins: [], graphics: [] };
+      for (const sel of this.selection) {
+        const [k, i] = sel.split(':');
+        let pts;
+        if (k === 'pin') { const p = u.pins[+i]; if (!p) continue; only.pins.push(p); const d = DIRS[p.dir] || [0, 0]; pts = [p.at, [p.at[0] + d[0] * p.length, p.at[1] + d[1] * p.length]]; }
+        else { const g = u.graphics[+i]; if (!g) continue; only.graphics.push(g); pts = shapePoints(g); }
+        if (!pts.length) continue;
+        const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+        boxes.push(screenBox(view, { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }));
+      }
+      const sub = { ...part, units: part.units.map((x, i) => (i === this.unit ? { ...x, pins: only.pins, graphics: only.graphics } : x)) };
+      highlight(ctx, C, this.app.highlightStyle(), (c, Cx) => drawUnit(c, toScreen, view.scale, sub, this.unit, { at: [0, 0], rot: 0, mirror: false }, null, Cx, {}), boxes);
     }
-    ctx.restore();
     const hg = this._handleGraphic();
     if (hg) drawHandles(ctx, view, C, shapeHandles(hg.g), this.handleDrag?.key);
     drawSnapMark(ctx, view, C, this.snapMark);

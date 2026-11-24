@@ -4,7 +4,7 @@
 import { arcCircle } from '../core/geom.js';
 import { outlineLoops, checkOutline } from '../core/board.js';
 import { mm } from '../core/units.js';
-import { placedPads, padNets, fpTransform, flipLayer, footprintOutline } from '../core/footprint.js';
+import { placedPads, padNets, fpTransform, flipLayer } from '../core/footprint.js';
 import { footprintOf } from '../core/project.js';
 
 const TAU = Math.PI * 2;
@@ -53,7 +53,7 @@ export function drawBoard(ctx, view, C, board, opts = {}) {
   ctx.save();
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   // the board itself: a faint fill inside the closed loops (cut-outs stay empty: even-odd)
-  const loops = outlineLoops(outline);
+  const loops = opts.only ? [] : outlineLoops(outline);
   if (loops.length) {
     ctx.beginPath();
     for (const loop of loops) {
@@ -65,13 +65,11 @@ export function drawBoard(ctx, view, C, board, opts = {}) {
   if (!hidden.has('Edge.Cuts')) {
     outline.forEach((s, i) => {
       ctx.beginPath(); shapePath(ctx, view, s);
-      const sel = opts.selection?.has(i);
-      if (sel) { ctx.strokeStyle = C.selection; ctx.lineWidth = lw + 4; ctx.globalAlpha = 0.35; ctx.stroke(); ctx.globalAlpha = 1; }
       ctx.strokeStyle = edge; ctx.lineWidth = lw; ctx.stroke();
     });
     // where the Outline is open: a ring at each loose end
     const { openEnds } = checkOutline(outline);
-    if (outline.length && openEnds.length) {
+    if (!opts.only && outline.length && openEnds.length) {
       ctx.strokeStyle = C.ercError || '#e5484d'; ctx.lineWidth = 2;
       for (const p of openEnds) { const [x, y] = view.toScreen(p); ctx.beginPath(); ctx.arc(x, y, 6, 0, TAU); ctx.stroke(); }
     }
@@ -79,14 +77,6 @@ export function drawBoard(ctx, view, C, board, opts = {}) {
   if (opts.project) {
     const view2 = { ...opts.project, board };
     drawFootprints(ctx, view, C, view2, board, hidden);
-    // selected Footprints: their courtyard outlined in the selection colour (dashed when locked)
-    for (const bf of board.footprints) {
-      if (!opts.fpSel?.has(bf.id)) continue;
-      const pts = footprintOutline(view2, bf).map((q) => view.toScreen(q));
-      ctx.save(); ctx.strokeStyle = C.selection; ctx.lineWidth = 2; if (bf.locked) ctx.setLineDash([3, 3]);
-      ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.stroke();
-      ctx.globalAlpha = 0.08; ctx.fillStyle = C.selection; ctx.fill(); ctx.restore();
-    }
     // the Ratsnest: a thin line for each unrouted connection
     if (opts.rats?.length) {
       ctx.save(); ctx.strokeStyle = C.ratsnest || '#98a2b3'; ctx.lineWidth = 1;

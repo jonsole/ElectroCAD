@@ -14,7 +14,7 @@ import {
 } from '../core/board.js';
 import { drawBoard } from './render.js';
 import { openAnnotateDialog } from './annotate-dialog.js';
-import { placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation } from '../core/footprint.js';
+import { footprintOutline, placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation } from '../core/footprint.js';
 import { ratsnest } from '../core/ratsnest.js';
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
 import { allFootprints } from '../library/footprints.js';
@@ -23,6 +23,7 @@ import { shapeHandles, hitHandle, dragOutlineHandle, snapPoint, handlePoints } f
 import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { watchAlt } from '../ui/grid.js';
 import { GridCard } from '../ui/gridCard.js';
+import { highlight, screenBox } from '../view/highlight.js';
 
 const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
 
@@ -623,6 +624,13 @@ export class BoardEditor {
   draw(ctx, view, C) {
     const board = { ...this.board, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints };
     drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: this._rats?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure });
+    // the selection, highlighted in the style chosen in Settings (the same in every editor)
+    if (this.selection.size || this.fpSel.size) {
+      const sub = { ...board, outline: board.outline.filter((_, k) => this.selection.has(k)), footprints: board.footprints.filter((f) => this.fpSel.has(f.id)) };
+      const boxes = [...sub.outline.map((sh) => outlineBounds([sh])), ...sub.footprints.map((f) => { const q = footprintOutline(this.project, f); const xs = q.map((p) => p[0]), ys = q.map((p) => p[1]); return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }; })]
+        .filter(Boolean).map((b) => screenBox(view, b));
+      highlight(ctx, C, this.app.highlightStyle(), (c, Cx) => drawBoard(c, view, Cx, sub, { project: this.project, hidden: this.hidden, only: true }), boxes);
+    }
     drawHandles(ctx, view, C, this._handles(), this.handleDrag?.key);
     drawSnapMark(ctx, view, C, this.snapMark);
   }

@@ -4,6 +4,7 @@ import { APP_NAME, LOGO_SVG } from './brand.js';
 import { h, button, modal, popupMenu, toast } from './ui/dom.js';
 import { platform } from './platform.js';
 import { parseLibrary, serializeLibrary } from './core/library.js';
+import { HIGHLIGHT_STYLES, DEFAULT_HIGHLIGHT } from './view/highlight.js';
 import { openPrintDialog } from './print/dialog.js';
 import { newProject, serialize, deserialize, ProjectFileError } from './core/project.js';
 import { History } from './core/history.js';
@@ -360,6 +361,9 @@ export class App {
   /** How close (screen pixels) the pointer must come to another object's handle or pad to snap onto it; 0 is off. */
   snapDistance() { const v = this.settings.snapDistance; return Number.isFinite(v) ? v : 10; }
 
+  /** How selected things are highlighted in every editor (Settings → Highlight). */
+  highlightStyle() { return this.settings.highlightStyle || DEFAULT_HIGHLIGHT; }
+
   /** Schematic display options (Settings → Schematic display), with defaults filled in. */
   schematicDisplay() { return { ...DEFAULT_DISPLAY, ...(this.settings.schematicDisplay || {}) }; }
 
@@ -458,8 +462,12 @@ export class App {
     const snap = h('select', { class: 'select', title: 'While drawing, moving or resizing, points jump onto another object\'s handles (corners, ends, pads) when the pointer is this close' },
       ...[[0, 'Off'], [5, '5 px'], [10, '10 px'], [15, '15 px'], [20, '20 px'], [30, '30 px']].map(([v, l]) => h('option', { value: String(v), selected: v === this.snapDistance() }, l)));
     snap.addEventListener('change', () => { this.settings.snapDistance = +snap.value; platform.setSettings({ snapDistance: +snap.value }); });
+    const hl = h('select', { class: 'select', 'aria-label': 'Highlight style', title: 'How selected parts, wires, labels, footprints and shapes are shown, in every editor. The colour is the Selection colour of each Colour theme' },
+      ...HIGHLIGHT_STYLES.map(([v, l, t]) => h('option', { value: v, title: t, selected: v === this.highlightStyle() }, l)));
+    hl.addEventListener('change', () => { this.settings.highlightStyle = hl.value; platform.setSettings({ highlightStyle: hl.value }); for (const w of this.workspaces) w.view.invalidate(); });
     m.body.append(h('label', { class: 'field' }, h('span', {}, 'App theme'), sel),
       h('label', { class: 'field' }, h('span', {}, 'Snap to objects within'), snap),
+      h('label', { class: 'field' }, h('span', {}, 'Highlight selected things with'), hl),
       this._displaySection(),
       colorsSection(this),
       fieldStylesSection(this),
