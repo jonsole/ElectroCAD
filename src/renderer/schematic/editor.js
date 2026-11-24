@@ -11,6 +11,7 @@ import { pinPositions } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
 import { snapPt, SCH_GRID } from '../core/units.js';
 import { drawSheet, symbolThumbnail, measureText } from './render.js';
+import { SchematicInspector } from './inspector.js';
 import { placeFields, fieldWarnings, setDefaultFieldStyle, setComponentFieldStyle } from '../core/fields.js';
 
 const DRAG_START_PX = 4;
@@ -159,6 +160,7 @@ export class SchematicEditor {
     if (this.toolBtn) for (const [t, b] of Object.entries(this.toolBtn)) b.classList.toggle('active', this.tool === t && !this.placing);
     this.renderNetlist();
     this.renderStyleFoot();
+    this.inspector?.render();
     this._hint();
     this.ws?.view.invalidate();
   }
@@ -249,8 +251,10 @@ export class SchematicEditor {
       if (!this.drag && ws.view.canvas.style.cursor === 'move') ws.view.canvas.style.cursor = '';
     });
     // the floating Netlist panel lives over the canvas, like DabbleCAD's inspector card
+    // floating cards over the canvas, top right: the inspector, then the Netlist
+    this.inspector = new SchematicInspector(this);
     this.netlistEl = h('div', { class: 'float-panel netlist-panel', role: 'region', 'aria-label': 'Netlist' });
-    ws.view.el.append(this.netlistEl);
+    ws.view.el.append(h('div', { class: 'float-stack' }, this.inspector.el, this.netlistEl));
     this.renderNetlist();
     c.addEventListener('pointerleave', () => { if (this.placing && !this.placing.drag) { this.placing.at = null; ws.view.invalidate(); } });
   }

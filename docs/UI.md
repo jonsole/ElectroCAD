@@ -101,6 +101,22 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 - **Connectivity never changes when you move things.**
 - **Copy, paste, duplicate:** Ctrl+C, Ctrl+V (pastes under the cursor) and Ctrl+D (a copy four grid steps away). Pasted Components get the next free Reference designators and keep their Value, Footprint and Field style. Wires between copied parts come along.
 
+## Schematic inspector
+
+The inspector is a floating card at the top right of the canvas, like the fork's 3D Design inspector. It stacks above the Netlist panel when both are open, and hides when nothing is selected.
+
+- **One part selected:**
+  - the title shows the Reference designator and the Part name;
+  - **Reference** must be unique, with no spaces; a clash is refused with an inline message;
+  - **Value**;
+  - **Footprint:** Preferred footprints first, then *Other footprints (pins map by number)*;
+  - **Field style:** "Project default" or any style;
+  - **X / Y** in mm, snapped to the grid, with Wires following;
+  - **Rotation** and **Mirror**;
+  - collapsible **Ordering** (manufacturer and MPN) and **Custom fields** (add, edit, remove).
+- **Several items selected:** the count, the selected references, a shared **Field style**, and Rotate, Mirror and Delete.
+- **Editing:** every change is one undo step, and the card follows undo and redo.
+
 ## Field styles
 
 - **Where styles are chosen:**

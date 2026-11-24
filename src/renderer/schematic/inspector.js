@@ -1,0 +1,184 @@
+// Schematic inspector (#9): a floating card at the top right of the canvas, like DabbleCAD's
+// 3D Design inspector. For one selected part it edits the Reference designator, Value,
+// Footprint, Field style, position/rotation/mirror, MPN and custom fields; for several it offers
+// the Field style and the shared commands. Every change is one undo step.
+import { h, button } from '../ui/dom.js';
+import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
+import { moveSelection, rotateSymbols, mirrorSymbols } from '../core/schematic.js';
+import { setComponentFieldStyle, styleFor } from '../core/fields.js';
+import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
+import { partOf } from '../core/project.js';
+import { snap, SCH_GRID, mm } from '../core/units.js';
+
+const fmtMm = (nm) => String(+(nm / 1e6).toFixed(2));
+
+export class SchematicInspector {
+  constructor(editor) {
+    this.ed = editor;
+    this.el = h('div', { class: 'inspector', role: 'region', 'aria-label': 'Inspector' });
+    this.sig = '';
+  }
+
+  get app() { return this.ed.app; }
+  get project() { return this.ed.project; }
+
+  /**
+   * Re-render when the selection or the selected items change. While the user is typing in a box
+   * and nothing underneath changed, leave it alone; when something did change (undo, an edit from
+   * elsewhere), re-render and put the cursor back in the same box.
+   */
+  render() {
+    const syms = this.ed.sheet.symbols.filter((y) => this.ed.selection.has(y.id));
+    const wires = this.ed.sheet.wires.filter((w) => this.ed.selection.has(w.id));
+    const comps = syms.map((y) => this.project.components[y.componentId]);
+    const sig = JSON.stringify([[...this.ed.selection], syms, wires.length, comps, this.project.fieldStyles?.default]);
+    const focused = this.el.contains(document.activeElement) ? document.activeElement : null;
+    const typing = focused && /^(INPUT|TEXTAREA)$/.test(focused.tagName);
+    if (typing && sig === this.sig) return;
+    this.sig = sig;
+    if (!syms.length && !wires.length) { this.el.replaceChildren(); return; }
+    if (syms.length === 1) this._one(syms[0], wires.length);
+    else this._many(syms, wires);
+    if (focused && focused.getAttribute('aria-label')) {
+      const again = this.el.querySelector(`[aria-label="${CSS.escape(focused.getAttribute('aria-label'))}"]`);
+      if (again) again.focus({ preventScroll: true });
+    }
+  }
+
+  _head(title, sub) {
+    return h('div', { class: 'insp-head' },
+      h('div', { class: 'insp-title', title }, title, sub ? h('span', { class: 'insp-sub' }, ' · ' + sub) : null),
+      button({ icon: 'close', title: 'Deselect (Esc)', cls: 'btn-ghost', onClick: () => { this.ed.selection.clear(); this.ed.refresh(); } }));
+  }
+
+  _edit(label, fn) {
+    try { this.app.edit(label, fn); return true; } catch (err) { return err.message || String(err); }
+  }
+
+  _text(label, value, onCommit, { placeholder = '', ariaLabel } = {}) {
+    const input = h('input', { class: 'input', type: 'text', value: value ?? '', placeholder, 'aria-label': ariaLabel || label, spellcheck: false });
+    const err = h('div', { class: 'insp-error' });
+    const commit = () => {
+      if (input.value === (value ?? '')) return;
+      const r = onCommit(input.value);
+      if (r === true || r === undefined) { err.textContent = ''; value = input.value; return; }
+      err.textContent = r; input.classList.add('bad'); input.focus();
+    };
+    input.addEventListener('input', () => { input.classList.remove('bad'); err.textContent = ''; });
+    input.addEventListener('change', commit);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { commit(); input.blur(); } if (e.key === 'Escape') { input.value = value ?? ''; input.blur(); } e.stopPropagation(); });
+    return h('div', { class: 'param param-wide' }, h('label', {}, label), input, err);
+  }
+
+  _one(sym, extraWires) {
+    const comp = this.project.components[sym.componentId];
+    const part = partOf(this.project, comp);
+    const unitTag = part.units.length > 1 ? String.fromCharCode(65 + (sym.unit || 0)) : '';
+    const rows = [];
+    rows.push(this._text('Reference', comp.ref, (v) => {
+      const bad = validateRef(this.project, comp.id, v);
+      if (bad) return bad;
+      return this._edit(`Rename ${comp.ref} to ${v.trim()}`, (p) => updateComponent(p, comp.id, { ref: v }));
+    }));
+    rows.push(this._text('Value', comp.value, (v) => this._edit(`${comp.ref} value`, (p) => updateComponent(p, comp.id, { value: v }))));
+
+    // Footprint: Preferred first, then any other (identity Pin map)
+    const ch = footprintChoices(this.project, comp, this.ed.parts);
+    const fpSel = h('select', { class: 'select', 'aria-label': 'Footprint', dataset: { role: 'footprint' } },
+      ch.preferred.length ? h('optgroup', { label: 'Preferred' }, ...ch.preferred.map((c) => h('option', { value: c.key }, c.label))) : null,
+      ch.other.length ? h('optgroup', { label: 'Other footprints (pins map by number)' }, ...ch.other.map((c) => h('option', { value: c.key }, c.label))) : null);
+    fpSel.value = footprintKey(comp);
+    fpSel.addEventListener('change', () => {
+      const c = [...ch.preferred, ...ch.other].find((x) => x.key === fpSel.value);
+      if (c) this._edit(`${comp.ref} footprint`, (p) => updateComponent(p, comp.id, { footprint: c.value }));
+    });
+    rows.push(h('div', { class: 'param param-wide' }, h('label', {}, 'Footprint'), fpSel));
+
+    rows.push(this._fieldStyle([comp.id]));
+
+    // position, rotation, mirror
+    const posInput = (axis) => {
+      const inp = h('input', { class: 'input', type: 'number', step: 1.27, value: fmtMm(sym.at[axis]), 'aria-label': axis ? 'Y (mm)' : 'X (mm)' });
+      inp.addEventListener('keydown', (e) => e.stopPropagation());
+      inp.addEventListener('change', () => {
+        const v = parseFloat(inp.value);
+        if (!Number.isFinite(v)) { inp.value = fmtMm(sym.at[axis]); return; }
+        const target = snap(mm(v), SCH_GRID);
+        const delta = axis ? [0, target - sym.at[1]] : [target - sym.at[0], 0];
+        if (delta[0] || delta[1]) this._edit(`Move ${comp.ref}`, (p) => moveSelection(p, p.schematic.sheets[0], [sym.id], delta));
+        else inp.value = fmtMm(sym.at[axis]);
+      });
+      return inp;
+    };
+    const rot = h('select', { class: 'select', 'aria-label': 'Rotation' }, ...[0, 90, 180, 270].map((d) => h('option', { value: d }, `${d}°`)));
+    rot.value = String(sym.rot || 0);
+    rot.addEventListener('change', () => {
+      const steps = ((+rot.value - (sym.rot || 0)) / 90 + 4) % 4;
+      if (steps) this._edit(`Rotate ${comp.ref}`, (p) => { for (let i = 0; i < steps; i++) rotateSymbols(p, [sym.id]); });
+    });
+    const mir = h('input', { type: 'checkbox', checked: !!sym.mirror, 'aria-label': 'Mirrored' });
+    mir.addEventListener('change', () => this._edit(`Mirror ${comp.ref}`, (p) => mirrorSymbols(p, [sym.id])));
+    rows.push(h('div', { class: 'xy' }, h('span', {}, 'X'), posInput(0), h('span', {}, 'Y'), posInput(1), h('em', {}, 'mm')),
+      h('div', { class: 'xy' }, h('span', {}, 'Rot'), rot, h('label', { class: 'check' }, mir, 'Mirror')));
+
+    // MPN and custom fields (collapsible, like the fork's inspector sections)
+    const mpn = comp.mpn || { manufacturer: '', number: '' };
+    const mpnRows = [
+      this._text('Manufacturer', mpn.manufacturer, (v) => this._edit(`${comp.ref} manufacturer`, (p) => updateComponent(p, comp.id, { mpn: { ...(p.components[comp.id].mpn || {}), manufacturer: v } }))),
+      this._text('Part number (MPN)', mpn.number, (v) => this._edit(`${comp.ref} MPN`, (p) => updateComponent(p, comp.id, { mpn: { ...(p.components[comp.id].mpn || {}), number: v } }))),
+    ];
+    const fieldRows = Object.entries(comp.fields || {}).map(([k, v]) => h('div', { class: 'kv-row' },
+      h('span', { class: 'kv-key', title: k }, k),
+      (() => { const inp = h('input', { class: 'input', type: 'text', value: v, 'aria-label': k }); inp.addEventListener('keydown', (e) => e.stopPropagation());
+        inp.addEventListener('change', () => this._edit(`${comp.ref} ${k}`, (p) => updateComponent(p, comp.id, { fields: { ...p.components[comp.id].fields, [k]: inp.value } }))); return inp; })(),
+      button({ icon: 'close', cls: 'btn-ghost', title: `Remove ${k}`, onClick: () => this._edit(`${comp.ref} remove ${k}`, (p) => { const f = { ...p.components[comp.id].fields }; delete f[k]; updateComponent(p, comp.id, { fields: f }); }) })));
+    const newKey = h('input', { class: 'input', type: 'text', placeholder: 'New field, e.g. Tolerance', 'aria-label': 'New field name' });
+    newKey.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter' && newKey.value.trim()) {
+        const k = newKey.value.trim();
+        this._edit(`${comp.ref} add ${k}`, (p) => updateComponent(p, comp.id, { fields: { ...p.components[comp.id].fields, [k]: '' } }));
+      }
+    });
+    const sections = [
+      h('details', { class: 'insp-section', open: !!comp.mpn }, h('summary', {}, 'Ordering'), ...mpnRows),
+      h('details', { class: 'insp-section', open: Object.keys(comp.fields || {}).length > 0 }, h('summary', {}, 'Custom fields'), ...fieldRows, newKey),
+    ];
+    const note = extraWires ? h('div', { class: 'insp-note' }, `and ${extraWires} wire${extraWires === 1 ? '' : 's'}`) : null;
+    this.el.replaceChildren(this._head(comp.ref + unitTag, part.name), h('div', { class: 'insp-body' }, note, ...rows), ...sections);
+  }
+
+  _fieldStyle(compIds) {
+    const comps = compIds.map((id) => this.project.components[id]);
+    const own = new Set(comps.map((c) => c.fieldStyle || ''));
+    const def = this.project.fieldStyles?.default || 'classic';
+    const defName = (fieldStyleById(this.app, def) || styleFor(this.project, null)).name;
+    const sel = h('select', { class: 'select', 'aria-label': 'Field style', dataset: { role: 'field-style-part' } },
+      h('option', { value: '' }, `Project default (${defName})`),
+      ...allFieldStyles(this.app).map((s) => h('option', { value: s.id }, s.name)),
+      own.size > 1 ? h('option', { value: '*', disabled: true }, 'Mixed') : null);
+    sel.value = own.size > 1 ? '*' : [...own][0];
+    sel.addEventListener('change', () => {
+      const style = sel.value ? fieldStyleById(this.app, sel.value) : null;
+      this._edit('Field style', (p) => setComponentFieldStyle(p, compIds, style));
+    });
+    return h('div', { class: 'param param-wide' }, h('label', {}, 'Field style'), sel);
+  }
+
+  _many(syms, wires) {
+    const compIds = [...new Set(syms.map((y) => y.componentId))];
+    const parts = [syms.length ? `${syms.length} part${syms.length === 1 ? '' : 's'}` : null, wires.length ? `${wires.length} wire${wires.length === 1 ? '' : 's'}` : null].filter(Boolean).join(', ');
+    const rows = [];
+    if (syms.length) {
+      const refs = syms.map((y) => this.project.components[y.componentId].ref).sort();
+      rows.push(h('div', { class: 'insp-note' }, refs.slice(0, 12).join(', ') + (refs.length > 12 ? '…' : '')));
+      rows.push(this._fieldStyle(compIds));
+    }
+    rows.push(h('div', { class: 'insp-btns' },
+      syms.length ? button({ icon: 'rotate', label: 'Rotate', cls: 'btn-outline', onClick: () => this.ed.rotate() }) : null,
+      syms.length ? button({ icon: 'mirror', label: 'Mirror', cls: 'btn-outline', onClick: () => this.ed.mirror() }) : null,
+      button({ icon: 'trash', label: 'Delete', cls: 'btn-outline', onClick: () => this.ed.deleteSelection() })));
+    this.el.replaceChildren(this._head(parts + ' selected'), h('div', { class: 'insp-body' }, ...rows));
+  }
+}
+
