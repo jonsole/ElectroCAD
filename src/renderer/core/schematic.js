@@ -1,7 +1,7 @@
 // Schematic editing commands (DOM-free). Each is a mutation the editor runs inside one
 // History transaction, so every user action is exactly one undo step.
-import { addComponent, partOf, pruneOrphans } from './project.js';
-import { place } from './geom.js';
+import { addComponent, partOf, pruneOrphans, uid } from './project.js';
+import { place, eq, distToSegment2 } from './geom.js';
 import { snapPt, SCH_GRID } from './units.js';
 
 /** Place a new Component's Unit on `sheet`, snapped to the 50 mil grid. */
@@ -25,10 +25,49 @@ export function mirrorSymbols(project, ids) {
 }
 
 /** Delete Symbols; Components left with no placed Unit, and Parts nobody uses, go too. */
-export function deleteSymbols(project, ids) {
+export function deleteSymbols(project, ids) { deleteItems(project, ids); }
+
+/** Delete Symbols and Wires by id (one command for a mixed selection). */
+export function deleteItems(project, ids) {
   const gone = new Set(ids);
-  for (const s of project.schematic.sheets) s.symbols = s.symbols.filter((y) => !gone.has(y.id));
+  for (const s of project.schematic.sheets) {
+    s.symbols = s.symbols.filter((y) => !gone.has(y.id));
+    s.wires = s.wires.filter((w) => !gone.has(w.id));
+  }
   pruneOrphans(project);
+}
+
+/**
+ * Add a Wire through `points` (a polyline of orthogonal or diagonal runs) as segments. Points
+ * snap to the grid, zero-length runs are dropped and straight runs merged. Returns the new
+ * segments.
+ */
+export function addWire(project, sheet, points) {
+  const pts = [];
+  for (const p of points.map((q) => snapPt(q, SCH_GRID))) {
+    if (pts.length && eq(pts[pts.length - 1], p)) continue;
+    if (pts.length >= 2) {
+      const [a, b] = [pts[pts.length - 2], pts[pts.length - 1]];
+      const cross = (b[0] - a[0]) * (p[1] - b[1]) - (b[1] - a[1]) * (p[0] - b[0]);
+      const sameWay = (b[0] - a[0]) * (p[0] - b[0]) + (b[1] - a[1]) * (p[1] - b[1]) > 0;
+      if (cross === 0 && sameWay) { pts[pts.length - 1] = p; continue; } // straight on: extend
+    }
+    pts.push(p);
+  }
+  const segs = [];
+  for (let i = 1; i < pts.length; i++) segs.push({ id: uid('w'), a: pts[i - 1], b: pts[i] });
+  sheet.wires.push(...segs);
+  return segs;
+}
+
+/** The Wire on `sheet` nearest to `pt` within `tol` nm, or null. */
+export function hitWire(sheet, pt, tol) {
+  let best = null, bestD = tol * tol;
+  for (const w of sheet.wires) {
+    const d = distToSegment2(pt, w.a, w.b);
+    if (d <= bestD) { best = w; bestD = d; }
+  }
+  return best;
 }
 
 /** The local-frame points that outline a Unit: its graphics and Pin tips. */

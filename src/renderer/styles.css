@@ -260,3 +260,18 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .theme-token input[type='range'] { width: 64px; accent-color: var(--accent); }
 .theme-token .btn { height: 26px; min-width: 26px; padding: 0; }
 .theme-preview { display: block; width: 420px; height: 260px; border: 1px solid var(--border); border-radius: 8px; margin-top: 6px; }
+
+/* ---------- floating panels over the canvas (like DabbleCAD's inspector card) ---------- */
+.float-panel { position: absolute; right: 14px; top: 34px; width: 280px; max-height: calc(100% - 90px); display: flex; flex-direction: column; z-index: 11; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+.fp-head { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border-bottom: 1px solid var(--border); }
+.fp-head b { font-size: 13px; }
+.fp-count { flex: 1; color: var(--muted); font-size: 12px; }
+.fp-head .btn { height: 28px; min-width: 28px; }
+.fp-body { overflow-y: auto; padding: 6px 10px 10px; }
+.nl-net { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.nl-net:last-child { border-bottom: 0; }
+.nl-name { font: 600 12px ui-monospace, Consolas, monospace; margin-bottom: 4px; }
+.nl-pins { display: flex; flex-wrap: wrap; gap: 4px; }
+.nl-pin { font: 11.5px ui-monospace, Consolas, monospace; padding: 1px 6px; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--border); color: var(--muted); }
+.nl-unconnected .nl-name { color: var(--muted); }
+.tool-col .btn.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }

@@ -1,6 +1,7 @@
 import { App } from './app.js';
 import * as project from './core/project.js';
 import * as units from './core/units.js';
+import * as netlist from './core/netlist.js';
 
 // The app has its own menus; keep the browser's right-click menu off the canvas and
 // chrome, but leave it on text fields for copy, paste and spelling (as DabbleCAD does).
@@ -12,7 +13,7 @@ document.addEventListener('contextmenu', (e) => {
 
 const app = new App();
 window.electrocad = app; // used by the smoke tests
-window.electrocadLib = { project, units };
+window.electrocadLib = { project, units, netlist };
 app.init().catch((err) => {
   console.error(err);
   const boot = document.getElementById('boot');

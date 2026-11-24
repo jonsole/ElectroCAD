@@ -3,6 +3,7 @@
 import { place } from '../core/geom.js';
 import { partOf } from '../core/project.js';
 import { mm } from '../core/units.js';
+import { junctions } from '../core/netlist.js';
 
 const LINE = mm(0.2);      // symbol body line width
 const PIN_LINE = mm(0.15);
@@ -98,9 +99,30 @@ function bodyHalfHeight(unit) {
   return m;
 }
 
-/** Draw every Symbol on a Sheet, then the selection and the placement ghost. */
-export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(), ghost = null, bounds } = {}) {
+const WIRE = mm(0.15);
+const JUNCTION = mm(0.5);
+
+function strokeWire(ctx, view, a, b) {
+  const [ax, ay] = view.toScreen(a), [bx, by] = view.toScreen(b);
+  ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
+}
+
+/** Draw a Sheet: Wires, Symbols, Junctions, then selection, the placement ghost and a Wire being drawn. */
+export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(), ghost = null, bounds, wiring = null, target = null } = {}) {
   const toScreen = (p) => view.toScreen(p);
+  const wireW = Math.max(1.5, WIRE * view.scale);
+  ctx.save();
+  ctx.lineCap = 'round';
+  // Wires (selected ones get a selection-coloured halo underneath)
+  const selWires = sheet.wires.filter((w) => selection.has(w.id));
+  if (selWires.length) {
+    ctx.strokeStyle = C.selection; ctx.globalAlpha = 0.45; ctx.lineWidth = wireW + 6;
+    ctx.beginPath(); for (const w of selWires) strokeWire(ctx, view, w.a, w.b); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  ctx.strokeStyle = C.wire; ctx.lineWidth = wireW;
+  ctx.beginPath(); for (const w of sheet.wires) strokeWire(ctx, view, w.a, w.b); ctx.stroke();
+  ctx.restore();
   for (const sym of sheet.symbols) {
     const comp = project.components[sym.componentId];
     const part = partOf(project, comp);
@@ -114,6 +136,20 @@ export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(),
       ctx.strokeRect(Math.round(x0) - 3.5, Math.round(y0) - 3.5, x1 - x0 + 7, y1 - y0 + 7);
       ctx.restore();
     }
+  }
+  // Junction dots, derived from the Wires and Pins
+  ctx.fillStyle = C.junction;
+  const jr = Math.max(2.5, JUNCTION * view.scale);
+  for (const j of junctions(project, sheet)) { const [x, y] = view.toScreen(j); ctx.beginPath(); ctx.arc(x, y, jr, 0, Math.PI * 2); ctx.fill(); }
+  // a Wire being drawn, and the Pin/Wire it would end on
+  if (wiring && wiring.length > 1) {
+    ctx.save(); ctx.globalAlpha = 0.75; ctx.strokeStyle = C.wire; ctx.lineWidth = wireW; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath(); wiring.map((p) => view.toScreen(p)).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
+    ctx.restore();
+  }
+  if (target) {
+    const [x, y] = view.toScreen(target);
+    ctx.save(); ctx.strokeStyle = C.selection; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, Math.max(5, mm(0.8) * view.scale), 0, Math.PI * 2); ctx.stroke(); ctx.restore();
   }
   if (ghost) {
     drawUnit(ctx, toScreen, view.scale, ghost.part, 0, ghost, { reference: ghost.part.prefix + '?', value: ghost.part.defaultValue }, C, { alpha: 0.6 });
