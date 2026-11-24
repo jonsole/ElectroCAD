@@ -15,8 +15,8 @@ The logical drawing of the circuit: Symbols joined by Wires and Net labels, spre
 _Avoid_: Diagram, circuit
 
 **Sheet**:
-One page of a Schematic.
-_Avoid_: Page
+One page of a Schematic. Sheets are flat peers, not nested, and are joined only by Global labels and Power symbols.
+_Avoid_: Page, sub-sheet
 
 **Board**:
 The physical layout: an Outline, a Layer stack, and placed Footprints joined by Tracks, Vias and Zones.
@@ -28,11 +28,15 @@ _Avoid_: PCB (fine in prose, but not as a model name), layout
 A named collection of Parts.
 
 **Part**:
-A buyable component definition. It pairs one Symbol with one or more Footprints through a Pin map.
+A reusable, generic component definition such as "Resistor" or "LM324". It has one or more Units and one or more Footprints joined through Pin maps. It is not a specific purchasable item: the Value and MPN belong to the Component.
 _Avoid_: Device (Eagle's word), component (save that for placed instances)
 
+**Unit**:
+One separately placeable Symbol of a Part, such as one op-amp of a quad op-amp. A Part with a single Symbol has exactly one Unit. Units are lettered A, B, C… after the Reference designator (U1A).
+_Avoid_: Gate (Eagle's word), section
+
 **Symbol**:
-The schematic graphic of a Part: its body drawing and Pins.
+The schematic graphic of one Unit: its body drawing and Pins.
 
 **Footprint**:
 The board graphic of a Part: its Pads, silkscreen and courtyard.
@@ -45,13 +49,20 @@ A connection point on a Symbol, identified by a Pin number.
 A copper connection point on a Footprint, identified by a Pad number. A Pad is either through-hole (THT) or surface-mount (SMD).
 
 **Pin map**:
-The mapping from a Part's Pin numbers to the Pad numbers of one Footprint.
+The mapping from a Part's Pin numbers to the Pad numbers of one Footprint. A Footprint the Part does not list uses the identity Pin map (Pin n goes to Pad n).
 _Avoid_: Connect (Eagle's word)
+
+**Preferred footprint**:
+A Footprint the Part lists, with its own Pin map. A Component may also be given any other Footprint.
+
+**Library origin**:
+The Library and version a Project's embedded Part was copied from. The embedded copy stays frozen until the user runs an explicit update from the Library.
+_Avoid_: Link, live reference
 
 ### Placed things
 
 **Component**:
-One placed instance of a Part in the Project, identified by its Reference designator. It appears once in the Schematic as a Symbol and once on the Board as a Footprint.
+One placed instance of a Part in the Project, identified by its Reference designator. It appears in the Schematic once per Unit and on the Board exactly once as a Footprint.
 _Avoid_: Instance, element, part (when you mean the placed one)
 
 **Reference designator**:
@@ -60,6 +71,10 @@ _Avoid_: Refdes (fine in code), name, label
 
 **Value**:
 The free-text electrical value of a Component, such as 10k or 100nF.
+
+**MPN**:
+The manufacturer and manufacturer part number of a Component, which makes a generic Part buyable. It is optional and feeds the BOM.
+_Avoid_: SKU, order code
 
 ### Connectivity
 
@@ -78,11 +93,15 @@ _Avoid_: Trace, connection
 A dot that joins Wires where they cross or meet in a T.
 
 **Net label**:
-A named marker that joins every Wire carrying the same name into one Net, even across Sheets.
-_Avoid_: Port, tag
+A named marker that joins every Wire with the same name on the same Sheet into one Net.
+_Avoid_: Local label, port, tag
+
+**Global label**:
+A named marker that joins every Wire with the same name on every Sheet into one Net.
+_Avoid_: Port, off-page connector
 
 **Power symbol**:
-A Net label drawn as a power or ground glyph, such as GND or +3V3.
+A Global label drawn as a power or ground glyph, such as GND or +3V3.
 
 **Ratsnest**:
 The straight "airwire" lines drawn on the Board between Pads that share a Net but are not yet joined by copper.
@@ -101,7 +120,11 @@ A copper line segment on one Copper layer that carries a Net.
 _Avoid_: Trace, wire (wire means the schematic line)
 
 **Via**:
-A plated hole that joins Tracks on different Copper layers. In v1 every Via goes through all layers.
+A plated hole that joins Tracks on different Copper layers. In v1 every Via is a through via (top to bottom). Blind and buried vias are later.
+
+**Routing mode**:
+How the router treats existing copper while a Track is drawn. **Shove** pushes other Tracks and Vias aside, **Walkaround** bends around them without moving them, and **Free** ignores them and only highlights collisions.
+_Avoid_: Interactive router setting, push mode
 
 **Zone**:
 A copper area on one Copper layer, filled with a Net and kept clear of other Nets.
@@ -116,6 +139,10 @@ _Avoid_: Edge cuts (KiCad's layer name), dimension
 **Design rules**:
 The manufacturing constraints of a Board, such as minimum clearance, track width and drill size.
 
+**Fab preset**:
+A named starting set of Design rules and Fab output settings that matches one board house's published 2- or 4-layer capabilities. The user can edit it after applying it.
+_Avoid_: Fab profile, DRU file
+
 **Net class**:
 A named group of Nets that share track width, clearance and via sizes.
 
@@ -128,6 +155,9 @@ Electrical rule check. It finds Schematic mistakes such as unconnected Pins or t
 **Forward annotation**:
 Pushing Schematic changes (new Components, changed Nets) onto the Board.
 _Avoid_: Update PCB, sync (too vague)
+
+**Cross-probing**:
+Selecting a Component or Net in one editor highlights the same thing in the other.
 
 **Back annotation**:
 Pushing Board-side changes, such as a renumbered Reference designator or a swapped Footprint, back to the Schematic.
