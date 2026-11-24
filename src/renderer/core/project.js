@@ -7,7 +7,7 @@ import { mm } from './units.js';
 import { place } from './geom.js';
 
 export const FORMAT = 'electrocad';
-export const VERSION = 1;
+export const VERSION = 2; // 2: Field styles (ADR-0012)
 
 /** Thrown when a file can't be opened as a Project; the message is shown to the user. */
 export class ProjectFileError extends Error {
@@ -26,8 +26,20 @@ export function newProject(name = 'Untitled') {
     parts: {}, components: {},
     schematic: { sheets: [newSheet('Sheet 1')] },
     board: newBoard(),
+    fieldStyles: defaultFieldStyles(),
   };
 }
+
+// Classic is embedded in every new Project (ADR-0012); kept here, not imported from fields.js,
+// so the file format does not depend on the placer.
+const CLASSIC_STYLE = {
+  id: 'classic', name: 'Classic', builtin: true, arrangement: 'stacked',
+  show: { reference: true, value: true, footprint: false, mpn: false, hideValueIfPartName: false },
+  text: { size: 1_270_000, bold: false, italic: false, gap: 500_000 },
+  valueFormat: 'as-typed',
+  placement: { horizontal: ['split', 'above', 'below', 'right', 'left'], vertical: ['right', 'left', 'above', 'below'] },
+};
+const defaultFieldStyles = () => ({ default: 'classic', styles: { classic: structuredClone(CLASSIC_STYLE) } });
 
 export function newSheet(name) {
   return { id: uid('s'), name, symbols: [], wires: [], labels: [], noConnects: [] };
@@ -137,7 +149,10 @@ export const FILE_EXTENSION = 'ecad';
 export const serialize = (project) => JSON.stringify(project, null, 1) + '\n';
 
 // Migrations from older file versions: MIGRATIONS[n] turns a version-n project into n+1.
-const MIGRATIONS = {};
+const MIGRATIONS = {
+  // 1 -> 2: Field styles; older Projects use Classic
+  1: (p) => ({ ...p, version: 2, fieldStyles: p.fieldStyles || defaultFieldStyles() }),
+};
 
 /** Parse a .ecad file. Throws ProjectFileError with a user-facing message when it can't. */
 export function deserialize(text) {
@@ -171,4 +186,5 @@ function validate(p) {
   const b = p.board;
   need(b && b.stack && (b.stack.copper === 2 || b.stack.copper === 4), 'the board layer stack is missing or not 2/4 layers');
   need(['outline', 'footprints', 'tracks', 'vias', 'zones'].every((k) => Array.isArray(b[k])), 'the board is incomplete');
+  need(p.fieldStyles && typeof p.fieldStyles.styles === 'object' && typeof p.fieldStyles.default === 'string', 'the field styles are missing');
 }

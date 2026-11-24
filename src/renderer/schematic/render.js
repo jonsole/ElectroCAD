@@ -4,6 +4,7 @@ import { place } from '../core/geom.js';
 import { partOf } from '../core/project.js';
 import { mm } from '../core/units.js';
 import { junctions } from '../core/netlist.js';
+import { placeFields, styleFor } from '../core/fields.js';
 
 const LINE = mm(0.2);      // symbol body line width
 const PIN_LINE = mm(0.15);
@@ -107,8 +108,43 @@ function strokeWire(ctx, view, a, b) {
   ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
 }
 
-/** Draw a Sheet: Wires, Symbols, Junctions, then selection, the placement ghost and a Wire being drawn. */
-export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(), ghost = null, bounds, wiring = null, target = null } = {}) {
+const FONT = '"Segoe UI", system-ui, sans-serif';
+let measureCtx = null;
+/** Text width in nm for a text size in nm, measured with the canvas font (used by the field placer). */
+export function measureText(text, sizeNm) {
+  measureCtx ||= document.createElement('canvas').getContext('2d');
+  measureCtx.font = `100px ${FONT}`;
+  return Math.round((measureCtx.measureText(String(text)).width / 100) * sizeNm);
+}
+
+/** Draw placed fields (from core/fields.js placeFields) upright, plus a marker on flagged ones. */
+function drawFields(ctx, view, C, project, sheet, placement) {
+  for (const sym of sheet.symbols) {
+    const r = placement.get(sym.id);
+    if (!r || !r.items.length) continue;
+    const style = styleFor(project, project.components[sym.componentId]);
+    const px = style.text.size * view.scale;
+    if (px < 4) continue;
+    ctx.font = `${style.text.italic ? 'italic ' : ''}${style.text.bold ? '600 ' : ''}${px}px ${FONT}`;
+    ctx.textBaseline = 'middle';
+    for (const it of r.items) {
+      ctx.textAlign = it.align;
+      ctx.fillStyle = it.keys.includes('reference') ? C.reference : C.value;
+      const [x, y] = view.toScreen([it.x, it.y]);
+      ctx.fillText(it.text, x, y);
+    }
+    if (r.flagged) {
+      const b = r.items[0].box;
+      const [x, y] = view.toScreen([b.x0, b.y0]);
+      const t = Math.max(5, px * 0.55);
+      ctx.fillStyle = C.ercWarning;
+      ctx.beginPath(); ctx.moveTo(x - t * 1.4, y - t * 0.2); ctx.lineTo(x - t * 0.4, y - t * 0.2); ctx.lineTo(x - t * 0.9, y - t * 1.1); ctx.closePath(); ctx.fill();
+    }
+  }
+}
+
+/** Draw a Sheet: Wires, Symbols, fields, Junctions, then selection, the placement ghost and a Wire being drawn. */
+export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(), ghost = null, bounds, wiring = null, target = null, placement = null } = {}) {
   const toScreen = (p) => view.toScreen(p);
   const wireW = Math.max(1.5, WIRE * view.scale);
   ctx.save();
@@ -127,8 +163,7 @@ export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(),
     const comp = project.components[sym.componentId];
     const part = partOf(project, comp);
     if (!part) continue;
-    const ref = comp.ref + (part.units.length > 1 ? String.fromCharCode(65 + (sym.unit || 0)) : '');
-    drawUnit(ctx, toScreen, view.scale, part, sym.unit, sym, { reference: ref, value: comp.value }, C);
+    drawUnit(ctx, toScreen, view.scale, part, sym.unit, sym, null, C); // fields come from the placer
     if (selection.has(sym.id) && bounds) {
       const b = bounds(sym);
       const [x0, y0] = view.toScreen([b.x0, b.y0]), [x1, y1] = view.toScreen([b.x1, b.y1]);
@@ -137,6 +172,7 @@ export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(),
       ctx.restore();
     }
   }
+  drawFields(ctx, view, C, project, sheet, placement || placeFields(project, sheet, { measure: measureText }));
   // Junction dots, derived from the Wires and Pins
   ctx.fillStyle = C.junction;
   const jr = Math.max(2.5, JUNCTION * view.scale);

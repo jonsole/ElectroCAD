@@ -1,7 +1,8 @@
 // Schematic editor: the Part picker (modelled on DabbleCAD's 3D Design shape panel), placing
 // Parts (#4), drawing Wires and the live Netlist panel (#5), selecting, rotating, mirroring
 // and deleting. Every change is one History transaction (one undo step).
-import { h, icon, button } from '../ui/dom.js';
+import { h, icon, button, popupMenu } from '../ui/dom.js';
+import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { later } from '../workspaces/workspace.js';
 import { MINI_LIBRARY, searchParts } from '../library/mini.js';
 import { placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, hitWire } from '../core/schematic.js';
@@ -9,7 +10,8 @@ import { buildNetlist } from '../core/netlist.js';
 import { pinPositions } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
 import { snapPt, SCH_GRID } from '../core/units.js';
-import { drawSheet, symbolThumbnail } from './render.js';
+import { drawSheet, symbolThumbnail, measureText } from './render.js';
+import { placeFields, fieldWarnings, setDefaultFieldStyle, setComponentFieldStyle } from '../core/fields.js';
 
 const DRAG_START_PX = 4;
 const IDLE_HINT = 'Nothing selected. Drag Parts from the picker on the right, or click one and then click the sheet. Middle- or right-drag to pan, scroll to zoom, Home to fit.';
@@ -44,8 +46,35 @@ export class SchematicEditor {
       h('div', { class: 'side-filter' }, h('select', { class: 'select', disabled: true, title: 'Part categories (coming in #12)' }, h('option', {}, 'All parts'))),
       h('div', { class: 'side-search' }, icon('search', 16), search),
       this.grid,
+      this.styleFoot = h('div', { class: 'side-foot field-style-foot' }),
       h('div', { class: 'side-foot' }, later({ label: 'Import', icon: 'import', title: 'Import KiCad or Eagle libraries' }, 32), later({ label: 'New part', icon: 'plus', title: 'Create a Part in the Library tab' }, 13)));
     return this.panel;
+  }
+
+  /** The picker footer's Field style select: the Project default (ADR-0012). */
+  renderStyleFoot() {
+    if (!this.styleFoot) return;
+    const sel = h('select', { class: 'select', 'aria-label': 'Field style for this project', title: 'Field style: how Reference designators and Values are drawn and placed', dataset: { role: 'field-style-default' } },
+      ...allFieldStyles(this.app).map((s) => h('option', { value: s.id }, s.name)));
+    sel.value = this.project.fieldStyles?.default || 'classic';
+    sel.addEventListener('change', () => {
+      const style = fieldStyleById(this.app, sel.value);
+      if (style) this.app.edit(`Field style: ${style.name}`, (p) => setDefaultFieldStyle(p, style));
+    });
+    this.styleFoot.replaceChildren(h('span', { class: 'foot-label' }, 'Fields'), sel);
+  }
+
+  /** The toolbar's Fields menu: a Field style for the selected parts only. */
+  fieldsMenu(anchor) {
+    const comps = [...new Set(this.sheet.symbols.filter((y) => this.selection.has(y.id)).map((y) => y.componentId))];
+    if (!comps.length) return;
+    const current = new Set(comps.map((id) => this.project.components[id]?.fieldStyle || null));
+    const one = current.size === 1 ? [...current][0] : undefined;
+    popupMenu([
+      { label: 'Project default', checked: one === null, onClick: () => this.app.edit('Field style: project default', (p) => setComponentFieldStyle(p, comps, null)) },
+      'sep',
+      ...allFieldStyles(this.app).map((s) => ({ label: s.name, checked: one === s.id, onClick: () => this.app.edit(`Field style: ${s.name}`, (p) => setComponentFieldStyle(p, comps, s)) })),
+    ], anchor);
   }
 
   renderTiles() {
@@ -74,11 +103,12 @@ export class SchematicEditor {
       del: button({ icon: 'trash', title: 'Delete (Del)', onClick: () => this.deleteSelection() }),
       rotate: button({ icon: 'rotate', title: 'Rotate (R)', onClick: () => this.rotate() }),
       mirror: button({ icon: 'mirror', title: 'Mirror (X)', onClick: () => this.mirror() }),
+      fields: button({ label: 'Fields', icon: 'ltext', title: 'Field style for the selected parts', onClick: (e) => this.fieldsMenu(e.currentTarget) }),
     };
     return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }),
       later({ icon: 'copy', title: 'Copy (Ctrl+C)' }, 8), later({ icon: 'paste', title: 'Paste (Ctrl+V)' }, 8),
       later({ icon: 'duplicate', title: 'Duplicate (Ctrl+D)' }, 8), this.btn.del, h('span', { class: 'sep' }),
-      this.btn.rotate, this.btn.mirror];
+      this.btn.rotate, this.btn.mirror, h('span', { class: 'sep' }), this.btn.fields];
   }
 
   /** The left tool palette: Select and Wire are live; the rest name their tickets. */
@@ -115,9 +145,11 @@ export class SchematicEditor {
       this.btn.del.disabled = this.selection.size === 0;
       const anySym = this.sheet.symbols.some((y) => this.selection.has(y.id));
       if (!this.placing) { this.btn.rotate.disabled = !anySym; this.btn.mirror.disabled = !anySym; }
+      this.btn.fields.disabled = !anySym;
     }
     if (this.toolBtn) for (const [t, b] of Object.entries(this.toolBtn)) b.classList.toggle('active', this.tool === t && !this.placing);
     this.renderNetlist();
+    this.renderStyleFoot();
     this._hint();
     this.ws?.view.invalidate();
   }
@@ -125,6 +157,7 @@ export class SchematicEditor {
   _hint() {
     if (!this.ws) return;
     let text = IDLE_HINT;
+    if (this.fieldWarnings && this.fieldWarnings.length) text = `⚠ ${this.fieldWarnings.length === 1 ? this.fieldWarnings[0] : `${this.fieldWarnings.length} parts' fields overlap (${this.fieldWarnings.slice(0, 3).join('; ')}${this.fieldWarnings.length > 3 ? '…' : ''})`} — move parts apart or pick another Field style. ` + IDLE_HINT.replace('Nothing selected. ', '');
     if (this.tool === 'wire') text = this.wiring
       ? 'Drawing a wire: click to add a corner · click a Pin or Wire (or double-click) to finish · / switch corner direction · Backspace undo corner · Esc finish'
       : 'Wire: click a Pin or a point on the grid to start · Esc back to Select';
@@ -172,7 +205,10 @@ export class SchematicEditor {
       target = this._endTarget(this.cursor) ? this.cursor : null;
       if (this.wiring) wiring = [...this.wiring.points, ...this._route(this.wiring.points[this.wiring.points.length - 1], this.cursor)];
     }
-    drawSheet(ctx, view, C, this.project, this.sheet, { selection: this.selection, ghost, bounds: (s) => symbolBounds(this.project, s), wiring, target });
+    this.placement = placeFields(this.project, this.sheet, { measure: measureText });
+    drawSheet(ctx, view, C, this.project, this.sheet, { selection: this.selection, ghost, bounds: (s) => symbolBounds(this.project, s), wiring, target, placement: this.placement });
+    const warn = fieldWarnings(this.project, this.sheet, this.placement);
+    if (warn.join() !== (this.fieldWarnings || []).join()) { this.fieldWarnings = warn; this._hint(); }
   }
 
   // ---------------------------------------------------------------- placing

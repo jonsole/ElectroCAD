@@ -10,6 +10,8 @@ import { renderThumbnail } from './view/thumbnail.js';
 import { ProjectsScreen } from './ui/projects.js';
 import { resolveTheme, listThemes, MATCH_APP } from './core/themes.js';
 import { colorsSection } from './ui/themes.js';
+import { fieldStylesSection } from './ui/fieldStyles.js';
+import { setDefaultFieldStyle } from './core/fields.js';
 import { buildWorkspaces } from './workspaces/index.js';
 import { later, sep, spacer } from './workspaces/workspace.js';
 
@@ -325,6 +327,24 @@ export class App {
 
   recolor() { for (const w of this.workspaces) w.recolor(); }
 
+  // ---------------------------------------------------------------- Field styles (ADR-0012)
+
+  /** Replace the user's own Field styles (kept in settings, like Colour themes). */
+  setCustomFieldStyles(list) {
+    this.settings.customFieldStyles = list;
+    platform.setSettings({ customFieldStyles: list });
+    for (const w of this.workspaces) w.refresh();
+  }
+
+  /** After editing a style the open Project uses, update the Project's copy (one undo step). */
+  updateProjectFieldStyle(style) {
+    this.edit(`Update field style ${style.name}`, (p) => {
+      const isDefault = p.fieldStyles.default === style.id;
+      p.fieldStyles.styles[style.id] = structuredClone(style);
+      if (isDefault) setDefaultFieldStyle(p, style);
+    });
+  }
+
   applyTheme(theme) {
     document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
   }
@@ -379,6 +399,7 @@ export class App {
     sel.addEventListener('change', () => { if (sel.value !== (this.settings.theme === 'light' ? 'light' : 'dark')) this.toggleTheme(); });
     m.body.append(h('label', { class: 'field' }, h('span', {}, 'App theme'), sel),
       colorsSection(this),
+      fieldStylesSection(this),
       h('p', { class: 'side-note' }, 'More settings (units, AI providers, agents) arrive with later tickets.'));
   }
 }
