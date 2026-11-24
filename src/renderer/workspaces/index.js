@@ -5,50 +5,45 @@ import { h, button, icon } from '../ui/dom.js';
 import { Workspace, later, sep, spacer, section, segmented, toolButton } from './workspace.js';
 import { SCH_GRID, mm } from '../core/units.js';
 import { copperLayers } from '../core/project.js';
+import { SchematicEditor } from '../schematic/editor.js';
 
 
-const editTools = () => [
+const editTools = () => [ // Board, Gerber and Library editing arrives with their tickets
   later({ icon: 'undo', title: 'Undo (Ctrl+Z)' }, 4), later({ icon: 'redo', title: 'Redo (Ctrl+Shift+Z)' }, 4), sep(),
   later({ icon: 'copy', title: 'Copy (Ctrl+C)' }, 8), later({ icon: 'paste', title: 'Paste (Ctrl+V)' }, 8),
   later({ icon: 'duplicate', title: 'Duplicate (Ctrl+D)' }, 8), later({ icon: 'trash', title: 'Delete (Del)' }, 8),
 ];
 
 function schematic(app) {
-  const p = app.project;
-  const side = h('div', { class: 'side-panel picker', 'aria-label': 'Part picker' },
-    h('div', { class: 'side-tools', style: { gridTemplateColumns: 'repeat(3, 1fr)' } },
-      ...[['netlist', 'Netlist', 5], ['erc', 'ERC', 11], ['sheets', 'Sheets', 7]].map(([ic, label, t]) => {
-        const b = h('button', { class: 'side-tool', type: 'button', title: `${label} (coming in #${t})`, disabled: true }, icon(ic, 20), h('span', {}, label));
-        return b;
-      })),
-    h('div', { class: 'side-filter' }, h('select', { class: 'select', disabled: true, title: 'Part categories (coming in #12)' }, h('option', {}, 'All parts'))),
-    h('div', { class: 'side-search' }, icon('search', 16), h('input', { class: 'input', type: 'search', placeholder: 'Search parts', disabled: true })),
-    h('div', { class: 'shape-grid' }, h('div', { class: 'side-empty' }, 'Parts arrive here with the Part picker (#4): drag one onto the sheet, or click it and then click the sheet.')),
-    h('div', { class: 'side-foot' }, later({ label: 'Import', icon: 'import', title: 'Import KiCad or Eagle libraries' }, 32), later({ label: 'New part', icon: 'plus', title: 'Create a Part in the Library tab' }, 13)));
-  return new Workspace({
+  const editor = new SchematicEditor(app);
+  const ws = new Workspace({
     colors: () => app.canvasColors('schematic'),
+    draw: (ctx, view, C) => editor.draw(ctx, view, C),
+    onRefresh: () => { editor.renderTiles(); editor.refresh(); },
     id: 'schematic', label: 'Schematic', icon: 'schematic', title: 'Schematic: place Parts, wire them and check the Netlist',
     grid: SCH_GRID,
     frame: { x0: 0, y0: 0, x1: mm(297), y1: mm(210) }, // A4 landscape sheet
-    toolbar: [...editTools(), sep(),
-      later({ icon: 'rotate', title: 'Rotate (R)' }, 4), later({ icon: 'mirror', title: 'Mirror (X)' }, 4), spacer(),
+    toolbar: [...editor.toolbar(), spacer(),
       later({ label: 'ERC', icon: 'erc', title: 'Electrical rule check' }, 11),
       later({ label: 'Print', icon: 'print', title: 'Print or export to PDF/SVG' }, 14)],
-    hint: 'Nothing selected. Drag Parts from the picker on the right. Middle- or right-drag to pan, scroll to zoom, Home to fit the sheet.',
+    hint: '',
     tools: [toolButton('select', 'Select (V)', { active: true }), toolButton('wire', 'Wire (W)', { ticket: 5 }),
       toolButton('netLabel', 'Net label (L)', { ticket: 7 }), toolButton('globalLabel', 'Global label (Ctrl+L)', { ticket: 7 }),
       toolButton('power', 'Power symbol (P)', { ticket: 7 }), toolButton('ground', 'Ground (G)', { ticket: 7 }),
       toolButton('noConnect', 'No-connect (Q)', { ticket: 11 }), null,
       toolButton('ltext', 'Text', { ticket: 8 }), toolButton('ruler', 'Measure', { ticket: 8 })],
-    side,
-    chips: () => p.schematic.sheets.map((s, i) => h('button', { class: 'chip text-chip' + (i === 0 ? ' on' : ''), type: 'button', title: s.name }, String(i + 1))),
-    status: () => `${Object.keys(p.components).length} components · ${p.schematic.sheets.length} sheet · grid 50 mil`,
+    side: editor.buildPicker(),
+    chips: () => app.project.schematic.sheets.map((s, i) => h('button', { class: 'chip text-chip' + (i === 0 ? ' on' : ''), type: 'button', title: s.name }, String(i + 1))),
+    status: () => { const n = Object.keys(app.project.components).length; return `${n} component${n === 1 ? '' : 's'} · ${app.project.schematic.sheets.length} sheet · grid 50 mil`; },
   });
+  ws.editor = editor;
+  editor.attach(ws);
+  editor.refresh();
+  return ws;
 }
 
 function board(app) {
-  const p = app.project;
-  const layers = () => [...copperLayers(p.board.stack.copper), 'F.SilkS', 'B.SilkS', 'Edge.Cuts'];
+  const layers = () => [...copperLayers(app.project.board.stack.copper), 'F.SilkS', 'B.SilkS', 'Edge.Cuts'];
   const layerColor = (name) => app.canvasColors('board')[name] || '#888';
   const layerRow = (name, i) => h('div', { class: 'll-row' + (i === 0 ? ' on' : ''), title: name },
     h('span', { class: 'll-chip', style: { background: layerColor(name) } }, name === 'Edge.Cuts' ? 'Edge' : name.replace('.Cu', '').replace('.SilkS', ' silk')),
@@ -77,8 +72,8 @@ function board(app) {
       toolButton('zone', 'Zone', { ticket: 23 }), toolButton('outline', 'Outline', { ticket: 15 }), null,
       toolButton('ltext', 'Text', { ticket: 15 }), toolButton('ruler', 'Measure', { ticket: 15 })],
     side,
-    chips: () => copperLayers(p.board.stack.copper).map((name, i) => h('button', { class: 'chip' + (i === 0 ? ' on' : ''), type: 'button', title: `${name} (active layer)`, style: { background: layerColor(name) } }, name.replace('.Cu', ''))),
-    status: () => `${p.board.stack.copper}-layer · ${p.board.footprints.length} footprints · grid 0.5 mm`,
+    chips: () => copperLayers(app.project.board.stack.copper).map((name, i) => h('button', { class: 'chip' + (i === 0 ? ' on' : ''), type: 'button', title: `${name} (active layer)`, style: { background: layerColor(name) } }, name.replace('.Cu', ''))),
+    status: () => `${app.project.board.stack.copper}-layer · ${app.project.board.footprints.length} footprints · grid 0.5 mm`,
   });
 }
 

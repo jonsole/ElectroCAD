@@ -3,6 +3,8 @@
 import { ViewTransform, gridSpacing } from './transform.js';
 import { hasBoardContent } from '../core/store.js';
 import { SCH_GRID, mm } from '../core/units.js';
+import { drawSheet } from '../schematic/render.js';
+import { symbolBounds } from '../core/schematic.js';
 
 const W = 320, H = 240;
 const SHEET = { x0: 0, y0: 0, x1: mm(297), y1: mm(210) };
@@ -28,6 +30,20 @@ export function renderThumbnail(project, colorsFor) {
     grid(ctx, v, SCH_GRID, SHEET, C);
     ctx.strokeStyle = C.sheetEdge; ctx.lineWidth = 1;
     ctx.strokeRect(Math.round(x0) + 0.5, Math.round(y0) + 0.5, x1 - x0, y1 - y0);
+    // zoom onto what's drawn so small circuits are visible on the card
+    const sheet = project.schematic.sheets[0];
+    const boxes = sheet.symbols.map((y) => symbolBounds(project, y)).filter(Boolean);
+    if (boxes.length) {
+      const pad = mm(15);
+      const r = { x0: Math.min(...boxes.map((b) => b.x0)) - pad, y0: Math.min(...boxes.map((b) => b.y0)) - pad, x1: Math.max(...boxes.map((b) => b.x1)) + pad, y1: Math.max(...boxes.map((b) => b.y1)) + pad };
+      if (r.x1 - r.x0 < (SHEET.x1 - SHEET.x0) * 0.8) {
+        const z = new ViewTransform();
+        z.fit(r, W, H, 10);
+        ctx.fillStyle = C.paper; ctx.fillRect(0, 0, W, H);
+        grid(ctx, z, SCH_GRID, r, C);
+        drawSheet(ctx, z, C, project, sheet);
+      } else drawSheet(ctx, v, C, project, sheet);
+    }
   }
   return c.toDataURL('image/png');
 }

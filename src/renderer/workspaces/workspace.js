@@ -49,11 +49,12 @@ export class Workspace {
    * @param {() => string} [cfg.status]
    * @param {() => object} cfg.colors    resolved Colour theme tokens for this canvas
    * @param {() => void} [cfg.onRefresh]
+   * @param {(ctx, view, colors) => void} [cfg.draw]  draws the workspace content
    */
   constructor(cfg) {
     this.id = cfg.id;
     this.cfg = cfg;
-    this.view = new Canvas2D({ grid: cfg.grid, frame: cfg.frame, home: cfg.home, colors: cfg.colors });
+    this.view = new Canvas2D({ grid: cfg.grid, frame: cfg.frame, home: cfg.home, colors: cfg.colors, draw: cfg.draw });
     this.hint = h('span', { class: 'hint-text' }, cfg.hint);
     this.chipStrip = h('div', { class: 'chip-strip' });
     this.statusText = h('div', { class: 'status-text' });

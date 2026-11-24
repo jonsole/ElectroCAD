@@ -4,6 +4,7 @@ import { APP_NAME, LOGO_SVG } from './brand.js';
 import { h, button, modal, popupMenu, toast } from './ui/dom.js';
 import { platform } from './platform.js';
 import { newProject, serialize, deserialize, ProjectFileError } from './core/project.js';
+import { History } from './core/history.js';
 import { projectMeta, importProject, duplicateProject, exportFileName } from './core/store.js';
 import { renderThumbnail } from './view/thumbnail.js';
 import { ProjectsScreen } from './ui/projects.js';
@@ -22,6 +23,7 @@ export class App {
     this.applyTheme(this.settings.theme);
     this.project = await this._startupProject();
     this.save = { dirty: false, saving: false, timer: null, pending: null };
+    this.history = new History(() => this.project, (p) => { this.project = p; }, () => this._afterEdit());
     this.workspaces = buildWorkspaces(this);
     this._build();
     this.projects = new ProjectsScreen(this);
@@ -144,9 +146,22 @@ export class App {
     document.title = `${this.project.name} · ${APP_NAME}`;
   }
 
+  // ---------------------------------------------------------------- editing (undo/redo)
+
+  /** Run one edit of the open Project as a single undo step. Returns fn's result. */
+  edit(label, fn) { return this.history.transact(label, fn); }
+  undo() { this.history.undo(); }
+  redo() { this.history.redo(); }
+
+  _afterEdit() {
+    this.markDirty();
+    for (const w of this.workspaces) w.refresh();
+  }
+
   /** Replace the open Project. Workspaces are rebuilt around it. */
   setProject(project) {
     this.project = project;
+    this.history.clear();
     this.save.dirty = false;
     this.nameInput.value = project.name;
     const active = this.active ? this.active.id : 'schematic';
@@ -330,6 +345,9 @@ export class App {
       const mod = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
       if (mod && /^[1-4]$/.test(e.key)) { this.setWorkspace(order[+e.key - 1]); e.preventDefault(); }
+      else if (mod && k === 'z') { e.preventDefault(); if (e.shiftKey) this.redo(); else this.undo(); }
+      else if (mod && k === 'y') { e.preventDefault(); this.redo(); }
+      else if (!mod && !e.altKey && this.active?.editor?.onKey(e)) { e.preventDefault(); }
       else if (mod && k === 's') { e.preventDefault(); if (e.shiftKey) this.exportFile(); else this.saveNow(); }
       else if (mod && k === 'o') { e.preventDefault(); this.importFile(); }
       else if (mod && k === 'n') { e.preventDefault(); this.newProject(); }
@@ -349,7 +367,7 @@ export class App {
   help() {
     if (document.querySelector('.modal-backdrop')) return;
     const m = modal({ title: 'Shortcuts', width: 440 });
-    const rows = [['New project', 'Ctrl+N'], ['Open file (import)', 'Ctrl+O'], ['Save now', 'Ctrl+S'], ['Save as file', 'Ctrl+Shift+S'], ['Pan', 'Middle- or right-drag'], ['Zoom', 'Scroll wheel'], ['Fit the view', 'Home'], ['Schematic · Board · Gerber · Library', 'Ctrl+1 … Ctrl+4'], ['This help', '?']];
+    const rows = [['Undo', 'Ctrl+Z'], ['Redo', 'Ctrl+Shift+Z / Ctrl+Y'], ['Rotate (placing or selected)', 'R'], ['Mirror', 'X'], ['Delete selected', 'Del'], ['Stop placing / deselect', 'Esc'], ['New project', 'Ctrl+N'], ['Open file (import)', 'Ctrl+O'], ['Save now', 'Ctrl+S'], ['Save as file', 'Ctrl+Shift+S'], ['Pan', 'Middle- or right-drag'], ['Zoom', 'Scroll wheel'], ['Fit the view', 'Home'], ['Schematic · Board · Gerber · Library', 'Ctrl+1 … Ctrl+4'], ['This help', '?']];
     m.body.append(h('div', { class: 'shortcut-group' }, h('h4', {}, 'Every workspace'),
       ...rows.map(([a, b]) => h('div', { class: 'shortcut-row' }, h('span', {}, a), h('span', { class: 'kbd' }, b)))));
   }

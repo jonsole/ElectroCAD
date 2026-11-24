@@ -13,7 +13,7 @@ delete env.ELECTRON_RUN_AS_NODE;
 const shots = fs.mkdtempSync(path.join(os.tmpdir(), 'electrocad-shots-'));
 const suites = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 // Suites joined with '+' run one after another on the same app data (to test restarts).
-const list = suites.length ? suites : ['smoke-boot.js', 'smoke-store.js+smoke-store-restart.js', 'smoke-themes.js+smoke-themes-restart.js'];
+const list = suites.length ? suites : ['smoke-boot.js', 'smoke-store.js+smoke-store-restart.js', 'smoke-themes.js+smoke-themes-restart.js', 'smoke-place.js'];
 
 let failed = false;
 const runs = [];
