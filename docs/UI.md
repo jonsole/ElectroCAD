@@ -102,6 +102,28 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 - Net names: Power symbol beats Global label beats Net label beats the generated `Net-(R1-Pad2)`. Local labels named alike on two Sheets are two Nets, shown as `Sheet 1/EN` and `Sheet 2/EN`. Two different names on one Net are kept for ERC (#11).
 - **Sheets** are flat. The bottom bar has a chip per Sheet (click to switch, double-click to rename) and a + to add one after the current Sheet. The Sheets icon on the toolbar opens a card listing them with rename, move up/down and delete (the last Sheet stays). Each is one undo step; deleting a Sheet takes its parts with it and says so in a toast.
 
+## No-connects and ERC
+
+- **No-connect (Q)** in the tool palette: click a Pin tip to mark it as left open on purpose (a cross in the theme's No-connect colour); click a marker to remove it. Markers move, copy and delete with their part, and can be selected and deleted on their own.
+- **ERC** (the check icon in the toolbar's card group) opens a floating card that is **live**: it reruns after every change while open. The header counts errors and warnings ("2 errors · 1 warning", or "No problems").
+- **Rows** come errors first (a red dot), then warnings (an amber diamond), with the Sheet's name when there are several Sheets. Clicking a row switches to its Sheet, zooms to it and rings it on the canvas. While the card is open every problem on the Sheet has a small marker.
+- **Fixes:** a row with a fix has a button, e.g. **Rename to GND** for mixed spellings. It applies the fix as one undo step.
+- **Rules** (`core/erc.js`, a pure function of the Project):
+
+| Rule | Severity |
+| --- | --- |
+| A Pin isn't connected and isn't marked no-connect | error |
+| Two outputs drive one Net | error |
+| A power input has nothing supplying its Net (a Power symbol counts as the supply) | error |
+| One Net has two different names | error |
+| A Pin has no matching Pad on the Component's Footprint | error |
+| A multi-Unit part's power Unit isn't placed | error (other Units: warning) |
+| One name in mixed case (`GND`/`gnd`, ADR-0013) | warning, with a Rename fix |
+| A Net reaches a single Pin | warning |
+| A no-connect marker on a connected Pin, or on no Pin | warning |
+| A Component has no Footprint | warning |
+| Fields that couldn't find a free spot | warning |
+
 ## Selecting and moving
 
 - **Selecting:** click to select, Shift-click to add or remove an item, and drag on an empty canvas to box-select. Dragging **left to right** takes only items fully inside the box (solid outline); **right to left** takes anything the box touches (dashed outline). Ctrl+A selects all.
@@ -163,7 +185,7 @@ The Part picker draws each part on the Schematic colour theme's paper colour, so
   - While its part is selected, a pinned field shows a small pin glyph and a faint dashed line to the part. The inspector says how many fields were moved by hand.
   - **Re-apply style** (in the Fields menu, the inspector and the right-click menu) unpins the selected parts' fields so the style places them again.
 - **Right-click menu** (as in DabbleCAD): a right-click that doesn't pan opens Copy, Paste, Duplicate, Delete, Rotate, Mirror and Re-apply style for what's under the cursor, or Paste, Select all and Fit on empty canvas. Right-drag still pans.
-- **Crowded spots:** a field that can't find a free spot gets a small amber triangle and an ERC-panel warning, "R7 Value overlaps C3".
+- **Crowded spots:** a field that can't find a free spot gets a small amber triangle, a note in the hint bar, and an ERC warning ("R7 fields overlap C3").
 
 ## Workspaces
 

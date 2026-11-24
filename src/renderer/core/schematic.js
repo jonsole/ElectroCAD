@@ -3,13 +3,16 @@
 import { addComponent, partOf, partKey, pruneOrphans, uid, pinPositions, nextRef, newSheet, addFootprint } from './project.js';
 import { compareRefs } from './netlist.js';
 import { labelBounds } from './labels.js';
-import { place, eq, distToSegment2, onSegment, rot90 } from './geom.js';
+import { place, eq, distToSegment2, onSegment, rot90, key } from './geom.js';
 import { snapPt, SCH_GRID } from './units.js';
 
 /** Place a new Component's Unit on `sheet`, snapped to the 50 mil grid. */
 export function placeSymbol(project, sheet, part, at, opts = {}) {
   return addComponent(project, sheet, part, snapPt(at, SCH_GRID), opts);
 }
+
+/** The space a no-connect cross takes (half a grid each way). */
+export const noConnectBox = (n) => ({ x0: n.at[0] - SCH_GRID / 2, y0: n.at[1] - SCH_GRID / 2, x1: n.at[0] + SCH_GRID / 2, y1: n.at[1] + SCH_GRID / 2 });
 
 // ------------------------------------------------------------------ Units (#10, ADR-0005)
 
@@ -81,6 +84,9 @@ export function deleteSymbols(project, ids) { deleteItems(project, ids); }
 export function deleteItems(project, ids) {
   const gone = new Set(ids);
   for (const s of project.schematic.sheets) {
+    // no-connect markers on the Pins of deleted Symbols go too
+    const tips = new Set(s.symbols.filter((y) => gone.has(y.id)).flatMap((y) => pinPositions(project, y).map((x) => key(x.at))));
+    s.noConnects = (s.noConnects || []).filter((n) => !gone.has(n.id) && !tips.has(key(n.at)));
     s.symbols = s.symbols.filter((y) => !gone.has(y.id));
     s.wires = s.wires.filter((w) => !gone.has(w.id));
     s.labels = (s.labels || []).filter((l) => !gone.has(l.id));
@@ -121,6 +127,22 @@ export function addLabel(project, sheet, { at, net, rot = 0, scope = 'local', st
   const l = { id: uid('l'), at: snapPt(at, SCH_GRID), rot, net: String(net).trim(), scope: power ? 'global' : scope, style };
   sheet.labels.push(l);
   return l;
+}
+
+/** Put a no-connect marker at a grid point, or take away the one already there (#11). Returns the new marker or null. */
+export function toggleNoConnect(project, sheet, at) {
+  sheet.noConnects ||= [];
+  const p = snapPt(at, SCH_GRID);
+  const i = sheet.noConnects.findIndex((n) => n.at[0] === p[0] && n.at[1] === p[1]);
+  if (i >= 0) { sheet.noConnects.splice(i, 1); return null; }
+  const n = { id: uid('n'), at: p };
+  sheet.noConnects.push(n);
+  return n;
+}
+
+/** The no-connect marker on `sheet` within `tol` of `pt`, or null. */
+export function hitNoConnect(sheet, pt, tol) {
+  return (sheet.noConnects || []).find((n) => Math.abs(n.at[0] - pt[0]) <= tol && Math.abs(n.at[1] - pt[1]) <= tol) || null;
 }
 
 /** The Wire on `sheet` nearest to `pt` within `tol` nm, or null. */
@@ -235,6 +257,9 @@ export function moveSelection(project, sheet, ids, delta) {
   for (const w of sheet.wires) if (sel.has(w.id)) { moving.add(ptKey(w.a)); moving.add(ptKey(w.b)); }
   const labels = sheet.labels || [];
   const movingLabels = labels.filter((l) => sel.has(l.id));
+  // no-connect markers go with the Pins they sit on, or on their own when selected
+  const pinTips = new Set(movingSyms.flatMap((y) => pinPositions(project, y).map((x) => ptKey(x.at))));
+  for (const n of sheet.noConnects || []) if (sel.has(n.id) || pinTips.has(ptKey(n.at))) n.at = add2(n.at, delta);
   for (const y of movingSyms) y.at = add2(y.at, delta);
 
   const fixedPins = new Set();
@@ -326,7 +351,9 @@ export function copySelection(project, sheet, ids) {
   }
   const wires = sheet.wires.filter((w) => sel.has(w.id)).map((w) => structuredClone(w));
   const labels = (sheet.labels || []).filter((l) => sel.has(l.id)).map((l) => structuredClone(l));
-  return { kind: 'electrocad-schematic-clip', symbols, wires, labels, components, parts, footprints };
+  const tips = new Set(symbols.flatMap((y) => pinPositions(project, y).map((x) => key(x.at))));
+  const noConnects = (sheet.noConnects || []).filter((n) => sel.has(n.id) || tips.has(key(n.at))).map((n) => structuredClone(n));
+  return { kind: 'electrocad-schematic-clip', symbols, wires, labels, noConnects, components, parts, footprints };
 }
 
 /**
@@ -358,6 +385,12 @@ export function pasteClip(project, sheet, clip, delta) {
     sheet.wires.push(nw);
     ids.push(nw.id);
   }
+  sheet.noConnects ||= [];
+  for (const n of clip.noConnects || []) {
+    const nn = { id: uid('n'), at: add2(n.at, delta) };
+    sheet.noConnects.push(nn);
+    ids.push(nn.id);
+  }
   sheet.labels ||= [];
   for (const l of clip.labels || []) {
     const nl = { ...structuredClone(l), id: uid('l'), at: add2(l.at, delta) };
@@ -374,6 +407,7 @@ export function itemsBounds(project, sheet, ids) {
   for (const y of sheet.symbols) if (sel.has(y.id)) boxes.push(symbolBounds(project, y));
   for (const w of sheet.wires) if (sel.has(w.id)) boxes.push({ x0: Math.min(w.a[0], w.b[0]), y0: Math.min(w.a[1], w.b[1]), x1: Math.max(w.a[0], w.b[0]), y1: Math.max(w.a[1], w.b[1]) });
   for (const l of sheet.labels || []) if (sel.has(l.id)) boxes.push(labelBounds(l));
+  for (const n of sheet.noConnects || []) if (sel.has(n.id)) boxes.push(noConnectBox(n));
   if (!boxes.length) return null;
   return { x0: Math.min(...boxes.map((b) => b.x0)), y0: Math.min(...boxes.map((b) => b.y0)), x1: Math.max(...boxes.map((b) => b.x1)), y1: Math.max(...boxes.map((b) => b.y1)) };
 }
@@ -397,6 +431,7 @@ export function itemsInRect(project, sheet, r, mode = 'window') {
     if (mode === 'window' ? inside(b) : segTouches(w.a, w.b)) out.push(w.id);
   }
   for (const l of sheet.labels || []) { const b = labelBounds(l); if (mode === 'window' ? inside(b) : touches(b)) out.push(l.id); }
+  for (const n of sheet.noConnects || []) { const b = noConnectBox(n); if (mode === 'window' ? inside(b) : touches(b)) out.push(n.id); }
   return out;
 }
 

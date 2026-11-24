@@ -5,8 +5,9 @@ import { h, icon, button, popupMenu, toast } from '../ui/dom.js';
 import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { later } from '../workspaces/workspace.js';
 import { MINI_LIBRARY, searchParts } from '../library/mini.js';
-import { placedUnits, unitSuggestion, nextUnplacedUnit, unitLetter, placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, addLabel, addSheet, renameSheet, moveSheet, deleteSheet, validateSheetName, hitWire, preferredAxis, routeWire, moveSelection, copySelection, pasteClip, itemsInRect, itemsBounds, cleanupWires } from '../core/schematic.js';
+import { toggleNoConnect, hitNoConnect, placedUnits, unitSuggestion, nextUnplacedUnit, unitLetter, placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, addLabel, addSheet, renameSheet, moveSheet, deleteSheet, validateSheetName, hitWire, preferredAxis, routeWire, moveSelection, copySelection, pasteClip, itemsInRect, itemsBounds, cleanupWires } from '../core/schematic.js';
 import { buildNetlist } from '../core/netlist.js';
+import { runErc } from '../core/erc.js';
 import { pinPositions, nextRef, partOf } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
 import { snapPt, SCH_GRID, mm } from '../core/units.js';
@@ -41,6 +42,8 @@ export class SchematicEditor {
     this.tool = 'select'; // 'select' | 'wire'
     this.wiring = null;   // { points: [committed…], cursor, posture: 'h' | 'v' }
     this.netlistOpen = false;
+    this.ercOpen = false;
+    this.ercFocus = null; // the violation last jumped to (ringed on the canvas)
     this.drag = null;    // moving the selection: { start, ids, snapshot, delta, moved }
     this.marquee = null; // box select: { a, b } in world
     this.preview = null; // a copy of the Project showing a move in progress
@@ -141,7 +144,7 @@ export class SchematicEditor {
     const world = v.view.toWorld(v.local(e));
     const tol = 4 / v.view.scale;
     const f = this.placement && hitField(this.project, this.placement, world, tol / 2, measureText);
-    const hit = hitLabel(this.sheet, world, tol / 2, measureText) || hitSymbol(this.project, this.sheet, world, 3 / v.view.scale)
+    const hit = hitNoConnect(this.sheet, world, SCH_GRID / 2) || hitLabel(this.sheet, world, tol / 2, measureText) || hitSymbol(this.project, this.sheet, world, 3 / v.view.scale)
       || (f && this.sheet.symbols.find((y) => y.id === f.symbolId)) || hitWire(this.sheet, world, tol);
     if (hit && !this.selection.has(hit.id)) this.selection = new Set([hit.id]);
     else if (!hit) this.selection = new Set();
@@ -203,10 +206,11 @@ export class SchematicEditor {
       mirror: button({ icon: 'mirror', title: 'Mirror (X)', onClick: () => this.mirror() }),
       fields: button({ label: 'Fields', icon: 'ltext', title: 'Field style for the selected parts', onClick: (e) => this.fieldsMenu(e.currentTarget) }),
     };
-    // the cards over the canvas: Sheets, Netlist and (with #11) ERC; icons only, lit while open
+    // the cards over the canvas: Sheets, Netlist and ERC; icons only, lit while open
     this.sheetsBtn = button({ icon: 'sheets', title: 'Sheets: add, rename, reorder and delete', onClick: () => this.toggleSheets() });
     this.netlistBtn = button({ icon: 'netlist', title: 'Netlist', onClick: () => this.toggleNetlist() });
-    const erc = later({ icon: 'erc', title: 'Electrical rule check' }, 11);
+    this.ercBtn = button({ icon: 'erc', title: 'Electrical rule check (ERC)', onClick: () => this.toggleErc() });
+    const erc = this.ercBtn;
     return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }),
       this.btn.copy, this.btn.paste, this.btn.dup, this.btn.del, h('span', { class: 'sep' }),
       this.btn.rotate, this.btn.mirror, h('span', { class: 'sep' }), this.btn.fields, h('span', { class: 'sep' }),
@@ -222,10 +226,11 @@ export class SchematicEditor {
       globalLabel: button({ icon: 'globalLabel', title: 'Global label (Ctrl+L): joins Pins with the same name on every sheet', onClick: () => this.setTool('globalLabel') }),
       power: button({ icon: 'power', title: 'Power symbol (P): +5V, +3V3, VCC… joins on every sheet', onClick: () => this.setTool('power') }),
       ground: button({ icon: 'ground', title: 'Ground (G)', onClick: () => this.setTool('ground') }),
+      noConnect: button({ icon: 'noConnect', title: 'No-connect (Q): mark a Pin that is left open on purpose; click again to remove', onClick: () => this.setTool('noConnect') }),
     };
     return [this.toolBtn.select, this.toolBtn.wire,
       this.toolBtn.netLabel, this.toolBtn.globalLabel, this.toolBtn.power, this.toolBtn.ground,
-      toolButton('noConnect', 'No-connect (Q)', { ticket: 11 }), null,
+      this.toolBtn.noConnect, null,
       toolButton('ltext', 'Text', { ticket: 8 }), toolButton('ruler', 'Measure', { ticket: 8 })];
   }
 
@@ -261,6 +266,7 @@ export class SchematicEditor {
     if (this.toolBtn) for (const [t, b] of Object.entries(this.toolBtn)) b.classList.toggle('active', this.tool === t && !this.placing);
     this.renderNetlist();
     this.renderSheets();
+    this.renderErc();
     this.renderUnitStrip();
     this.renderStyleFoot();
     this.ws?.renderBar();
@@ -276,6 +282,7 @@ export class SchematicEditor {
     if (this.tool === 'wire') text = this.wiring
       ? 'Drawing a wire: click to add a corner · click a Pin or Wire (or double-click) to finish · / switch corner direction · Backspace undo corner · Esc finish'
       : 'Wire: click a Pin or a point on the grid to start · Esc back to Select';
+    else if (this.tool === 'noConnect') text = 'No-connect: click a Pin tip to mark it as left open on purpose (ERC then ignores it) · click a marker to remove it · Esc back to Select';
     else if (LABEL_TOOLS[this.tool]) {
       const t = LABEL_TOOLS[this.tool];
       text = this.tool === 'ground'
@@ -289,6 +296,8 @@ export class SchematicEditor {
       const refs = this.sheet.symbols.filter((y) => this.selection.has(y.id)).map((y) => { const c = this.project.components[y.componentId]; return c ? c.ref + unitLetter(partOf(this.project, c), y.unit) : ''; });
       const nw = this.sheet.wires.filter((w) => this.selection.has(w.id)).length;
       const labels = (this.sheet.labels || []).filter((l) => this.selection.has(l.id)).map((l) => l.net);
+      const nnc = (this.sheet.noConnects || []).filter((n) => this.selection.has(n.id)).length;
+      if (nnc) labels.push(`${nnc} no-connect${nnc === 1 ? '' : 's'}`);
       const what = [...refs, ...labels, ...(nw ? [`${nw} wire${nw === 1 ? '' : 's'}`] : [])].join(', ');
       text = `Selected ${what} · drag or arrow keys to move${refs.length || labels.length ? ' · R rotate' : ''}${refs.length ? ' · X mirror' : ''}${labels.length === 1 && !refs.length ? ' · double-click to rename' : ''} · Ctrl+C/V/D · Del delete · Esc deselect`;
     }
@@ -306,6 +315,13 @@ export class SchematicEditor {
       if (this.placing && !this.placing.drag) { this._update(world); this.commitPlace(); return; }
       if (this.tool === 'wire') { this._wireClick(world, e.detail >= 2); return; }
       if (LABEL_TOOLS[this.tool]) { e.preventDefault(); this._labelClick(snapPt(world, SCH_GRID)); return; } // keep focus in the name box
+      if (this.tool === 'noConnect') {
+        const at = snapPt(world, SCH_GRID);
+        const there = (this.sheet.noConnects || []).some((n) => n.at[0] === at[0] && n.at[1] === at[1]);
+        this.app.edit(there ? 'Remove no-connect' : 'Mark no-connect', (p) => toggleNoConnect(p, this._S(p), at));
+        this.refresh();
+        return;
+      }
       const tol = 4 / ws.view.view.scale;
       const fieldHit = this.placement && hitField(this.project, this.placement, world, tol / 2, measureText);
       // pressing on a field and dragging moves that field by hand (it becomes pinned, #53)
@@ -318,7 +334,7 @@ export class SchematicEditor {
         this.refresh();
         return;
       }
-      const hit = hitLabel(this.sheet, world, tol / 2, measureText) || hitSymbol(this.project, this.sheet, world, 3 / ws.view.view.scale)
+      const hit = hitNoConnect(this.sheet, world, SCH_GRID / 2) || hitLabel(this.sheet, world, tol / 2, measureText) || hitSymbol(this.project, this.sheet, world, 3 / ws.view.view.scale)
         || (fieldHit && this.sheet.symbols.find((y) => y.id === fieldHit.symbolId)) || hitWire(this.sheet, world, tol);
       if (e.shiftKey && hit) { if (this.selection.has(hit.id)) this.selection.delete(hit.id); else this.selection.add(hit.id); this.refresh(); return; }
       if (hit) {
@@ -414,7 +430,8 @@ export class SchematicEditor {
     this.sheetsEl = h('div', { class: 'float-panel sheets-panel', role: 'region', 'aria-label': 'Sheets' });
     // Cards dock in a column at the top right; each one moves by its header and resizes from its
     // corner on its own (like DabbleCAD's inspector), and docks again on a header double-click.
-    const order = [this.inspector.el, this.sheetsEl, this.netlistEl];
+    this.ercEl = h('div', { class: 'float-panel erc-panel', role: 'region', 'aria-label': 'Electrical rule check' });
+    const order = [this.inspector.el, this.sheetsEl, this.ercEl, this.netlistEl];
     this.stack = h('div', { class: 'float-stack' });
     const layer = h('div', { class: 'card-layer' }, this.stack);
     ws.view.el.append(layer);
@@ -423,12 +440,13 @@ export class SchematicEditor {
     const dock = { el: this.stack, put: (card) => this.stack.append(...order.filter((c) => c === card || c.parentElement === this.stack)) };
     for (const c of order) this.stack.append(c);
     this.cards = {};
-    for (const [k, c] of [['inspector', this.inspector.el], ['sheets', this.sheetsEl], ['netlist', this.netlistEl]]) {
+    for (const [k, c] of [['inspector', this.inspector.el], ['sheets', this.sheetsEl], ['erc', this.ercEl], ['netlist', this.netlistEl]]) {
       this.cards[k] = makeDraggable(c, { key: `schematic-${k}`, layer, dock });
       c.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
     }
     this.renderNetlist();
     this.renderSheets();
+    this.renderErc();
     ws.view.onContextMenu = (e) => this.contextMenu(e);
     c.addEventListener('pointerleave', () => { if (this.placing && !this.placing.drag) { this.placing.at = null; ws.view.invalidate(); } });
   }
@@ -447,7 +465,8 @@ export class SchematicEditor {
     const proj = this.preview || this.project;
     const sheet = this._S(proj);
     this.placement = placeFields(proj, sheet, { measure: measureText });
-    drawSheet(ctx, view, C, proj, sheet, { selection: this.selection, ghost, bounds: (s) => symbolBounds(proj, s), wiring, target, placement: this.placement, display: this.app.schematicDisplay(), ghostLabel });
+    drawSheet(ctx, view, C, proj, sheet, { selection: this.selection, ghost, bounds: (s) => symbolBounds(proj, s), wiring, target, placement: this.placement, display: this.app.schematicDisplay(), ghostLabel,
+      erc: this.ercOpen ? (this.ercList || []).filter((x) => x.sheetId === sheet.id) : null, ercFocus: this.ercFocus });
     if (this.marquee && (this.marquee.a[0] !== this.marquee.b[0] || this.marquee.a[1] !== this.marquee.b[1])) {
       const m = this.marquee;
       const [x0, y0] = view.toScreen(m.a), [x1, y1] = view.toScreen(m.b);
@@ -622,6 +641,51 @@ export class SchematicEditor {
     this.refresh();
   }
 
+  // ---------------------------------------------------------------- ERC panel (#11)
+
+  toggleErc(open = !this.ercOpen) {
+    this.ercOpen = open;
+    this.ercFocus = null;
+    this.ercBtn?.classList.toggle('active', open);
+    this.renderErc();
+    this.ws?.view.invalidate();
+  }
+
+  /** The ERC card: live while open (rerun after every change), errors first, click to go there. */
+  renderErc() {
+    const el = this.ercEl;
+    if (!el) return;
+    el.style.display = this.ercOpen ? '' : 'none';
+    if (this.ercBtn) this.ercBtn.title = 'Electrical rule check (ERC)';
+    if (!this.ercOpen) { this.ercList = null; return; }
+    const list = runErc(this.project, { measure: measureText });
+    this.ercList = list;
+    const errors = list.filter((v) => v.severity === 'error').length, warnings = list.length - errors;
+    const sheetName = (id) => this.project.schematic.sheets.find((s) => s.id === id)?.name;
+    const many = this.project.schematic.sheets.length > 1;
+    const row = (v) => h('div', { class: `erc-row erc-${v.severity}` + (v.id === this.ercFocus ? ' on' : ''), role: 'button', tabindex: '0', dataset: { rule: v.rule }, title: 'Show it on the sheet',
+      onClick: () => this.gotoViolation(v), onKeydown: (e) => { if (e.key === 'Enter') this.gotoViolation(v); } },
+      h('span', { class: 'erc-dot', 'aria-label': v.severity }),
+      h('span', { class: 'erc-msg' }, v.message, many ? h('span', { class: 'erc-sheet' }, ` · ${sheetName(v.sheetId)}`) : null),
+      v.fix ? button({ label: v.fix.label, cls: 'btn-outline btn-xs erc-fix', onClick: (e) => { e.stopPropagation(); this.app.edit(v.fix.label, (p) => v.fix.apply(p)); this.refresh(); } }) : null);
+    el.replaceChildren(
+      h('div', { class: 'fp-head' }, h('b', {}, 'ERC'),
+        h('span', { class: 'fp-count' }, list.length ? [errors ? `${errors} error${errors === 1 ? '' : 's'}` : null, warnings ? `${warnings} warning${warnings === 1 ? '' : 's'}` : null].filter(Boolean).join(' · ') : 'No problems'),
+        button({ icon: 'close', title: 'Close', cls: 'btn-ghost', onClick: () => this.toggleErc(false) })),
+      h('div', { class: 'fp-body' },
+        list.length ? null : h('p', { class: 'side-note erc-clean' }, 'Every pin is connected or marked no-connect, and no rule is broken.'),
+        ...list.map(row)));
+  }
+
+  /** Switch to a violation's Sheet, zoom to it and ring it. */
+  gotoViolation(v) {
+    this.ercFocus = v.id;
+    if (v.sheetId !== this.sheet.id) this.switchSheet(v.sheetId);
+    const r = SCH_GRID * 18, view = this.ws.view;
+    view.view.fit({ x0: v.at[0] - r, y0: v.at[1] - r * 0.7, x1: v.at[0] + r, y1: v.at[1] + r * 0.7 }, view.w, view.h, 20);
+    this.refresh();
+  }
+
   // ---------------------------------------------------------------- Netlist panel (#5)
 
   toggleNetlist(open = !this.netlistOpen) {
@@ -651,7 +715,7 @@ export class SchematicEditor {
   _selectedSymbolIds() { return this.sheet.symbols.filter((y) => this.selection.has(y.id)).map((y) => y.id); }
 
   /** Every selectable item on the current Sheet. */
-  _allIds() { return [...this.sheet.symbols.map((y) => y.id), ...this.sheet.wires.map((w) => w.id), ...(this.sheet.labels || []).map((l) => l.id)]; }
+  _allIds() { return [...this.sheet.symbols.map((y) => y.id), ...this.sheet.wires.map((w) => w.id), ...(this.sheet.labels || []).map((l) => l.id), ...(this.sheet.noConnects || []).map((n) => n.id)]; }
 
   rotate() {
     if (this.placing) { this.placing.rot = (this.placing.rot + 90) % 360; this.ws.view.invalidate(); return; }
@@ -1010,6 +1074,8 @@ export class SchematicEditor {
     if (k === 'l') { this.setTool('netLabel'); return true; }
     if (k === 'p') { this.setTool('power'); return true; }
     if (k === 'g') { this.setTool('ground'); return true; }
+    if (k === 'q') { this.setTool('noConnect'); return true; }
+    if (this.tool === 'noConnect' && e.key === 'Escape') { this.setTool('select'); return true; }
     if (k === 'v') { this.setTool('select'); return true; }
     if (k === 'r') { this.rotate(); return true; }
     if (k === 'x') { this.mirror(); return true; }

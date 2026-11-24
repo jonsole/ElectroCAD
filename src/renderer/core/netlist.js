@@ -105,6 +105,7 @@ export function buildNetlist(project) {
     if (names.length > 1) net.conflict = names.map((n) => n.spelling); // two different names on one Net: an ERC error (#11)
     if (names[0]?.spellings.length > 1) net.spellings = names[0].spellings; // one name, mixed case: an ERC warning (ADR-0013)
     if (names[0] && names[0].rank === 2) net.sheet = sheetName.get(names[0].labels[0].id);
+    if (ls.length) net.labels = ls.map((l) => l.id); // for ERC: which labels name this Net
     nets.push(net);
   }
   // a Net label name used on several Sheets makes separate Nets: qualify them with the Sheet name

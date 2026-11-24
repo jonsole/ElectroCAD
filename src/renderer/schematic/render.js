@@ -219,7 +219,7 @@ export function drawLabels(ctx, view, C, labels, { selection = new Set(), alpha 
 }
 
 /** Draw a Sheet: Wires, Symbols, fields, Junctions, then selection, the placement ghost and a Wire being drawn. */
-export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(), ghost = null, bounds, wiring = null, target = null, placement = null, display = DEFAULT_DISPLAY, ghostLabel = null } = {}) {
+export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(), ghost = null, bounds, wiring = null, target = null, placement = null, display = DEFAULT_DISPLAY, ghostLabel = null, erc = null, ercFocus = null } = {}) {
   const toScreen = (p) => view.toScreen(p);
   const wireW = Math.max(1.5, WIRE * view.scale);
   ctx.save();
@@ -275,6 +275,31 @@ export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(),
   ctx.fillStyle = C.junction;
   const jr = Math.max(2.5, JUNCTION * view.scale);
   for (const j of junctions(project, sheet)) { const [x, y] = view.toScreen(j); ctx.beginPath(); ctx.arc(x, y, jr, 0, Math.PI * 2); ctx.fill(); }
+  // no-connect markers: a cross on the Pin tip
+  const nc = Math.max(3, mm(0.6) * view.scale);
+  for (const n of sheet.noConnects || []) {
+    const [x, y] = view.toScreen(n.at);
+    if (selection.has(n.id)) { ctx.save(); ctx.strokeStyle = C.selection; ctx.setLineDash([3, 3]); ctx.lineWidth = 1; ctx.strokeRect(x - nc - 4, y - nc - 4, (nc + 4) * 2, (nc + 4) * 2); ctx.restore(); }
+    ctx.save(); ctx.strokeStyle = C.noConnect; ctx.lineWidth = Math.max(1.5, mm(0.18) * view.scale); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x - nc, y - nc); ctx.lineTo(x + nc, y + nc); ctx.moveTo(x + nc, y - nc); ctx.lineTo(x - nc, y + nc); ctx.stroke();
+    ctx.restore();
+  }
+  // ERC markers while the ERC card is open: a small badge at each problem, the focused one ringed
+  if (erc) {
+    for (const v of erc) {
+      const [x, y] = view.toScreen(v.at);
+      const r = 6;
+      ctx.save();
+      ctx.fillStyle = v.severity === 'error' ? C.ercError : C.ercWarning;
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath(); ctx.moveTo(x + 4, y - 4 - r * 1.6); ctx.lineTo(x + 4 + r, y - 4); ctx.lineTo(x + 4 - r, y - 4); ctx.closePath(); ctx.fill();
+      if (v.id === ercFocus) {
+        ctx.globalAlpha = 1; ctx.strokeStyle = v.severity === 'error' ? C.ercError : C.ercWarning; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(x, y, Math.max(10, mm(1.5) * view.scale), 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
   // a Wire being drawn, and the Pin/Wire it would end on
   if (wiring && wiring.length > 1) {
     ctx.save(); ctx.globalAlpha = 0.75; ctx.strokeStyle = C.wire; ctx.lineWidth = wireW; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
