@@ -252,7 +252,10 @@ Selected things look the same in every editor: Schematic parts, wires, labels, n
 - **Colour:** the selected things are drawn in the selection colour. Symbol bodies keep their fill.
 - **Box:** a dashed box around each selected thing.
 - **Fade the rest:** everything else fades towards the background, so the selection stands out.
-- **Brighten:** the selected things are redrawn brighter in their own colours (deeper and more saturated on a light canvas). Symbol bodies keep their fill. It adds no colour, so a cross-probe looks the same as a selection.
+- **Brighten:** the selected things are redrawn vivid in their own colours.
+  - Dark canvas: greys go towards white, and colours get more saturated and lighter.
+  - Light canvas: colours get strongly saturated and a little deeper, and grey or black lines take a strong tint of the selection colour's hue, so the effect shows.
+  - Symbol bodies keep their fill.
 
 The colour is the **Selection** colour of each Colour theme (Settings → Colours), so the Schematic and the Board can differ. Resize handles, the snap mark and a pinned field's tether are drawn on top whatever the style. The future cross-probing (#18) and net highlighting will use the same styles.
 

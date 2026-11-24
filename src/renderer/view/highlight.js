@@ -58,15 +58,16 @@ export function highlight(ctx, C, style, drawOnly, boxes = []) {
     return;
   }
   if (style === 'brighten') {
-    // the selection redrawn in its own colours, brighter (on a dark canvas) or deeper (on a light one)
+    // the selection redrawn in its own colours made vivid: brighter on a dark canvas; on a light
+    // one more saturated and a little deeper, greys taking the selection colour's hue
+    const B = vividColours(C, isLight(C.background));
     const [img, x] = layer(ctx);
-    drawOnly(x, { ...C, symbolFill: 'rgba(0,0,0,0)' }); // lines and text only: bodies keep their fill
+    drawOnly(x, { ...B, symbolFill: 'rgba(0,0,0,0)' }); // lines and text only: bodies keep their fill
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.filter = isLight(C.background) ? 'saturate(1.9) brightness(0.72) contrast(1.2)' : 'brightness(1.75) saturate(1.35)';
     ctx.drawImage(img, 0, 0);
-    // a hair thicker, so thin lines read as brighter too
-    const d = 0.6 * (ctx.getTransform().a || 1);
-    ctx.globalAlpha = 0.6; ctx.drawImage(img, d, 0); ctx.drawImage(img, 0, d);
+    // a hair thicker, so thin lines show it too
+    const d = 0.7 * (ctx.getTransform().a || 1);
+    ctx.drawImage(img, d, 0); ctx.drawImage(img, 0, d);
     ctx.restore();
     return;
   }
@@ -117,4 +118,44 @@ function isLight(hex) {
   if (!m) return false;
   const [r, g, b] = m.slice(1).map((v) => parseInt(v, 16) / 255);
   return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55;
+}
+
+// ---------------------------------------------------------------- colour maths for Brighten
+
+function parse(c) {
+  let m = /^#([0-9a-f]{3})$/i.exec(c);
+  if (m) return m[1].split('').map((v) => parseInt(v + v, 16));
+  m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(c);
+  if (m) return m.slice(1).map((v) => parseInt(v, 16));
+  m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(c);
+  return m ? m.slice(1).map(Number) : null;
+}
+function toHsl([r, g, b]) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min, s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+const hsl = (h, s, l) => `hsl(${Math.round(h)}, ${Math.round(s * 100)}%, ${Math.round(l * 100)}%)`;
+
+/** Every colour of the theme made vivid for Brighten (backgrounds and fills kept). */
+export function vividColours(C, light) {
+  const sel = parse(C.selection || '#29c5ff');
+  const selHue = sel ? toHsl(sel)[0] : 200;
+  const out = {};
+  for (const [k, v] of Object.entries(C)) {
+    const rgb = typeof v === 'string' && !KEEP.has(k) ? parse(v) : null;
+    if (!rgb) { out[k] = v; continue; }
+    let [h, s, l] = toHsl(rgb);
+    const grey = (Math.max(...rgb) - Math.min(...rgb)) / 255 < 0.16; // little colour, however 'saturated' a pale tint reads
+    if (light) {
+      if (grey) { h = selHue; s = 0.9; l = 0.4; } // a grey or black line: a strong tint of the selection hue
+      else { s = Math.max(s, Math.min(1, s * 1.6 + 0.3)); l = Math.min(Math.max(l, 0.3), 0.42); }
+    } else if (grey) l = l + (1 - l) * 0.6; // greys go towards white
+    else { s = Math.min(1, s * 1.4 + 0.2); l = Math.min(0.66, l + 0.14); } // colours go vivid, not pastel
+    out[k] = hsl(h, s, l);
+  }
+  return out;
 }
