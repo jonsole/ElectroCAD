@@ -35,7 +35,7 @@ check('header-icons', ['Rotate (R)', 'Mirror (X)', 'Duplicate (Ctrl+D)', 'Delete
   for (const c of [card, nl]) c.querySelector('.insp-head, .fp-head').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   check('cards-docked-again', card.parentElement.classList.contains('float-stack') && nl.parentElement.classList.contains('float-stack') && !card.style.left
     && !localStorage.getItem('electrocad.card.schematic-inspector') && !localStorage.getItem('electrocad.card.schematic-netlist'));
-  check('dock-order', [...document.querySelector('.float-stack').children].indexOf(card) < [...document.querySelector('.float-stack').children].indexOf(nl));
+  check('dock-order', [...document.querySelector('.float-stack:not(.float-stack-parts)').children].indexOf(card) < [...document.querySelector('.float-stack:not(.float-stack-parts)').children].indexOf(nl));
   ed.toggleNetlist(false);
 }
 

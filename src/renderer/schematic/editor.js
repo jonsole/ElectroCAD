@@ -165,13 +165,18 @@ export class SchematicEditor {
     this._fillCategories();
     catSel.addEventListener('change', () => { this.category = catSel.value; this.renderTiles(); });
     this.grid.addEventListener('pointerleave', () => { if (this.fpHover) { this.fpHover = null; this.renderFootprintRow(); } });
-    this.panel = h('div', { class: 'side-panel picker', 'aria-label': 'Part picker' },
+    // the Parts card: floating over the canvas (toolbar Parts button), or docked by either edge
+    this.panel = h('div', { class: 'float-panel parts-card picker', role: 'region', 'aria-label': 'Parts' },
+      h('div', { class: 'fp-head', title: 'Drag to move · drop on the left or right edge of the canvas to dock · double-click to put it back' }, icon('parts', 16), h('b', {}, 'Parts'),
+        button({ icon: 'close', title: 'Close (the Parts button on the toolbar opens it again)', cls: 'btn-ghost', onClick: () => this.toggleParts(false) })),
+      h('div', { class: 'parts-body' },
       h('div', { class: 'side-filter picker-filter' }, catSel, this.viewBtn = button({ icon: VIEWS[this.pickerView].icon, title: `View: ${VIEWS[this.pickerView].label}`, cls: 'btn-ghost picker-view', onClick: (e) => this.viewMenu(e.currentTarget) })),
       h('div', { class: 'side-search' }, icon('search', 16), search),
       this.grid,
       this.fpRow = h('div', { class: 'fp-row', 'aria-label': 'Footprint for the next part' }),
       this.styleFoot = h('div', { class: 'side-foot field-style-foot' }),
-      h('div', { class: 'side-foot' }, later({ label: 'Import', icon: 'import', title: 'Import KiCad or Eagle libraries' }, 32), button({ label: 'New part', icon: 'plus', title: 'Draw a new Part in the Library tab', onClick: () => { this.app.setWorkspace('library'); this.app.libEditor?.createPart(); } })));
+      h('div', { class: 'side-foot' }, later({ label: 'Import', icon: 'import', title: 'Import KiCad or Eagle libraries' }, 32), button({ label: 'New part', icon: 'plus', title: 'Draw a new Part in the Library tab', onClick: () => { this.app.setWorkspace('library'); this.app.libEditor?.createPart(); } }))));
+    this.panel.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
     return this.panel;
   }
 
@@ -449,6 +454,7 @@ export class SchematicEditor {
     this.netlistBtn = button({ icon: 'netlist', title: 'Netlist', onClick: () => this.toggleNetlist() });
     this.ercBtn = button({ icon: 'erc', title: 'Electrical rule check (ERC)', onClick: () => this.toggleErc() });
     const erc = this.ercBtn;
+    this.partsBtn = button({ icon: 'parts', label: 'Parts', cls: 'keep-label', title: 'Parts: the part picker, as a floating card (drag it to an edge of the canvas to dock it)', onClick: () => this.toggleParts() });
     this.gridCard = new GridCard({
       key: 'schematic-grid', choices: SCHEMATIC_GRIDS,
       state: () => ({ grid: this.sheet.grid, origin: this.sheet.origin, scope: this.sheet.name, originNote: "The origin is measured from the paper's top-left corner." }),
@@ -459,7 +465,7 @@ export class SchematicEditor {
     return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }),
       this.btn.copy, this.btn.paste, this.btn.dup, this.btn.del, h('span', { class: 'sep' }),
       this.btn.rotate, this.btn.mirror, h('span', { class: 'sep' }), this.btn.fields, h('span', { class: 'sep' }),
-      this.gridCard.button, this.sheetsBtn, this.netlistBtn, erc];
+      this.partsBtn, this.gridCard.button, this.sheetsBtn, this.netlistBtn, erc];
   }
 
   /** The left tool palette: Select and Wire are live; the rest name their tickets. */
@@ -745,7 +751,9 @@ export class SchematicEditor {
     this.ercEl = h('div', { class: 'float-panel erc-panel', role: 'region', 'aria-label': 'Electrical rule check' });
     const order = [this.inspector.el, this.gridCard.el, this.sheetsEl, this.ercEl, this.netlistEl];
     this.stack = h('div', { class: 'float-stack' });
-    const layer = h('div', { class: 'card-layer' }, this.stack);
+    this.stackL = h('div', { class: 'float-stack float-stack-parts' }); // the Parts card's home, top right (the other cards move to its left)
+    const layer = h('div', { class: 'card-layer' }, this.stackL, this.stack);
+    const edges = { left: ws.dockL, right: ws.dockR };
     ws.view.el.append(layer);
     this.unitStrip = h('div', { class: 'unit-strip', role: 'toolbar', 'aria-label': 'Unit to place', hidden: true });
     ws.view.el.append(this.unitStrip);
@@ -753,10 +761,13 @@ export class SchematicEditor {
     for (const c of order) this.stack.append(c);
     this.cards = {};
     for (const [k, c] of [['inspector', this.inspector.el], ['sheets', this.sheetsEl], ['erc', this.ercEl], ['netlist', this.netlistEl]]) {
-      this.cards[k] = makeDraggable(c, { key: `schematic-${k}`, layer, dock });
+      this.cards[k] = makeDraggable(c, { key: `schematic-${k}`, layer, dock, edges });
       c.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
     }
-    this.gridCard.mount(ws, { layer, dock });
+    this.gridCard.mount(ws, { layer, dock, edges });
+    this.stackL.append(this.panel);
+    this.cards.parts = makeDraggable(this.panel, { key: 'schematic-parts', layer, dock: { el: this.stackL, put: (c) => this.stackL.append(c) }, edges, resize: { minW: 250, maxW: 640, minH: 240 } });
+    this.toggleParts(this.partsOpen);
     // picking the inspector up puts it back where it was before it stepped aside
     this.inspector.el.addEventListener('pointerdown', (e) => { if (e.target.closest('.insp-head')) { this.inspector.el.style.transform = ''; this._avoidSig = [...this.selection].sort().join(); } }, true);
     this.renderNetlist();
@@ -871,7 +882,7 @@ export class SchematicEditor {
     const [ax, ay] = v.toScreen([b.x0 - pad, b.y0 - pad]), [bx, by] = v.toScreen([b.x1 + pad, b.y1 + pad]);
     const cr = ws.view.canvas.getBoundingClientRect();
     const item = { x0: ax, y0: ay, x1: bx, y1: by };
-    const cards = [this.inspector?.el, this.gridCard?.el, this.sheetsEl, this.ercEl, this.netlistEl]
+    const cards = [this.inspector?.el, this.panel, this.gridCard?.el, this.sheetsEl, this.ercEl, this.netlistEl]
       .filter((el) => el && el.offsetParent && el.childElementCount && getComputedStyle(el).display !== 'none')
       .map((el) => { const r = el.getBoundingClientRect(); return { x0: r.left - cr.left, y0: r.top - cr.top, x1: r.right - cr.left, y1: r.bottom - cr.top }; });
     const hits = (a, c) => a.x0 < c.x1 && a.x1 > c.x0 && a.y0 < c.y1 && a.y1 > c.y0;
@@ -966,10 +977,9 @@ export class SchematicEditor {
     const start = [e.clientX, e.clientY];
     let dragging = false;
     const canvas = this.ws.view.canvas;
-    const overCanvas = (ev) => {
-      const r = canvas.getBoundingClientRect();
-      return ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom;
-    };
+    const inside = (el, ev) => { const r = el.getBoundingClientRect(); return ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom; };
+    // over the canvas, but not over the Parts card it came from (dropping back on the card cancels)
+    const overCanvas = (ev) => inside(canvas, ev) && !(this.panel.style.display !== 'none' && inside(this.panel, ev));
     const move = (ev) => {
       if (!dragging && Math.hypot(ev.clientX - start[0], ev.clientY - start[1]) >= DRAG_START_PX) { dragging = true; this.beginPlace(part, { drag: true }); }
       if (!dragging || !this.placing) return;
@@ -1652,6 +1662,15 @@ export class SchematicEditor {
     this.selection.clear();
     toast(`Deleted ${s.name}${n ? ` and its ${n} part${n === 1 ? '' : 's'}` : ''}. Ctrl+Z brings it back.`, 'info', 4000);
     this.refresh();
+  }
+
+  /** The Parts card (the part picker): open or closed, remembered in this browser. */
+  get partsOpen() { try { return localStorage.getItem('electrocad.partsOpen') !== '0'; } catch { return true; } }
+  toggleParts(open = !(this.panel?.style.display !== 'none')) {
+    if (!this.panel) return;
+    this.panel.style.display = open ? '' : 'none';
+    this.partsBtn?.classList.toggle('active', open);
+    try { localStorage.setItem('electrocad.partsOpen', open ? '1' : '0'); } catch { /* private mode */ }
   }
 
   toggleSheets(open = !this.sheetsOpen) {

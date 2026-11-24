@@ -56,6 +56,24 @@ This is a full-window page over the app, ported from the fork's "Your designs" d
 | **Coordinate pill** | Bottom-left of the canvas, monospace, as in the Laser workspace | Same |
 | **Mode banner** | Shows tool hints with `kbd` keys, e.g. "Wire: click to bend · Esc to finish" | e.g. "Routing: V via · / posture · Backspace undo segment" |
 
+## Parts card, floating and docked panels
+
+The schematic has no fixed side panel (ported from DabbleCAD's dockable panels, `feature/parts-panel`):
+
+- **Parts** (a labelled button on the toolbar) opens the part picker as a floating **Parts** card. It sits at the top right, and the other cards start to its left.
+  - Its close button or the Parts button closes it.
+  - Whether it is open is remembered.
+  - Dropping a tile back on the card cancels the placement.
+- **Every card** (Parts, inspector, Grid, Sheets, Netlist, ERC) floats over the canvas.
+  - Drag a card by its header to move it.
+  - Drag it to the left or right edge of the canvas, or onto a docked column, and drop it on the highlighted strip to **dock** it. The column sits beside the canvas, which makes room.
+  - Docked cards stack top to bottom, in the order dropped. Drag one out by its header (after 6 px of movement).
+  - Columns resize from their inner edge; double-click the edge for the default width.
+  - Double-click a card's header to send it back to its usual place.
+  - Where each card is, and each column's width, is remembered per browser.
+- **Hint bar** (context help): the line of help under the toolbar is off by default. Settings → "Show the hint bar (context help) under the toolbar" turns it on.
+- **Narrow windows:** below 1500 px wide, labelled toolbar buttons show only their icons, except Parts. Toolbars never squash their buttons.
+
 ## Schematic Part picker
 
 The Schematic's right-hand panel works like the fork's **3D Design shape panel**, with Parts in place of shapes:

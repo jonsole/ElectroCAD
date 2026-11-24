@@ -28,6 +28,7 @@ export class App {
   async init() {
     this.settings = await platform.getSettings();
     this.applyTheme(this.settings.theme);
+    this.applyHintBar();
     this.project = await this._startupProject();
     this.save = { dirty: false, saving: false, timer: null, pending: null };
     this.history = new History(() => this.project, (p) => { this.project = p; }, () => this._afterEdit());
@@ -411,6 +412,9 @@ export class App {
   /** How close (screen pixels) the pointer must come to another object's handle or pad to snap onto it; 0 is off. */
   snapDistance() { const v = this.settings.snapDistance; return Number.isFinite(v) ? v : 10; }
 
+  /** The hint bar (context help) under each toolbar: off unless turned on in Settings. */
+  applyHintBar(on = !!this.settings.hintBar) { document.documentElement.classList.toggle('no-hint-bar', !on); for (const w of this.workspaces || []) requestAnimationFrame(() => w.view.resize()); }
+
   /** How selected things are highlighted in every editor (Settings → Highlight). */
   highlightStyle() { return this.settings.highlightStyle || DEFAULT_HIGHLIGHT; }
 
@@ -515,9 +519,12 @@ export class App {
     const hl = h('select', { class: 'select', 'aria-label': 'Highlight style', title: 'How selected parts, wires, labels, footprints and shapes are shown, in every editor. The colour is the Selection colour of each Colour theme' },
       ...HIGHLIGHT_STYLES.map(([v, l, t]) => h('option', { value: v, title: t, selected: v === this.highlightStyle() }, l)));
     hl.addEventListener('change', () => { this.settings.highlightStyle = hl.value; platform.setSettings({ highlightStyle: hl.value }); for (const w of this.workspaces) w.view.invalidate(); });
+    const hint = h('input', { type: 'checkbox', checked: !!this.settings.hintBar, 'aria-label': 'Hint bar' });
+    hint.addEventListener('change', () => { this.settings.hintBar = hint.checked; platform.setSettings({ hintBar: hint.checked }); this.applyHintBar(); });
     m.body.append(h('label', { class: 'field' }, h('span', {}, 'App theme'), sel),
       h('label', { class: 'field' }, h('span', {}, 'Snap to objects within'), snap),
       h('label', { class: 'field' }, h('span', {}, 'Highlight selected things with'), hl),
+      h('label', { class: 'check-row', title: 'A line of context help under the toolbar: what the tool does and its keys' }, hint, 'Show the hint bar (context help) under the toolbar'),
       this._displaySection(),
       colorsSection(this),
       fieldStylesSection(this),

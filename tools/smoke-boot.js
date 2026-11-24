@@ -14,6 +14,13 @@ check('tab-buttons', document.querySelectorAll('.workspace-bar .ws-tab').length 
 for (const sel of ['.topbar .logo-mark', '.topbar .design-name', '.toolbar', '.hint-bar', '.tool-col', '.side-panel', '.bottom-bar']) {
   check('chrome ' + sel, !!document.querySelector(`.ws-root.active ${sel}, ${sel}`), sel);
 }
+// the hint bar is off unless turned on in Settings; the Schematic has no side panel, the Parts card instead
+const hb = () => getComputedStyle(document.querySelector('.ws-root.active .hint-bar')).display;
+check('hint-bar-off', hb() === 'none', hb());
+app.applyHintBar(true);
+check('hint-bar-on', hb() !== 'none', hb());
+app.applyHintBar(false);
+check('no-schematic-side', !document.querySelector('.ws-root[data-ws="schematic"] .side-panel') && !!document.querySelector('.ws-root[data-ws="schematic"] .parts-card'));
 check('desktop-bridge', !!window.electroNative, 'window.electroNative missing');
 check('dark-theme', document.documentElement.dataset.theme === 'dark');
 

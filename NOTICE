@@ -10,7 +10,8 @@ maintained by jonsole (https://github.com/jonsole/DabbleCAD):
   - the app shell, platform bridge, Electron main/preload process and smoke-test
     harness structure (src/renderer/app.js, src/renderer/platform.js, electron/, tools/)
   - the Laser workspace's canvas rulers and grid drawing (src/renderer/view/canvas2d.js)
-  - the movable floating card (src/renderer/ui/draggable.js), extended here with docking and resizing
+  - the movable floating card and dockable panels (src/renderer/ui/draggable.js, from DabbleCAD's
+    makeDraggable and ui/dock.js), and the column resizer (src/renderer/ui/resizer.js)
 
 DabbleCAD
 Copyright 2026 DJMcNewgent

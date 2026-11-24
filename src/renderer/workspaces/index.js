@@ -24,7 +24,7 @@ function schematic(app) {
       button({ label: 'Print', icon: 'print', title: 'Print or export the schematic to PDF or SVG (Ctrl+P)', onClick: () => openPrintDialog(app) })],
     hint: '',
     tools: editor.tools(toolButton),
-    side: editor.buildPicker(),
+    side: (editor.buildPicker(), ''), // the part picker is the Parts card over the canvas
     chips: () => editor.sheetChips(),
     status: () => editor.status(),
   });

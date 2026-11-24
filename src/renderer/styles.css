@@ -619,3 +619,47 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .pinmap-rows { max-height: 50vh; overflow-y: auto; }
 .pinmap-rows .le-row { grid-template-columns: 1fr 140px 0; }
 .menu-item .menu-hint { margin-left: auto; font-size: 11px; color: var(--muted); }
+
+/* ---------------------------------------------------------------- dockable panels (as DabbleCAD's) */
+.dock-col { flex: none; width: 300px; display: flex; flex-direction: column; background: var(--panel); overflow: hidden; position: relative; min-height: 0; }
+.dock-left { border-right: 1px solid var(--border); }
+.dock-right { border-left: 1px solid var(--border); }
+/* a column with nothing showing in it takes no room, nor does its splitter (set by workspace.js) */
+.dock-col.empty, .splitter.empty { display: none; }
+.dock-col > .docked { position: static !important; width: auto !important; max-height: none !important; height: auto !important; border: none; border-radius: 0; box-shadow: none; flex: 0 1 auto; overflow: auto; min-height: 0; margin: 0; }
+.dock-col > .docked + .docked { border-top: 1px solid var(--border); }
+.dock-col > .parts-card.docked { flex: 1 1 0; min-height: 220px; overflow: hidden; }
+.dock-col > .inspector.docked { flex: 0 1 auto; max-height: 60% !important; }
+.dock-col > .inspector.docked:empty { display: block; }
+.dock-col > .inspector.docked:empty::before { content: 'Select something to see its settings here. Drag this panel\'s header out to float it.'; display: block; padding: 16px 14px; color: var(--muted); font-size: 12.5px; }
+.card.docked::after { display: none; }
+.card.dragging { opacity: .92; z-index: 30 !important; }
+.dock-hint { position: absolute; top: 0; bottom: 0; width: 0; z-index: 29; pointer-events: none; background: var(--accent-soft); border: 2px dashed var(--accent); opacity: 0; transition: opacity .12s; }
+.dock-hint.on { opacity: 1; width: 260px; }
+.dock-hint.left { left: 0; border-radius: 0 10px 10px 0; }
+.dock-hint.right { right: 0; border-radius: 10px 0 0 10px; }
+.splitter { flex: none; width: 7px; margin: 0 -3px; position: relative; z-index: 6; cursor: col-resize; touch-action: none; }
+.splitter::after { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: transparent; transition: background .12s, box-shadow .12s; }
+.splitter:hover::after, .splitter.dragging::after { background: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.ws-host.split .dock-col { width: 260px; }
+
+/* the Parts card: the part picker, floating at the top right (toolbar: Parts); the other cards
+   start to its left while it is there */
+.float-stack-parts { width: 330px; }
+.card-layer:has(> .float-stack-parts > .parts-card:not([style*="display: none"])) > .float-stack:not(.float-stack-parts) { right: 358px; }
+.parts-card { display: flex; flex-direction: column; min-height: 0; }
+.float-stack-parts .parts-card { height: min(640px, calc(100vh - 260px)); flex: 0 0 auto; }
+.parts-card .parts-body { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.parts-card .shape-grid { flex: 1; min-height: 80px; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); }
+.parts-card .fp-head b { flex: 1; }
+.parts-card .fp-head .icon { color: var(--accent); }
+
+/* toolbar: buttons never squash into each other; on narrower windows labelled tools go icon-only */
+.toolbar .btn, .toolbar .mode-group, .toolbar .segmented { flex-shrink: 0; }
+.toolbar { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.toolbar::-webkit-scrollbar { display: none; }
+@media (max-width: 1500px) { .toolbar .btn:not(.keep-label) .btn-label { display: none; } .toolbar .btn:not(.keep-label) { padding: 0 6px; } }
+body.resizing { cursor: col-resize; user-select: none; -webkit-user-select: none; }
+body.resizing iframe, body.resizing canvas { pointer-events: none; }
+/* the hint bar (context help) is optional: Settings → Show the hint bar */
+.no-hint-bar .hint-bar { display: none; }

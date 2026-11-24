@@ -3,6 +3,7 @@
 //   toolbar / hint bar / [tool palette | ruled canvas | side panel] / bottom chips + status.
 import { h, button, icon } from '../ui/dom.js';
 import { Canvas2D } from '../view/canvas2d.js';
+import { addResizer } from '../ui/resizer.js';
 
 /** A toolbar or palette button that is not built yet: shown, but disabled with a pointer to its ticket. */
 export function later(opts, ticket) {
@@ -57,14 +58,28 @@ export class Workspace {
     this.view = new Canvas2D({ grid: cfg.grid, frame: cfg.frame, home: cfg.home, colors: cfg.colors, draw: cfg.draw });
     this.hint = h('span', { class: 'hint-text' }, cfg.hint);
     this.chipStrip = h('div', { class: 'chip-strip' });
+    // columns either side of the canvas that floating cards dock into (drag a card to an edge)
+    this.dockL = h('div', { class: 'dock-col dock-left', role: 'complementary', 'aria-label': 'Docked panels, left' });
+    this.dockR = h('div', { class: 'dock-col dock-right', role: 'complementary', 'aria-label': 'Docked panels, right' });
     this.statusText = h('div', { class: 'status-text' });
     const toolCol = h('div', { class: 'tool-col', role: 'toolbar', 'aria-label': `${cfg.label} tools`, 'aria-orientation': 'vertical' },
       ...cfg.tools.map((t) => t || h('span', { class: 'sep-h' })));
     this.el = h('div', { class: 'ws-root', dataset: { ws: cfg.id }, role: 'tabpanel', 'aria-label': cfg.label },
       h('div', { class: 'toolbar', role: 'toolbar', 'aria-label': `${cfg.label} toolbar` }, ...cfg.toolbar),
       h('div', { class: 'hint-bar' }, this.hint),
-      h('div', { class: 'ws-main' }, toolCol, this.view.el, cfg.side),
+      h('div', { class: 'ws-main' }, toolCol, this.dockL, this.view.el, this.dockR, cfg.side || ''),
       h('div', { class: 'bottom-bar' }, this.chipStrip, this.statusText));
+    const splitL = addResizer(this.dockL, { side: 'left', key: `${cfg.id}-dock-left`, min: 220, max: 560 });
+    const splitR = addResizer(this.dockR, { side: 'right', key: `${cfg.id}-dock-right`, min: 220, max: 560 });
+    // a column with no card showing takes no room, nor does its splitter
+    const tidy = () => {
+      for (const [col, split] of [[this.dockL, splitL], [this.dockR, splitR]]) {
+        const empty = ![...col.children].some((c) => c.style.display !== 'none');
+        col.classList.toggle('empty', empty); split.classList.toggle('empty', empty);
+      }
+    };
+    tidy();
+    for (const col of [this.dockL, this.dockR]) new MutationObserver(tidy).observe(col, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] });
     this.refresh();
   }
 
