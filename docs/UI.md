@@ -118,6 +118,25 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 - Net names: Power symbol beats Global label beats Net label beats the generated `Net-(R1-Pad2)`. Local labels named alike on two Sheets are two Nets, shown as `Sheet 1/EN` and `Sheet 2/EN`. Two different names on one Net are kept for ERC (#11).
 - **Sheets** are flat. The bottom bar has a chip per Sheet (click to switch, double-click to rename) and a + to add one after the current Sheet. The Sheets icon on the toolbar opens a card listing them with rename, move up/down and delete (the last Sheet stays). Each is one undo step; deleting a Sheet takes its parts with it and says so in a toast.
 
+## Markup, title block and sheet sizes
+
+- **Markup tools** in the palette, after No-connect. Markup never connects to Wires or Pins. Points snap to half a grid (25 mil).
+  - **Text (T):** click and type; Enter finishes, Shift+Enter starts a new line. Double-click a note to edit its raw text.
+  - **Line (I):** click points; double-click or Enter finishes.
+  - **Rectangle (B):** click two corners. It starts dashed, for boxing a section.
+  - **Circle (C):** click the centre, then the edge.
+  - **Arc (A):** click the start, a point on the arc, then the end.
+- **Editing:** markup selects, moves, copies, rotates (R; text turns between 0° and 90°), deletes and box-selects with everything else.
+- **Inspector:**
+  - text: content, size, alignment, rotation, bold, italic;
+  - lines and shapes: solid, dashed or dotted, arrows at either end of a line, and a light fill for rectangles and circles.
+- **Colour:** markup uses the theme's **Notes and markup** colour.
+- **Text variables:** `${TITLE}`, `${COMPANY}`, `${AUTHOR}`, `${REV}`, `${DATE}`, `${COMMENT}`, `${SHEET_NAME}`, `${SHEET_NUMBER}`, `${SHEET_COUNT}` and `${PROJECT}` are drawn filled in. The raw text is what you edit, and an unknown variable is left as typed.
+- **Title block:** the bottom-right corner of every Sheet shows the title (the Project name when empty), the Sheet name, "Sheet n of N", company, revision, date, author and comment, in the theme's sheet-edge colour.
+- **Sheet setup** opens by double-clicking the title block, or from **Sheet setup…** in the right-click menu on empty canvas. It sets:
+  - this Sheet's paper size (A4, A3, A2, Letter, Tabloid) and orientation; the canvas frame and Home follow it, and Print (#14) will use it;
+  - the Project's title block fields.
+
 ## No-connects and ERC
 
 - **No-connect (Q)** in the tool palette: click a Pin tip to mark it as left open on purpose (a cross in the theme's No-connect colour); click a marker to remove it. Markers move, copy and delete with their part, and can be selected and deleted on their own.

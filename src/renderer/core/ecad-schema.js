@@ -1,11 +1,11 @@
-// The JSON Schema of the Native format (.ecad), version 4. The single source: opening a file
+// The JSON Schema of the Native format (.ecad), version 5. The single source: opening a file
 // checks it (core/project.js), the tests check what the app writes, and
 // tools/write-format-example.js publishes it as docs/formats/ecad.schema.json.
 // Meaning of each field: docs/formats/ecad.md.
 export const ECAD_SCHEMA = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://jonsole.github.io/ElectroCAD/formats/ecad.schema.json",
-  "title": "ElectroCAD Project (.ecad), format version 4",
+  "title": "ElectroCAD Project (.ecad), format version 5",
   "description": "The Native format. See docs/formats/ecad.md for the meaning of each field. Strict on purpose: the tests check that every key the app writes is described here. Opening a file refuses anything it doesn't describe (ADR-0014). Uses only a plain subset of JSON Schema (type, const, enum, required, properties, additionalProperties, items, minItems, maxItems, minimum, minLength, oneOf, $ref).",
   "type": "object",
   "required": [
@@ -18,7 +18,8 @@ export const ECAD_SCHEMA = {
     "footprints",
     "schematic",
     "board",
-    "fieldStyles"
+    "fieldStyles",
+    "titleBlock"
   ],
   "additionalProperties": false,
   "properties": {
@@ -26,7 +27,7 @@ export const ECAD_SCHEMA = {
       "const": "electrocad"
     },
     "version": {
-      "const": 4,
+      "const": 5,
       "description": "Goes up with every format change. Before 1.0 there is no compatibility: a file of any other version is refused (ADR-0014)."
     },
     "id": {
@@ -74,6 +75,20 @@ export const ECAD_SCHEMA = {
     },
     "board": {
       "$ref": "#/$defs/board"
+    },
+    "titleBlock": {
+      "type": "object",
+      "description": "The title block fields shown on every Sheet (#59). Sheet name and number are filled in per Sheet.",
+      "required": ["title", "company", "author", "revision", "date", "comment"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string", "description": "Empty: the Project name." },
+        "company": { "type": "string" },
+        "author": { "type": "string" },
+        "revision": { "type": "string" },
+        "date": { "type": "string", "description": "As typed." },
+        "comment": { "type": "string" }
+      }
     },
     "fieldStyles": {
       "type": "object",
@@ -624,14 +639,7 @@ export const ECAD_SCHEMA = {
     },
     "sheet": {
       "type": "object",
-      "required": [
-        "id",
-        "name",
-        "symbols",
-        "wires",
-        "labels",
-        "noConnects"
-      ],
+      "required": ["id", "name", "symbols", "wires", "labels", "noConnects", "drawings", "paper"],
       "additionalProperties": false,
       "properties": {
         "id": {
@@ -665,6 +673,11 @@ export const ECAD_SCHEMA = {
           "items": {
             "$ref": "#/$defs/noConnect"
           }
+        },
+        "drawings": { "type": "array", "items": { "$ref": "#/$defs/drawing" }, "description": "Markup: text notes, lines, rectangles, circles and arcs (#59). Never connects." },
+        "paper": {
+          "type": "object", "required": ["size", "orientation"], "additionalProperties": false,
+          "properties": { "size": { "enum": ["A4", "A3", "A2", "Letter", "Tabloid"] }, "orientation": { "enum": ["landscape", "portrait"] } }
         }
       }
     },
@@ -792,6 +805,22 @@ export const ECAD_SCHEMA = {
         }
       },
       "description": "A no-connect marker on a Pin tip (#11)."
+    },
+    "lineStyle": { "enum": ["solid", "dashed", "dotted"] },
+    "drawing": {
+      "oneOf": [
+        { "type": "object", "required": ["id", "type", "at", "text", "size", "bold", "italic", "align", "rot"], "additionalProperties": false,
+          "properties": { "id": { "$ref": "#/$defs/id" }, "type": { "const": "text" }, "at": { "$ref": "#/$defs/point" }, "text": { "type": "string", "minLength": 1, "description": "May hold ${TITLE}, ${SHEET_NAME}… (drawn filled in)." },
+            "size": { "$ref": "#/$defs/nm" }, "bold": { "type": "boolean" }, "italic": { "type": "boolean" }, "align": { "enum": ["left", "center", "right"] }, "rot": { "enum": [0, 90] } } },
+        { "type": "object", "required": ["id", "type", "pts", "style", "arrowStart", "arrowEnd"], "additionalProperties": false,
+          "properties": { "id": { "$ref": "#/$defs/id" }, "type": { "const": "line" }, "pts": { "$ref": "#/$defs/points" }, "style": { "$ref": "#/$defs/lineStyle" }, "arrowStart": { "type": "boolean" }, "arrowEnd": { "type": "boolean" } } },
+        { "type": "object", "required": ["id", "type", "a", "b", "style", "fill"], "additionalProperties": false,
+          "properties": { "id": { "$ref": "#/$defs/id" }, "type": { "const": "rect" }, "a": { "$ref": "#/$defs/point" }, "b": { "$ref": "#/$defs/point" }, "style": { "$ref": "#/$defs/lineStyle" }, "fill": { "enum": ["none", "tint"] } } },
+        { "type": "object", "required": ["id", "type", "c", "r", "style", "fill"], "additionalProperties": false,
+          "properties": { "id": { "$ref": "#/$defs/id" }, "type": { "const": "circle" }, "c": { "$ref": "#/$defs/point" }, "r": { "$ref": "#/$defs/nm" }, "style": { "$ref": "#/$defs/lineStyle" }, "fill": { "enum": ["none", "tint"] } } },
+        { "type": "object", "required": ["id", "type", "start", "mid", "end", "style"], "additionalProperties": false,
+          "properties": { "id": { "$ref": "#/$defs/id" }, "type": { "const": "arc" }, "start": { "$ref": "#/$defs/point" }, "mid": { "$ref": "#/$defs/point" }, "end": { "$ref": "#/$defs/point" }, "style": { "$ref": "#/$defs/lineStyle" } } }
+      ]
     },
     "board": {
       "type": "object",

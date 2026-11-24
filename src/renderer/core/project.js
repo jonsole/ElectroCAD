@@ -12,7 +12,8 @@ export const FORMAT = 'electrocad';
 // Goes up with every format change. Before 1.0 files of other versions are refused (ADR-0014).
 // 3: Parts keyed by Library origin, Project footprints table, no Unit.fields, Board object shapes.
 // 4: text in Symbol and Footprint graphics (#13).
-export const VERSION = 4;
+// 5: Schematic markup, Sheet paper sizes and the title block (#59).
+export const VERSION = 5;
 
 /** Thrown when a file can't be opened as a Project; the message is shown to the user. */
 export class ProjectFileError extends Error {
@@ -32,6 +33,7 @@ export function newProject(name = 'Untitled') {
     schematic: { sheets: [newSheet('Sheet 1')] },
     board: newBoard(),
     fieldStyles: defaultFieldStyles(),
+    titleBlock: { title: '', company: '', author: '', revision: '', date: '', comment: '' },
   };
 }
 
@@ -47,7 +49,7 @@ const CLASSIC_STYLE = {
 const defaultFieldStyles = () => ({ default: 'classic', styles: { classic: structuredClone(CLASSIC_STYLE) } });
 
 export function newSheet(name) {
-  return { id: uid('s'), name, symbols: [], wires: [], labels: [], noConnects: [] };
+  return { id: uid('s'), name, symbols: [], wires: [], labels: [], noConnects: [], drawings: [], paper: { size: 'A4', orientation: 'landscape' } };
 }
 
 export function newBoard(copper = 2) {
@@ -280,6 +282,7 @@ export function projectProblems(p) {
       if (!l.net.trim() || /\s/.test(l.net)) out.push(`${what} label ${i + 1}: "${l.net}" isn't a usable net name`);
     });
     s.noConnects.forEach((n, i) => seen(n.id, `${what} no-connect ${i + 1}`));
+    s.drawings.forEach((d, i) => seen(d.id, `${what} drawing ${i + 1}`));
   }
   const placed = new Set(p.schematic.sheets.flatMap((s) => s.symbols.map((y) => y.componentId)));
   for (const c of Object.values(p.components)) if (!placed.has(c.id)) out.push(`component ${c.ref} isn't placed on any sheet`);

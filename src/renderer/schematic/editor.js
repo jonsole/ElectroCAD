@@ -1,14 +1,15 @@
 // Schematic editor: the Part picker (modelled on DabbleCAD's 3D Design shape panel), placing
 // Parts (#4), drawing Wires and the live Netlist panel (#5), selecting, rotating, mirroring
 // and deleting. Every change is one History transaction (one undo step).
-import { h, icon, button, popupMenu, toast } from '../ui/dom.js';
+import { h, icon, button, popupMenu, toast, modal } from '../ui/dom.js';
 import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { later } from '../workspaces/workspace.js';
 import { STARTER_LIBRARY, CATEGORIES, searchParts, groupParts } from '../library/starter.js';
 import { allFootprints } from '../library/footprints.js';
-import { toggleNoConnect, hitNoConnect, placedUnits, unitSuggestion, nextUnplacedUnit, unitLetter, placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, addLabel, addSheet, renameSheet, moveSheet, deleteSheet, validateSheetName, hitWire, preferredAxis, routeWire, moveSelection, copySelection, pasteClip, itemsInRect, itemsBounds, cleanupWires } from '../core/schematic.js';
+import { addDrawing, toggleNoConnect, hitNoConnect, placedUnits, unitSuggestion, nextUnplacedUnit, unitLetter, placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, addLabel, addSheet, renameSheet, moveSheet, deleteSheet, validateSheetName, hitWire, preferredAxis, routeWire, moveSelection, copySelection, pasteClip, itemsInRect, itemsBounds, cleanupWires } from '../core/schematic.js';
 import { buildNetlist } from '../core/netlist.js';
 import { runErc, filterViolations } from '../core/erc.js';
+import { hitDrawing, drawingDefaults, paperRect, titleBlockLayout, PAPER_SIZES, TITLE_FIELDS, LINE_STYLES } from '../core/drawings.js';
 import { pinPositions, nextRef, partOf } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
 import { snapPt, SCH_GRID, mm } from '../core/units.js';
@@ -27,6 +28,15 @@ const LABEL_TOOLS = {
   globalLabel: { style: 'label', scope: 'global', what: 'Global label' },
   power: { style: 'power', scope: 'global', what: 'Power symbol' },
   ground: { style: 'gnd', scope: 'global', what: 'Ground' },
+};
+
+/** Markup tools (#59): key, icon, title. Markup never connects like Wires. */
+const DRAW_TOOLS = {
+  text: { icon: 'ltext', key: 't', title: 'Text (T): click, type; Shift+Enter for a new line. ${TITLE}, ${SHEET_NAME}… are filled in' },
+  gline: { icon: 'lline', key: 'i', title: 'Line (I): click points, double-click or Enter to finish; arrows in the inspector' },
+  grect: { icon: 'lrect', key: 'b', title: 'Rectangle (B): click two corners, e.g. a dashed box round a section' },
+  gcircle: { icon: 'lellipse', key: 'c', title: 'Circle (C): click the centre, then the edge' },
+  garc: { icon: 'arc', key: 'a', title: 'Arc (A): click the start, a point on the arc, then the end' },
 };
 
 /** EN1 → EN2, D7 → D8; names without a trailing number stay as they are. */
@@ -209,7 +219,7 @@ export class SchematicEditor {
     const tol = 4 / v.view.scale;
     const f = this.placement && hitField(this.project, this.placement, world, tol / 2, measureText);
     const hit = hitNoConnect(this.sheet, world, SCH_GRID / 2) || hitLabel(this.sheet, world, tol / 2, measureText) || hitSymbol(this.project, this.sheet, world, 3 / v.view.scale)
-      || (f && this.sheet.symbols.find((y) => y.id === f.symbolId)) || hitWire(this.sheet, world, tol);
+      || (f && this.sheet.symbols.find((y) => y.id === f.symbolId)) || hitWire(this.sheet, world, tol) || hitDrawing(this.sheet, world, tol, measureText);
     if (hit && !this.selection.has(hit.id)) this.selection = new Set([hit.id]);
     else if (!hit) this.selection = new Set();
     this.refresh();
@@ -220,11 +230,12 @@ export class SchematicEditor {
         { label: 'Select all', icon: 'select', shortcut: 'Ctrl+A', onClick: () => this.selectAll() },
         'sep',
         { label: 'Fit the sheet in view', icon: 'fit', shortcut: 'Home', onClick: () => v.fitHome() },
+        { label: 'Sheet setup…', icon: 'settings', onClick: () => this.sheetSetup() },
       ], at);
       return;
     }
     const anySym = this.sheet.symbols.some((y) => this.selection.has(y.id));
-    const anyLabel = (this.sheet.labels || []).some((l) => this.selection.has(l.id));
+    const anyLabel = (this.sheet.labels || []).some((l) => this.selection.has(l.id)) || (this.sheet.drawings || []).some((d) => this.selection.has(d.id));
     popupMenu([
       { label: 'Copy', icon: 'copy', shortcut: 'Ctrl+C', onClick: () => this.copy() },
       { label: 'Paste', icon: 'paste', shortcut: 'Ctrl+V', disabled: !this.clipboard, onClick: () => this.paste() },
@@ -449,10 +460,13 @@ export class SchematicEditor {
     return [this.toolBtn.select, this.toolBtn.wire,
       this.toolBtn.netLabel, this.toolBtn.globalLabel, this.toolBtn.power, this.toolBtn.ground,
       this.toolBtn.noConnect, null,
-      toolButton('ltext', 'Text', { ticket: 8 }), toolButton('ruler', 'Measure', { ticket: 8 })];
+      ...Object.entries(DRAW_TOOLS).map(([id, t]) => (this.toolBtn[id] = button({ icon: t.icon, title: t.title, onClick: () => this.setTool(id) }))),
+      toolButton('ruler', 'Measure', { ticket: 8 })];
   }
 
   setTool(tool) {
+    if (this.tool === 'gline' && this.drawingPts?.length > 1 && tool !== 'gline') this._finishGline();
+    this.drawingPts = null;
     if (this.placing) this.endPlace();
     this.wiring = null;
     this.closeFieldEdit();
@@ -474,7 +488,7 @@ export class SchematicEditor {
       for (const k of ['del', 'rotate', 'mirror']) this.btn[k].disabled = this.selection.size === 0 && !this.placing;
       this.btn.del.disabled = this.selection.size === 0;
       const anySym = this.sheet.symbols.some((y) => this.selection.has(y.id));
-      const anyLabel = (this.sheet.labels || []).some((l) => this.selection.has(l.id));
+      const anyLabel = (this.sheet.labels || []).some((l) => this.selection.has(l.id)) || (this.sheet.drawings || []).some((d) => this.selection.has(d.id));
       if (!this.placing) { this.btn.rotate.disabled = !anySym && !anyLabel && !LABEL_TOOLS[this.tool]; this.btn.mirror.disabled = !anySym; }
       this.btn.fields.disabled = !anySym;
       this.btn.copy.disabled = this.selection.size === 0;
@@ -482,6 +496,7 @@ export class SchematicEditor {
       this.btn.paste.disabled = !this.clipboard;
     }
     if (this.toolBtn) for (const [t, b] of Object.entries(this.toolBtn)) b.classList.toggle('active', this.tool === t && !this.placing);
+    this._syncFrame();
     this.renderNetlist();
     this.renderSheets();
     this.renderErc();
@@ -500,6 +515,14 @@ export class SchematicEditor {
     if (this.tool === 'wire') text = this.wiring
       ? 'Drawing a wire: click to add a corner · click a Pin or Wire (or double-click) to finish · / switch corner direction · Backspace undo corner · Esc finish'
       : 'Wire: click a Pin or a point on the grid to start · Esc back to Select';
+    else if (DRAW_TOOLS[this.tool]) {
+      const n = this.drawingPts?.length || 0;
+      text = { text: 'Text: click where it goes, type, Enter to finish (Shift+Enter: new line). ${TITLE}, ${REV}, ${SHEET_NAME}, ${SHEET_NUMBER} of ${SHEET_COUNT}… are filled in',
+        gline: n ? 'Line: click to add a point · double-click or Enter to finish · Esc cancel' : 'Line: click the first point (arrows and dashes in the inspector)',
+        grect: n ? 'Rectangle: click the opposite corner' : 'Rectangle: click a corner',
+        gcircle: n ? 'Circle: click a point on the edge' : 'Circle: click the centre',
+        garc: !n ? 'Arc: click the start' : n === 1 ? 'Arc: click a point the arc passes through' : 'Arc: click the end' }[this.tool] + ' · Esc back to Select';
+    }
     else if (this.tool === 'noConnect') text = 'No-connect: click a Pin tip to mark it as left open on purpose (ERC then ignores it) · click a marker to remove it · Esc back to Select';
     else if (LABEL_TOOLS[this.tool]) {
       const t = LABEL_TOOLS[this.tool];
@@ -515,6 +538,8 @@ export class SchematicEditor {
       const nw = this.sheet.wires.filter((w) => this.selection.has(w.id)).length;
       const labels = (this.sheet.labels || []).filter((l) => this.selection.has(l.id)).map((l) => l.net);
       const nnc = (this.sheet.noConnects || []).filter((n) => this.selection.has(n.id)).length;
+      const nd = (this.sheet.drawings || []).filter((d) => this.selection.has(d.id)).length;
+      if (nd) labels.push(`${nd} note${nd === 1 ? '' : 's'}/shape${nd === 1 ? '' : 's'}`);
       if (nnc) labels.push(`${nnc} no-connect${nnc === 1 ? '' : 's'}`);
       const what = [...refs, ...labels, ...(nw ? [`${nw} wire${nw === 1 ? '' : 's'}`] : [])].join(', ');
       text = `Selected ${what} · drag or arrow keys to move${refs.length || labels.length ? ' · R rotate' : ''}${refs.length ? ' · X mirror' : ''}${labels.length === 1 && !refs.length ? ' · double-click to rename' : ''} · Ctrl+C/V/D · Del delete · Esc deselect`;
@@ -533,6 +558,7 @@ export class SchematicEditor {
       if (this.placing && !this.placing.drag) { this._update(world); this.commitPlace(); return; }
       if (this.tool === 'wire') { this._wireClick(world, e.detail >= 2); return; }
       if (LABEL_TOOLS[this.tool]) { e.preventDefault(); this._labelClick(snapPt(world, SCH_GRID)); return; } // keep focus in the name box
+      if (DRAW_TOOLS[this.tool]) { if (this.tool === 'text') e.preventDefault(); this._drawClick(world, e.detail >= 2); return; }
       if (this.tool === 'noConnect') {
         const at = snapPt(world, SCH_GRID);
         const there = (this.sheet.noConnects || []).some((n) => n.at[0] === at[0] && n.at[1] === at[1]);
@@ -553,7 +579,7 @@ export class SchematicEditor {
         return;
       }
       const hit = hitNoConnect(this.sheet, world, SCH_GRID / 2) || hitLabel(this.sheet, world, tol / 2, measureText) || hitSymbol(this.project, this.sheet, world, 3 / ws.view.view.scale)
-        || (fieldHit && this.sheet.symbols.find((y) => y.id === fieldHit.symbolId)) || hitWire(this.sheet, world, tol);
+        || (fieldHit && this.sheet.symbols.find((y) => y.id === fieldHit.symbolId)) || hitWire(this.sheet, world, tol) || hitDrawing(this.sheet, world, tol, measureText);
       if (e.shiftKey && hit) { if (this.selection.has(hit.id)) this.selection.delete(hit.id); else this.selection.add(hit.id); this.refresh(); return; }
       if (hit) {
         if (!this.selection.has(hit.id)) this.selection = new Set([hit.id]);
@@ -573,6 +599,10 @@ export class SchematicEditor {
       const f = this.placement && hitField(this.project, this.placement, world, 3 / ws.view.view.scale, measureText);
       const l = hitLabel(this.sheet, world, 3 / ws.view.view.scale, measureText);
       if (l && l.style !== 'gnd') { e.preventDefault(); this.editLabel({ label: l }); return; }
+      const d = hitDrawing(this.sheet, world, 3 / ws.view.view.scale, measureText);
+      if (d && d.type === 'text') { e.preventDefault(); this.editText({ drawing: d }); return; }
+      const tb = titleBlockLayout(this.sheet).box;
+      if (!f && world[0] >= tb.x0 && world[0] <= tb.x1 && world[1] >= tb.y0 && world[1] <= tb.y1) { e.preventDefault(); this.sheetSetup(); return; }
       if (f && (f.key === 'reference' || f.key === 'value')) { e.preventDefault(); this.editField(f.symbolId, f.key); }
     });
     c.addEventListener('pointerup', (e) => {
@@ -607,6 +637,7 @@ export class SchematicEditor {
       if (this.placing && !this.placing.drag) this._update(ws.view.view.toWorld(ws.view.local(e)));
       const world = ws.view.view.toWorld(ws.view.local(e));
       this.cursor = snapPt(world, SCH_GRID);
+      this.cursorRaw = world; // markup snaps to half a grid
       if (this.tool !== 'select') ws.view.invalidate();
       if (this.fieldDrag && (e.buttons & 1)) {
         const d = this.fieldDrag;
@@ -684,7 +715,8 @@ export class SchematicEditor {
     const sheet = this._S(proj);
     this.placement = placeFields(proj, sheet, { measure: measureText });
     drawSheet(ctx, view, C, proj, sheet, { selection: this.selection, ghost, bounds: (s) => symbolBounds(proj, s), wiring, target, placement: this.placement, display: this.app.schematicDisplay(), ghostLabel,
-      erc: this.ercOpen ? (this.ercShown || []).filter((x) => x.sheetId === sheet.id && x.severity !== 'info') : null, ercFocus: this.ercFocus });
+      erc: this.ercOpen ? (this.ercShown || []).filter((x) => x.sheetId === sheet.id && x.severity !== 'info') : null, ercFocus: this.ercFocus,
+      ghostDrawing: this._ghostDrawing() });
     if (this.marquee && (this.marquee.a[0] !== this.marquee.b[0] || this.marquee.a[1] !== this.marquee.b[1])) {
       const m = this.marquee;
       const [x0, y0] = view.toScreen(m.a), [x1, y1] = view.toScreen(m.b);
@@ -859,6 +891,133 @@ export class SchematicEditor {
     this.refresh();
   }
 
+  // ---------------------------------------------------------------- markup and sheet setup (#59)
+
+  /** The canvas frame follows the Sheet's paper size; Home fits it. */
+  _syncFrame() {
+    const v = this.ws?.view;
+    if (!v) return;
+    const r = paperRect(this.sheet);
+    if (!v.frame || v.frame.x1 !== r.x1 || v.frame.y1 !== r.y1) { v.frame = r; v.home = r; v.invalidate(); }
+  }
+
+  _drawClick(world, dbl) {
+    const p = snapPt(world, SCH_GRID / 2);
+    const t = this.tool;
+    if (t === 'text') { this.editText({ at: p }); return; }
+    const pts = this.drawingPts || [];
+    const add = (d) => {
+      const nd = this.app.edit(`Add ${d.type === 'line' ? 'line' : d.type}`, (pr) => addDrawing(pr, this._S(pr), { ...drawingDefaults(d.type), ...d }));
+      this.drawingPts = null;
+      this.selection = new Set([nd.id]);
+    };
+    if (t === 'gline') {
+      const last = pts[pts.length - 1];
+      if (dbl || (last && last[0] === p[0] && last[1] === p[1])) { this._finishGline(); return; }
+      this.drawingPts = [...pts, p];
+    } else if (t === 'grect' && pts.length === 1) { if (p[0] !== pts[0][0] && p[1] !== pts[0][1]) add({ type: 'rect', a: pts[0], b: p }); else this.drawingPts = null; }
+    else if (t === 'gcircle' && pts.length === 1) { const r = Math.round(Math.hypot(p[0] - pts[0][0], p[1] - pts[0][1])); if (r) add({ type: 'circle', c: pts[0], r }); else this.drawingPts = null; }
+    else if (t === 'garc' && pts.length === 2) add({ type: 'arc', start: pts[0], mid: pts[1], end: p });
+    else this.drawingPts = [...pts, p];
+    this.refresh();
+  }
+
+  _finishGline() {
+    const pts = this.drawingPts || [];
+    this.drawingPts = null;
+    if (pts.length >= 2) {
+      const nd = this.app.edit('Add line', (pr) => addDrawing(pr, this._S(pr), { type: 'line', pts, ...drawingDefaults('line') }));
+      this.selection = new Set([nd.id]);
+    }
+    this.refresh();
+  }
+
+  /** The shape being drawn, from the clicked points to the cursor. */
+  _ghostDrawing() {
+    const pts = this.drawingPts;
+    if (!pts || !this.cursorRaw || !DRAW_TOOLS[this.tool]) return null;
+    const cur = snapPt(this.cursorRaw, SCH_GRID / 2);
+    const base = { id: 'ghost', ...drawingDefaults({ gline: 'line', grect: 'rect', gcircle: 'circle', garc: 'arc' }[this.tool]) };
+    if (this.tool === 'gline') return { ...base, type: 'line', pts: [...pts, cur] };
+    if (this.tool === 'grect') return { ...base, type: 'rect', a: pts[0], b: cur };
+    if (this.tool === 'gcircle') return { ...base, type: 'circle', c: pts[0], r: Math.round(Math.hypot(cur[0] - pts[0][0], cur[1] - pts[0][1])) || 1 };
+    if (this.tool === 'garc') return pts.length === 1 ? { ...base, type: 'line', style: 'dotted', arrowStart: false, arrowEnd: false, pts: [pts[0], cur] } : { ...base, type: 'arc', start: pts[0], mid: pts[1], end: cur };
+    return null;
+  }
+
+  /**
+   * Type a text note in place: a new one at `at`, or edit `drawing` (its raw text, with any
+   * ${VARIABLES}). Enter saves (one undo step), Shift+Enter adds a line, Esc cancels.
+   */
+  editText({ at = null, drawing = null }) {
+    this.closeFieldEdit();
+    const v = this.ws.view.view;
+    const d = drawing || { ...drawingDefaults('text'), at };
+    const [x, y] = v.toScreen(d.at);
+    const px = Math.max(12, d.size * v.scale);
+    const box = h('textarea', { class: 'field-edit text-edit', spellcheck: false, rows: Math.max(1, String(drawing?.text || '').split('\n').length), 'aria-label': drawing ? 'Edit text' : 'Text' }, drawing?.text || '');
+    Object.assign(box.style, { left: `${x - 6}px`, top: `${y - px * 0.85}px`, minWidth: '160px', fontSize: `${px}px`, lineHeight: '1.3' });
+    const tip = h('div', { class: 'field-edit-tip note' }, 'Enter to finish · Shift+Enter new line · ${TITLE}, ${SHEET_NAME}… work');
+    Object.assign(tip.style, { left: box.style.left, top: `${y - px * 0.85 - 24}px` });
+    let done = false;
+    const close = () => { if (done) return; done = true; box.remove(); tip.remove(); this.labelEdit = null; this.ws.view.canvas.focus({ preventScroll: true }); this.refresh(); };
+    const commit = () => {
+      if (done) return;
+      const text = box.value.replace(/\s+$/, '');
+      if (drawing) {
+        if (!text) this.app.edit('Delete text', (p) => { const s = this._S(p); s.drawings = s.drawings.filter((x) => x.id !== drawing.id); });
+        else if (text !== drawing.text) this.app.edit('Edit text', (p) => { const t = this._S(p).drawings.find((x) => x.id === drawing.id); if (t) t.text = text; });
+      } else if (text) {
+        const nd = this.app.edit('Add text', (p) => addDrawing(p, this._S(p), { type: 'text', ...d, text }));
+        this.selection = new Set([nd.id]);
+      }
+      close();
+    };
+    const fit = () => { box.rows = Math.max(1, box.value.split('\n').length); };
+    box.addEventListener('input', fit);
+    box.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commit(); }
+      else if (e.key === 'Escape') { e.preventDefault(); close(); }
+    });
+    box.addEventListener('blur', () => commit());
+    this.ws.view.el.append(box, tip);
+    box.focus();
+    box.select();
+    this.labelEdit = { input: box, commit, close };
+  }
+
+  /** Sheet setup: this Sheet's paper size and orientation, and the Project's title block. */
+  sheetSetup() {
+    const m = modal({ title: 'Sheet setup', width: 520 });
+    const sheet = this.sheet;
+    const tb = this.project.titleBlock || {};
+    const size = h('select', { class: 'select', 'aria-label': 'Paper size' }, ...Object.keys(PAPER_SIZES).map((k) => h('option', { value: k }, `${k} (${PAPER_SIZES[k].join(' × ')} mm)`)));
+    size.value = sheet.paper?.size || 'A4';
+    const orient = h('select', { class: 'select', 'aria-label': 'Orientation' }, h('option', { value: 'landscape' }, 'Landscape'), h('option', { value: 'portrait' }, 'Portrait'));
+    orient.value = sheet.paper?.orientation || 'landscape';
+    const inputs = TITLE_FIELDS.map(([k, label]) => [k, h('input', { class: 'input', type: 'text', value: tb[k] || '', 'aria-label': label, placeholder: k === 'title' ? this.project.name : '' }), label]);
+    for (const [, i] of inputs) i.addEventListener('keydown', (e) => e.stopPropagation());
+    const apply = () => {
+      this.app.edit('Sheet setup', (p) => {
+        const s = this._S(p);
+        s.paper = { size: size.value, orientation: orient.value };
+        p.titleBlock = Object.fromEntries(inputs.map(([k, i]) => [k, i.value.trim()]));
+      });
+      m.close();
+      this.refresh();
+      this.ws?.view.fitHome?.();
+    };
+    m.body.append(
+      h('div', { class: 'setup-group' }, h('div', { class: 'setup-head' }, `Paper for "${sheet.name}"`),
+        h('div', { class: 'param-pair' }, h('label', { class: 'field' }, h('span', {}, 'Size'), size), h('label', { class: 'field' }, h('span', {}, 'Orientation'), orient))),
+      h('div', { class: 'setup-group' }, h('div', { class: 'setup-head' }, 'Title block (every sheet)'),
+        h('div', { class: 'setup-grid' }, ...inputs.map(([, i, label]) => h('label', { class: 'field' }, h('span', {}, label), i))),
+        h('p', { class: 'side-note' }, 'The sheet name and "Sheet n of N" are filled in for each sheet. Text notes can show these fields too: ${TITLE}, ${COMPANY}, ${AUTHOR}, ${REV}, ${DATE}, ${COMMENT}, ${SHEET_NAME}, ${SHEET_NUMBER}, ${SHEET_COUNT}, ${PROJECT}.')),
+      h('div', { class: 'modal-actions' }, button({ label: 'Cancel', cls: 'btn-outline', onClick: () => m.close() }), button({ label: 'Apply', cls: 'btn-primary', onClick: apply })));
+    setTimeout(() => inputs[0][1].focus(), 30);
+  }
+
   // ---------------------------------------------------------------- ERC panel (#11)
 
   toggleErc(open = !this.ercOpen) {
@@ -967,12 +1126,12 @@ export class SchematicEditor {
   _selectedSymbolIds() { return this.sheet.symbols.filter((y) => this.selection.has(y.id)).map((y) => y.id); }
 
   /** Every selectable item on the current Sheet. */
-  _allIds() { return [...this.sheet.symbols.map((y) => y.id), ...this.sheet.wires.map((w) => w.id), ...(this.sheet.labels || []).map((l) => l.id), ...(this.sheet.noConnects || []).map((n) => n.id)]; }
+  _allIds() { return [...this.sheet.symbols.map((y) => y.id), ...this.sheet.wires.map((w) => w.id), ...(this.sheet.labels || []).map((l) => l.id), ...(this.sheet.noConnects || []).map((n) => n.id), ...(this.sheet.drawings || []).map((d) => d.id)]; }
 
   rotate() {
     if (this.placing) { this.placing.rot = (this.placing.rot + 90) % 360; this.ws.view.invalidate(); return; }
     if (LABEL_TOOLS[this.tool]) { this.labelRot = (this.labelRot + 90) % 360; this.ws.view.invalidate(); return; }
-    const ids = [...this._selectedSymbolIds(), ...(this.sheet.labels || []).filter((l) => this.selection.has(l.id)).map((l) => l.id)];
+    const ids = [...this._selectedSymbolIds(), ...(this.sheet.labels || []).filter((l) => this.selection.has(l.id)).map((l) => l.id), ...(this.sheet.drawings || []).filter((d) => this.selection.has(d.id)).map((d) => d.id)];
     if (!ids.length) return;
     this.app.edit('Rotate', (p) => rotateSymbols(p, ids));
   }
@@ -1327,6 +1486,11 @@ export class SchematicEditor {
     if (k === 'p') { this.setTool('power'); return true; }
     if (k === 'g') { this.setTool('ground'); return true; }
     if (k === 'q') { this.setTool('noConnect'); return true; }
+    if (DRAW_TOOLS[this.tool]) {
+      if (e.key === 'Escape') { if (this.tool === 'gline' && this.drawingPts?.length > 1) this._finishGline(); else if (this.drawingPts) { this.drawingPts = null; this.refresh(); } else this.setTool('select'); return true; }
+      if (e.key === 'Enter' && this.tool === 'gline') { this._finishGline(); return true; }
+    }
+    for (const [id, t] of Object.entries(DRAW_TOOLS)) if (k === t.key) { this.setTool(id); return true; }
     if (this.tool === 'noConnect' && e.key === 'Escape') { this.setTool('select'); return true; }
     if (k === 'v') { this.setTool('select'); return true; }
     if (k === 'r') { this.rotate(); return true; }

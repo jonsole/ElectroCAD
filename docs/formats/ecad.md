@@ -1,4 +1,4 @@
-# The ElectroCAD Project file (`.ecad`), version 4
+# The ElectroCAD Project file (`.ecad`), version 5
 
 A Project is one JSON file, the Native format ([ADR-0004](../adr/0004-native-format-is-json-foreign-formats-are-lossy-converters.md)). This page describes every key the app writes today, for review and for anyone writing a tool that reads or writes `.ecad` files.
 
@@ -24,7 +24,7 @@ A Project is one JSON file, the Native format ([ADR-0004](../adr/0004-native-for
 
 ## Versions and compatibility
 
-- `format` is always `"electrocad"`. `version` is the format version, currently **4**.
+- `format` is always `"electrocad"`. `version` is the format version, currently **5**.
 - **Before 1.0 there is no compatibility** ([ADR-0014](../adr/0014-no-file-compatibility-before-1-0.md)). `version` goes up with every format change, and a file of any other version is refused with a message saying which version wrote it. There are no migrations.
 - **Opening is strict.** The file is checked against the schema, and then against what a schema can't express (`projectProblems()` in `project.js`):
   - ids unique across the file, Reference designators unique, Sheet names unique regardless of case;
@@ -48,6 +48,7 @@ A Project is one JSON file, the Native format ([ADR-0004](../adr/0004-native-for
 | `schematic` | `{ sheets: [Sheet] }` | At least one Sheet, in display order. |
 | `board` | Board | The PCB. Only the layer stack and rules are written today. |
 | `fieldStyles` | `{ default, styles }` | `default` is a key in `styles`; `styles` holds every Field style the Project uses ([ADR-0012](../adr/0012-fields-are-placed-automatically-by-field-styles.md)). |
+| `titleBlock` | `{ title, company, author, revision, date, comment }` | The title block on every Sheet (#59); an empty title shows the Project name. Sheet name and number are filled in per Sheet. |
 
 ## Part
 
@@ -116,6 +117,8 @@ Every shape may have `fill` (`none`, `background` = the theme's symbol fill, `ou
 | `wires` | `[Wire]` | |
 | `labels` | `[Label]` | Net labels, Global labels and Power symbols. |
 | `noConnects` | `[{ id, at }]` | No-connect markers on Pin tips (#11); always empty today. |
+| `drawings` | `[Drawing]` | Markup (#59): text notes, lines, rectangles, circles and arcs. Never connects. |
+| `paper` | `{ size, orientation }` | `A4`, `A3`, `A2`, `Letter` or `Tabloid`; `landscape` or `portrait`. Sets the frame and the print size. |
 
 **Symbol** (one placed Unit):
 
@@ -143,6 +146,16 @@ Every shape may have `fill` (`none`, `background` = the theme's symbol fill, `ou
 | `style` | `label` / `power` / `gnd` | `power` and `gnd` are Power symbols and always have `scope: "global"`. |
 
 How Nets are built from these (not stored): see [DESIGN.md §4](../DESIGN.md#4-connectivity-netlist) and `core/netlist.js`. In short: a Net's name comes from its labels (Power symbol before Global label before Net label), or is generated as `Net-(R1-Pad2)` from its lowest Reference designator.
+
+**Drawing** (markup on a Sheet; `style` is `solid`, `dashed` or `dotted`):
+
+| `type` | Keys |
+| --- | --- |
+| `text` | `at` (start, middle or end of the first line, by `align`), `text` (may hold `${TITLE}`… variables, stored raw), `size` (nm), `bold`, `italic`, `align` (`left`/`center`/`right`), `rot` (0 or 90) |
+| `line` | `pts` (a polyline), `style`, `arrowStart`, `arrowEnd` |
+| `rect` | `a`, `b`, `style`, `fill` (`none` or `tint`) |
+| `circle` | `c`, `r`, `style`, `fill` |
+| `arc` | `start`, `mid`, `end`, `style` |
 
 ## Board
 

@@ -3,6 +3,7 @@
 import { addComponent, partOf, partKey, pruneOrphans, uid, pinPositions, nextRef, newSheet, addFootprint } from './project.js';
 import { compareRefs } from './netlist.js';
 import { labelBounds } from './labels.js';
+import { drawingBounds, moveDrawing, rotateDrawing } from './drawings.js';
 import { place, eq, distToSegment2, onSegment, rot90, key, shapePoints } from './geom.js';
 import { snapPt, SCH_GRID } from './units.js';
 
@@ -70,6 +71,7 @@ export function rotateSymbols(project, ids) {
   for (const y of symbolsById(project, ids)) y.rot = ((y.rot || 0) + 90) % 360;
   const want = new Set(ids);
   for (const s of project.schematic.sheets) for (const l of s.labels || []) if (want.has(l.id)) l.rot = ((l.rot || 0) + 90) % 360;
+  for (const s of project.schematic.sheets) for (const d of s.drawings || []) if (want.has(d.id)) rotateDrawing(d);
 }
 
 /** Mirror left-right. */
@@ -90,6 +92,7 @@ export function deleteItems(project, ids) {
     s.symbols = s.symbols.filter((y) => !gone.has(y.id));
     s.wires = s.wires.filter((w) => !gone.has(w.id));
     s.labels = (s.labels || []).filter((l) => !gone.has(l.id));
+    s.drawings = (s.drawings || []).filter((d) => !gone.has(d.id));
   }
   pruneOrphans(project);
 }
@@ -256,6 +259,7 @@ export function moveSelection(project, sheet, ids, delta) {
   // no-connect markers go with the Pins they sit on, or on their own when selected
   const pinTips = new Set(movingSyms.flatMap((y) => pinPositions(project, y).map((x) => ptKey(x.at))));
   for (const n of sheet.noConnects || []) if (sel.has(n.id) || pinTips.has(ptKey(n.at))) n.at = add2(n.at, delta);
+  for (const d of sheet.drawings || []) if (sel.has(d.id)) moveDrawing(d, delta);
   for (const y of movingSyms) y.at = add2(y.at, delta);
 
   const fixedPins = new Set();
@@ -349,7 +353,8 @@ export function copySelection(project, sheet, ids) {
   const labels = (sheet.labels || []).filter((l) => sel.has(l.id)).map((l) => structuredClone(l));
   const tips = new Set(symbols.flatMap((y) => pinPositions(project, y).map((x) => key(x.at))));
   const noConnects = (sheet.noConnects || []).filter((n) => sel.has(n.id) || tips.has(key(n.at))).map((n) => structuredClone(n));
-  return { kind: 'electrocad-schematic-clip', symbols, wires, labels, noConnects, components, parts, footprints };
+  const drawings = (sheet.drawings || []).filter((d) => sel.has(d.id)).map((d) => structuredClone(d));
+  return { kind: 'electrocad-schematic-clip', symbols, wires, labels, noConnects, drawings, components, parts, footprints };
 }
 
 /**
@@ -381,6 +386,13 @@ export function pasteClip(project, sheet, clip, delta) {
     sheet.wires.push(nw);
     ids.push(nw.id);
   }
+  sheet.drawings ||= [];
+  for (const d of clip.drawings || []) {
+    const nd = { ...structuredClone(d), id: uid('d') };
+    moveDrawing(nd, delta);
+    sheet.drawings.push(nd);
+    ids.push(nd.id);
+  }
   sheet.noConnects ||= [];
   for (const n of clip.noConnects || []) {
     const nn = { id: uid('n'), at: add2(n.at, delta) };
@@ -404,6 +416,7 @@ export function itemsBounds(project, sheet, ids) {
   for (const w of sheet.wires) if (sel.has(w.id)) boxes.push({ x0: Math.min(w.a[0], w.b[0]), y0: Math.min(w.a[1], w.b[1]), x1: Math.max(w.a[0], w.b[0]), y1: Math.max(w.a[1], w.b[1]) });
   for (const l of sheet.labels || []) if (sel.has(l.id)) boxes.push(labelBounds(l));
   for (const n of sheet.noConnects || []) if (sel.has(n.id)) boxes.push(noConnectBox(n));
+  for (const d of sheet.drawings || []) if (sel.has(d.id)) boxes.push(drawingBounds(d));
   if (!boxes.length) return null;
   return { x0: Math.min(...boxes.map((b) => b.x0)), y0: Math.min(...boxes.map((b) => b.y0)), x1: Math.max(...boxes.map((b) => b.x1)), y1: Math.max(...boxes.map((b) => b.y1)) };
 }
@@ -428,6 +441,7 @@ export function itemsInRect(project, sheet, r, mode = 'window') {
   }
   for (const l of sheet.labels || []) { const b = labelBounds(l); if (mode === 'window' ? inside(b) : touches(b)) out.push(l.id); }
   for (const n of sheet.noConnects || []) { const b = noConnectBox(n); if (mode === 'window' ? inside(b) : touches(b)) out.push(n.id); }
+  for (const d of sheet.drawings || []) { const b = drawingBounds(d); if (mode === 'window' ? inside(b) : touches(b)) out.push(d.id); }
   return out;
 }
 
@@ -541,4 +555,12 @@ export function deleteSheet(project, sheetId) {
   if (i < 0) return;
   sheets.splice(i, 1);
   pruneOrphans(project);
+}
+
+/** Add a drawing (markup, #59) to a Sheet with a new id. Returns it. */
+export function addDrawing(project, sheet, d) {
+  sheet.drawings ||= [];
+  const nd = { ...structuredClone(d), id: uid('d') };
+  sheet.drawings.push(nd);
+  return nd;
 }

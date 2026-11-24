@@ -32,16 +32,22 @@ export class SchematicInspector {
     const syms = this.ed.sheet.symbols.filter((y) => this.ed.selection.has(y.id));
     const wires = this.ed.sheet.wires.filter((w) => this.ed.selection.has(w.id));
     const labels = (this.ed.sheet.labels || []).filter((l) => this.ed.selection.has(l.id));
+    const drawings = (this.ed.sheet.drawings || []).filter((d) => this.ed.selection.has(d.id));
     const comps = syms.map((y) => this.project.components[y.componentId]);
-    const sig = JSON.stringify([[...this.ed.selection], syms, wires.length, labels, comps, this.project.fieldStyles?.default]);
+    const sig = JSON.stringify([[...this.ed.selection], syms, wires.length, labels, drawings, comps, this.project.fieldStyles?.default]);
     const focused = this.el.contains(document.activeElement) ? document.activeElement : null;
     const typing = focused && /^(INPUT|TEXTAREA)$/.test(focused.tagName);
     if (typing && sig === this.sig) return;
     this.sig = sig;
-    if (!syms.length && !wires.length && !labels.length) { this.el.replaceChildren(); return; }
+    if (!syms.length && !wires.length && !labels.length && !drawings.length) { this.el.replaceChildren(); return; }
+    if (drawings.length === 1 && !syms.length && !labels.length && !wires.length) { this._drawing(drawings[0]); return this._refocus(focused); }
     if (syms.length === 1 && !labels.length) this._one(syms[0], wires.length);
     else if (labels.length === 1 && !syms.length) this._label(labels[0], wires.length);
     else this._many(syms, wires, labels);
+    this._refocus(focused);
+  }
+
+  _refocus(focused) {
     if (focused && focused.getAttribute('aria-label')) {
       const again = this.el.querySelector(`[aria-label="${CSS.escape(focused.getAttribute('aria-label'))}"]`);
       if (again) again.focus({ preventScroll: true });
@@ -235,6 +241,46 @@ export class SchematicInspector {
     rows.push(h('div', { class: 'param' }, h('label', {}, 'Rotation'), rot));
     if (extraWires) rows.push(h('div', { class: 'insp-note' }, `and ${extraWires} wire${extraWires === 1 ? '' : 's'}`));
     this.el.replaceChildren(this._head(l.net, kind), h('div', { class: 'insp-body' }, ...rows));
+  }
+
+  /** One piece of markup (#59): text (content, size, style, alignment, rotation) or a line/shape (style, arrows, fill). */
+  _drawing(d) {
+    const set = (label, fn) => this._edit(label, (p) => { const x = (this.ed._S(p).drawings || []).find((y) => y.id === d.id); if (x) fn(x); });
+    const sel = (label, value, options, onChange) => {
+      const s = h('select', { class: 'select', 'aria-label': label }, ...options.map(([v, t]) => h('option', { value: v }, t)));
+      s.value = String(value);
+      s.addEventListener('change', () => onChange(s.value));
+      return h('div', { class: 'param' }, h('label', {}, label), s);
+    };
+    const check = (label, value, onChange) => {
+      const c = h('input', { type: 'checkbox', checked: !!value, 'aria-label': label });
+      c.addEventListener('change', () => onChange(c.checked));
+      return h('label', { class: 'check-row' }, c, label);
+    };
+    const styles = [['solid', 'Solid'], ['dashed', 'Dashed'], ['dotted', 'Dotted']];
+    const rows = [];
+    let title;
+    if (d.type === 'text') {
+      title = 'Text note';
+      const area = h('textarea', { class: 'input insp-textarea', rows: Math.max(2, d.text.split('\n').length), 'aria-label': 'Text', spellcheck: false }, d.text);
+      area.addEventListener('change', () => { const v = area.value.replace(/\s+$/, ''); if (v) set('Edit text', (x) => { x.text = v; }); });
+      area.addEventListener('keydown', (e) => e.stopPropagation());
+      const size = h('input', { class: 'input', type: 'number', min: '0.5', max: '20', step: '0.25', value: String(+(d.size / 1e6).toFixed(2)), 'aria-label': 'Text size (mm)' });
+      size.addEventListener('change', () => { const n = Number(size.value); if (n > 0) set('Text size', (x) => { x.size = Math.round(n * 1e6); }); });
+      size.addEventListener('keydown', (e) => e.stopPropagation());
+      rows.push(h('div', { class: 'param param-wide' }, h('label', {}, 'Text'), area, h('div', { class: 'insp-note' }, 'Shown filled in: ${TITLE}, ${REV}, ${DATE}, ${SHEET_NAME}, ${SHEET_NUMBER}, ${SHEET_COUNT}…')),
+        h('div', { class: 'param' }, h('label', {}, 'Size (mm)'), size),
+        sel('Align', d.align, [['left', 'Left'], ['center', 'Centre'], ['right', 'Right']], (v) => set('Align text', (x) => { x.align = v; })),
+        sel('Rotation', d.rot || 0, [['0', '0°'], ['90', '90°']], (v) => set('Rotate text', (x) => { x.rot = Number(v); })),
+        h('div', { class: 'insp-checks' }, check('Bold', d.bold, (v) => set('Bold', (x) => { x.bold = v; })), check('Italic', d.italic, (v) => set('Italic', (x) => { x.italic = v; }))));
+    } else {
+      title = { line: 'Line', rect: 'Rectangle', circle: 'Circle', arc: 'Arc' }[d.type];
+      rows.push(sel('Line', d.style, styles, (v) => set('Line style', (x) => { x.style = v; })));
+      if (d.type === 'line') rows.push(h('div', { class: 'insp-checks' }, check('Arrow at start', d.arrowStart, (v) => set('Arrow', (x) => { x.arrowStart = v; })), check('Arrow at end', d.arrowEnd, (v) => set('Arrow', (x) => { x.arrowEnd = v; }))));
+      if (d.type === 'rect' || d.type === 'circle') rows.push(h('div', { class: 'insp-checks' }, check('Light fill', d.fill === 'tint', (v) => set('Fill', (x) => { x.fill = v ? 'tint' : 'none'; }))));
+    }
+    rows.push(h('div', { class: 'insp-note' }, 'Markup never connects to wires or pins.'));
+    this.el.replaceChildren(this._head(title, null, { rotate: true }), h('div', { class: 'insp-body' }, ...rows));
   }
 
   _find(p, id) { return (this.ed._S(p).labels || []).find((x) => x.id === id); }

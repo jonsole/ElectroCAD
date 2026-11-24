@@ -510,3 +510,13 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .lib-ok { margin-top: 8px; color: var(--muted); font-size: 12px; }
 .lib-search { padding: 0 0 8px; }
 .lib-search .icon { left: 9px; top: 9px; }
+
+/* ---------- Schematic markup and Sheet setup (#59) ---------- */
+.field-edit.text-edit { text-align: left; resize: none; padding: 2px 6px; font-family: "Segoe UI", system-ui, sans-serif; height: auto; overflow: hidden; }
+.insp-textarea { width: 100%; resize: vertical; min-height: 44px; font: 12.5px "Segoe UI", system-ui, sans-serif; padding: 6px 8px; }
+.insp-checks { display: flex; gap: 14px; flex-wrap: wrap; margin: 2px 0 6px; }
+.setup-group { margin-bottom: 14px; }
+.setup-head { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 6px; }
+.setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+.setup-group .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.setup-group .field .input, .setup-group .field .select { height: 32px; }

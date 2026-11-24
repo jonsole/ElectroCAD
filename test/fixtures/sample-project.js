@@ -3,7 +3,8 @@
 // per-Component Field style and a non-preferred (embedded) Footprint. Used by the format tests
 // and by tools/write-format-example.js to produce docs/formats/example.ecad.
 import { newProject, newSheet, addComponent } from '../../src/renderer/core/project.js';
-import { addWire, addLabel } from '../../src/renderer/core/schematic.js';
+import { addWire, addLabel, addDrawing } from '../../src/renderer/core/schematic.js';
+import { drawingDefaults } from '../../src/renderer/core/drawings.js';
 import { updateComponent } from '../../src/renderer/core/components.js';
 import { pinField, setComponentFieldStyle, BUILTIN_FIELD_STYLES } from '../../src/renderer/core/fields.js';
 import { RESISTOR, CAPACITOR, LED } from '../../src/renderer/library/mini.js';
@@ -39,6 +40,15 @@ export function sampleProject() {
     { number: '2', at: [1_600_000, 0], shape: 'roundrect', size: [1_000_000, 1_700_000], layers: ['F.Cu', 'F.Paste', 'F.Mask'] }] } } });
   setComponentFieldStyle(p, [d1.comp.id], BUILTIN_FIELD_STYLES.find((s) => s.id === 'rkm'));
   pinField(p, r1.sym.id, 'value', [G * 20, G * 23]);
+
+  // markup, the title block and paper sizes (#59)
+  p.titleBlock = { title: 'LED indicator', company: 'Example Ltd', author: 'A. Designer', revision: 'B', date: '2026-11-24', comment: 'Sample for docs/formats' };
+  s2.paper = { size: 'A3', orientation: 'portrait' };
+  addDrawing(p, s1, { type: 'text', at: [G * 10, G * 8], text: '${TITLE}: power\nDecoupling next to U1', ...drawingDefaults('text'), bold: true });
+  addDrawing(p, s1, { type: 'rect', a: [G * 8, G * 10], b: [G * 32, G * 30], ...drawingDefaults('rect') });
+  addDrawing(p, s2, { type: 'line', pts: [[G * 40, G * 14], [G * 33, G * 19]], ...drawingDefaults('line'), arrowEnd: true });
+  addDrawing(p, s2, { type: 'circle', c: [G * 26, G * 20], r: G * 3, ...drawingDefaults('circle'), style: 'dotted' });
+  addDrawing(p, s2, { type: 'arc', start: [G * 18, G * 26], mid: [G * 20, G * 28], end: [G * 22, G * 26], ...drawingDefaults('arc') });
   return p;
 }
 
@@ -50,7 +60,7 @@ export function readableIds(project) {
   const visit = (v) => {
     if (Array.isArray(v)) return v.forEach(visit);
     if (v && typeof v === 'object') {
-      if (typeof v.id === 'string' && /^[pscylwn][0-9a-z]{8,}$/.test(v.id) && !seen.has(v.id)) {
+      if (typeof v.id === 'string' && /^[pscylwnd][0-9a-z]{8,}$/.test(v.id) && !seen.has(v.id)) {
         const k = v.id[0];
         counts[k] = (counts[k] || 0) + 1;
         seen.set(v.id, `${k}${counts[k]}`);

@@ -6,6 +6,7 @@ import { mm } from '../core/units.js';
 import { junctions, connectedPins, wireCrossings } from '../core/netlist.js';
 import { placeFields, styleFor } from '../core/fields.js';
 import { labelShape, labelFrame, labelBounds, isPower, LABEL_TEXT } from '../core/labels.js';
+import { textLayout, drawingBounds, expandVariables, titleBlockLayout } from '../core/drawings.js';
 
 const LINE = mm(0.2);      // symbol body line width
 const PIN_LINE = mm(0.15);
@@ -240,10 +241,108 @@ export function drawLabels(ctx, view, C, labels, { selection = new Set(), alpha 
   ctx.restore();
 }
 
+const DASH = { solid: [], dashed: [8, 5], dotted: [1.5, 4] };
+
+/** Draw markup (text notes, lines with arrows, rectangles, circles, arcs). Text variables are shown filled in. */
+export function drawDrawings(ctx, view, C, project, sheet, drawings, { selection = new Set(), alpha = null } = {}) {
+  const lw = Math.max(1.2, mm(0.15) * view.scale);
+  for (const d of drawings) {
+    ctx.save();
+    if (alpha != null) ctx.globalAlpha = alpha;
+    ctx.strokeStyle = C.note; ctx.fillStyle = C.note; ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.setLineDash((DASH[d.style] || []).map((x) => x * Math.max(1, lw / 1.5)));
+    const S = (p) => view.toScreen(p);
+    if (d.type === 'text') {
+      const shown = { ...d, text: expandVariables(d.text, project, sheet) };
+      const lay = textLayout(shown, measureText);
+      const px = d.size * view.scale;
+      if (px >= 3) {
+        const [ax, ay] = S(d.at);
+        ctx.translate(ax, ay);
+        if (d.rot === 90) ctx.rotate(-Math.PI / 2);
+        ctx.font = `${d.italic ? 'italic ' : ''}${d.bold ? '600 ' : ''}${px}px ${FONT}`;
+        ctx.textAlign = d.align || 'left'; ctx.textBaseline = 'middle';
+        lay.lines.forEach((line, i) => ctx.fillText(line, 0, i * lay.lh * view.scale));
+      }
+    } else {
+      ctx.beginPath();
+      if (d.type === 'line') d.pts.map(S).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      else if (d.type === 'rect') { const [x0, y0] = S(d.a), [x1, y1] = S(d.b); ctx.rect(x0, y0, x1 - x0, y1 - y0); }
+      else if (d.type === 'circle') { const [cx, cy] = S(d.c); ctx.arc(cx, cy, d.r * view.scale, 0, Math.PI * 2); }
+      else if (d.type === 'arc') {
+        const c = arcCircle(d.start, d.mid, d.end);
+        if (!c) { const [a, b] = [S(d.start), S(d.end)]; ctx.moveTo(...a); ctx.lineTo(...b); }
+        else {
+          const [cx, cy] = S(c.c), ang = (p) => { const [x, y] = S(p); return Math.atan2(y - cy, x - cx); };
+          const norm = (a) => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+          const a0 = ang(d.start), a1 = ang(d.mid), a2 = ang(d.end);
+          ctx.arc(cx, cy, c.r * view.scale, a0, a2, norm(a1 - a0) > norm(a2 - a0));
+        }
+      }
+      if ((d.type === 'rect' || d.type === 'circle') && d.fill === 'tint') { ctx.save(); ctx.globalAlpha *= 0.1; ctx.fill(); ctx.restore(); }
+      ctx.stroke();
+      // arrowheads on lines
+      if (d.type === 'line') {
+        ctx.setLineDash([]);
+        const head = (tip, from) => {
+          const [tx, ty] = S(tip), [fx, fy] = S(from);
+          const a = Math.atan2(ty - fy, tx - fx), L = Math.max(7, mm(1.3) * view.scale), W = 0.45;
+          ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(tx - L * Math.cos(a - W), ty - L * Math.sin(a - W)); ctx.lineTo(tx - L * Math.cos(a + W), ty - L * Math.sin(a + W)); ctx.closePath(); ctx.fill();
+        };
+        const n = d.pts.length;
+        if (d.arrowEnd && n > 1) head(d.pts[n - 1], d.pts[n - 2]);
+        if (d.arrowStart && n > 1) head(d.pts[0], d.pts[1]);
+      }
+    }
+    ctx.restore();
+    if (selection.has(d.id)) {
+      const b = drawingBounds(d.type === 'text' ? { ...d, text: expandVariables(d.text, project, sheet) } : d, measureText);
+      const [x0, y0] = S0(view, [b.x0, b.y0]), [x1, y1] = S0(view, [b.x1, b.y1]);
+      ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = C.selection; ctx.lineWidth = 1;
+      ctx.strokeRect(Math.round(x0) - 3.5, Math.round(y0) - 3.5, x1 - x0 + 7, y1 - y0 + 7);
+      ctx.restore();
+    }
+  }
+}
+const S0 = (view, p) => view.toScreen(p);
+
+/** The title block in the bottom-right corner: Project fields, the Sheet's name and number. */
+export function drawTitleBlock(ctx, view, C, project, sheet) {
+  const tb = titleBlockLayout(sheet);
+  const S = (p) => view.toScreen(p);
+  ctx.save();
+  ctx.strokeStyle = C.sheetEdge; ctx.lineWidth = Math.max(1, mm(0.2) * view.scale);
+  for (const c of tb.cells) {
+    const [x0, y0] = S([c.box.x0, c.box.y0]), [x1, y1] = S([c.box.x1, c.box.y1]);
+    ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+    const lpx = mm(1.1) * view.scale;
+    if (lpx >= 4) {
+      ctx.fillStyle = C.sheetEdge; ctx.globalAlpha = 0.75; ctx.font = `${lpx}px ${FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(c.label, x0 + mm(0.8) * view.scale, y0 + mm(0.5) * view.scale);
+      ctx.globalAlpha = 1;
+    }
+    const vpx = c.size * view.scale, value = c.value(project, sheet);
+    if (value && vpx >= 4) {
+      ctx.fillStyle = C.sheetEdge; ctx.font = `${c.bold ? '600 ' : ''}${vpx}px ${FONT}`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      const small = c.box.y1 - c.box.y0 < mm(5);
+      ctx.save(); ctx.beginPath(); ctx.rect(x0, y0, x1 - x0, y1 - y0); ctx.clip();
+      ctx.fillText(value, small ? x0 + (mm(0.8) + (c.label.length + 1) * mm(0.6)) * view.scale : x0 + mm(1.5) * view.scale, small ? (y0 + y1) / 2 : y0 + (y1 - y0) * 0.6);
+      ctx.restore();
+    }
+  }
+  const [bx0, by0] = S([tb.box.x0, tb.box.y0]), [bx1, by1] = S([tb.box.x1, tb.box.y1]);
+  ctx.lineWidth = Math.max(1.5, mm(0.35) * view.scale); ctx.strokeRect(bx0, by0, bx1 - bx0, by1 - by0);
+  ctx.restore();
+}
+
 /** Draw a Sheet: Wires, Symbols, fields, Junctions, then selection, the placement ghost and a Wire being drawn. */
-export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(), ghost = null, bounds, wiring = null, target = null, placement = null, display = DEFAULT_DISPLAY, ghostLabel = null, erc = null, ercFocus = null } = {}) {
+export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(), ghost = null, bounds, wiring = null, target = null, placement = null, display = DEFAULT_DISPLAY, ghostLabel = null, erc = null, ercFocus = null, ghostDrawing = null } = {}) {
   const toScreen = (p) => view.toScreen(p);
   const wireW = Math.max(1.5, WIRE * view.scale);
+  // the title block and markup go underneath the circuit
+  drawTitleBlock(ctx, view, C, project, sheet);
+  drawDrawings(ctx, view, C, project, sheet, sheet.drawings || [], { selection });
+  if (ghostDrawing) drawDrawings(ctx, view, C, project, sheet, [ghostDrawing], { alpha: 0.6 });
   ctx.save();
   ctx.lineCap = 'round';
   // Wires (selected ones get a selection-coloured halo underneath)

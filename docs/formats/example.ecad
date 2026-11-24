@@ -1,6 +1,6 @@
 {
  "format": "electrocad",
- "version": 4,
+ "version": 5,
  "id": "p1",
  "name": "LED indicator",
  "parts": {
@@ -683,7 +683,32 @@
       "style": "gnd"
      }
     ],
-    "noConnects": []
+    "noConnects": [],
+    "drawings": [
+     {
+      "type": "text",
+      "at": [12700000, 10160000],
+      "text": "${TITLE}: power\nDecoupling next to U1",
+      "size": 1270000,
+      "bold": true,
+      "italic": false,
+      "align": "left",
+      "rot": 0,
+      "id": "d1"
+     },
+     {
+      "type": "rect",
+      "a": [10160000, 12700000],
+      "b": [40640000, 38100000],
+      "style": "dashed",
+      "fill": "none",
+      "id": "d2"
+     }
+    ],
+    "paper": {
+     "size": "A4",
+     "orientation": "landscape"
+    }
    },
    {
     "id": "s2",
@@ -750,7 +775,37 @@
       "style": "label"
      }
     ],
-    "noConnects": []
+    "noConnects": [],
+    "drawings": [
+     {
+      "type": "line",
+      "pts": [[50800000, 17780000], [41910000, 24130000]],
+      "style": "solid",
+      "arrowStart": false,
+      "arrowEnd": true,
+      "id": "d3"
+     },
+     {
+      "type": "circle",
+      "c": [33020000, 25400000],
+      "r": 3810000,
+      "style": "dotted",
+      "fill": "none",
+      "id": "d4"
+     },
+     {
+      "type": "arc",
+      "start": [22860000, 33020000],
+      "mid": [25400000, 35560000],
+      "end": [27940000, 33020000],
+      "style": "solid",
+      "id": "d5"
+     }
+    ],
+    "paper": {
+     "size": "A3",
+     "orientation": "portrait"
+    }
    }
   ]
  },
@@ -828,5 +883,13 @@
     }
    }
   }
+ },
+ "titleBlock": {
+  "title": "LED indicator",
+  "company": "Example Ltd",
+  "author": "A. Designer",
+  "revision": "B",
+  "date": "2026-11-24",
+  "comment": "Sample for docs/formats"
  }
 }
