@@ -1,0 +1,74 @@
+name: Publish branch preview
+
+# Builds the web app from any branch other than the default branch and publishes it to a separate
+# preview repository's GitHub Pages site, so the live site is untouched (as DabbleCAD does).
+# There is one preview site: it shows whichever branch was pushed last (its name and commit are in
+# the commit message there, and the build's commit shows next to the app name).
+#
+# One-time setup (until then this workflow skips with a notice):
+#   1. Create the repository named in PREVIEW_REPO (empty is fine) and turn on Pages for its
+#      main branch (Settings, Pages, deploy from branch, root).
+#   2. Create a fine-grained personal access token limited to that repository with
+#      "Contents: read and write", and save it in THIS repository as the Actions secret
+#      PREVIEW_DEPLOY_TOKEN.
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview
+  cancel-in-progress: true
+
+env:
+  PREVIEW_REPO: jonsole/ElectroCAD-preview
+
+jobs:
+  preview:
+    if: github.ref_name != github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check the preview token
+        id: token
+        env:
+          TOKEN: ${{ secrets.PREVIEW_DEPLOY_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::notice::Branch previews are not set up yet (see the comments at the top of preview.yml)"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.token.outputs.ok == 'true'
+        uses: actions/checkout@v4
+
+      - if: steps.token.outputs.ok == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - if: steps.token.outputs.ok == 'true'
+        run: npm ci --ignore-scripts
+
+      - if: steps.token.outputs.ok == 'true'
+        run: npm run build
+
+      - name: Publish dist to the preview repository
+        if: steps.token.outputs.ok == 'true'
+        env:
+          TOKEN: ${{ secrets.PREVIEW_DEPLOY_TOKEN }}
+        run: |
+          touch dist/.nojekyll
+          cd dist
+          git init -q -b main
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Preview of ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}"
+          git push -q --force "https://x-access-token:${TOKEN}@github.com/${PREVIEW_REPO}.git" main
+          echo "Preview: https://${PREVIEW_REPO%%/*}.github.io/${PREVIEW_REPO##*/}/" >> "$GITHUB_STEP_SUMMARY"
