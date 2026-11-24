@@ -1,7 +1,7 @@
 // Schematic editing commands (DOM-free). Each is a mutation the editor runs inside one
 // History transaction, so every user action is exactly one undo step.
-import { addComponent, partOf, pruneOrphans, uid } from './project.js';
-import { place, eq, distToSegment2 } from './geom.js';
+import { addComponent, partOf, pruneOrphans, uid, pinPositions } from './project.js';
+import { place, eq, distToSegment2, onSegment, rot90 } from './geom.js';
 import { snapPt, SCH_GRID } from './units.js';
 
 /** Place a new Component's Unit on `sheet`, snapped to the 50 mil grid. */
@@ -102,4 +102,48 @@ export function hitSymbol(project, sheet, pt, tol = 0) {
     if (b && pt[0] >= b.x0 - tol && pt[0] <= b.x1 + tol && pt[1] >= b.y0 - tol && pt[1] <= b.y1 + tol) return sheet.symbols[i];
   }
   return null;
+}
+
+// ---------------------------------------------------------------- wire routing
+
+const segAxis = (a, b) => (a[1] === b[1] && a[0] !== b[0] ? 'h' : a[0] === b[0] && a[1] !== b[1] ? 'v' : null);
+
+/**
+ * Which way a new Wire run should start from `from`: the direction it is already going (the last
+ * run of the Wire being drawn), else the direction of an existing Wire ending at `from`, else
+ * straight out of a Pin at `from`, else horizontal. Returns 'h' or 'v'.
+ */
+export function preferredAxis(project, sheet, from, drawn = []) {
+  if (drawn.length >= 2) {
+    const ax = segAxis(drawn[drawn.length - 2], drawn[drawn.length - 1]);
+    if (ax) return ax;
+  }
+  for (const w of sheet.wires) {
+    if (eq(w.a, from) || eq(w.b, from)) { const ax = segAxis(w.a, w.b); if (ax) return ax; }
+  }
+  for (const sym of sheet.symbols) {
+    for (const { pin, at } of pinPositions(project, sym)) {
+      if (!eq(at, from)) continue;
+      const d = { L: [-1, 0], R: [1, 0], U: [0, -1], D: [0, 1] }[pin.dir] || [1, 0];
+      const w = rot90(d, sym.rot, sym.mirror);
+      return w[0] !== 0 ? 'h' : 'v';
+    }
+  }
+  return 'h';
+}
+
+/**
+ * Orthogonal route from `from` to `to` with at most one corner. `axis` 'h' goes horizontal
+ * first, 'v' vertical first; with `auto`, the preferred axis is tried first and the other is
+ * used when the preferred one would run through a Pin (connecting it by accident).
+ * Returns the points after `from`.
+ */
+export function routeWire(project, sheet, from, to, { axis = 'h', auto = true } = {}) {
+  if (from[0] === to[0] || from[1] === to[1]) return [to];
+  const h = [[to[0], from[1]], to], v = [[from[0], to[1]], to];
+  const first = axis === 'v' ? v : h, second = axis === 'v' ? h : v;
+  if (!auto) return first;
+  const pins = sheet.symbols.flatMap((y) => pinPositions(project, y).map((x) => x.at)).filter((q) => !eq(q, from) && !eq(q, to));
+  const crosses = ([c]) => pins.some((q) => onSegment(q, from, c) || onSegment(q, c, to));
+  return !crosses(first) ? first : !crosses(second) ? second : first;
 }

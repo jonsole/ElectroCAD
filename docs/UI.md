@@ -75,6 +75,15 @@ The Schematic's right-hand panel works like the fork's **3D Design shape panel**
 - **Footprint row** (above the footer): selecting or hovering a tile shows the Part's Preferred footprints as chips, such as `0402 · 0603 · 0805 · 1206 · THT`, with a small pad preview on hover. The chosen chip applies to the next drop and is remembered per Part. The default is the one used last for that Part, otherwise the Part's first Preferred footprint. "Other…" opens a footprint search that can choose any Footprint, which then uses the identity Pin map.
 - **Footer** (`.side-foot`): **Import** (KiCad/Eagle libraries) and **New part** (opens the Library tab with an empty Part).
 
+## Drawing Wires
+
+The Wire tool (W) draws orthogonal runs with one corner between clicks.
+- **The corner follows the direction you're already going:**
+  - after a vertical run, the next run starts vertical, and after a horizontal run it starts horizontal;
+  - the first run continues an existing Wire it starts from, or leaves straight out of the Pin it starts on.
+- **If that would run through another Pin,** the corner goes the other way.
+- **`/`** flips the corner for the rest of the Wire.
+
 ## Field styles
 
 - **Where styles are chosen:**

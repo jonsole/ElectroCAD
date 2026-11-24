@@ -5,7 +5,7 @@ import { h, icon, button, popupMenu } from '../ui/dom.js';
 import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { later } from '../workspaces/workspace.js';
 import { MINI_LIBRARY, searchParts } from '../library/mini.js';
-import { placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, hitWire } from '../core/schematic.js';
+import { placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, hitWire, preferredAxis, routeWire } from '../core/schematic.js';
 import { buildNetlist } from '../core/netlist.js';
 import { pinPositions } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
@@ -286,19 +286,15 @@ export class SchematicEditor {
   // ---------------------------------------------------------------- wires (#5)
 
   /**
-   * Orthogonal route from a to b with one corner. By default ('auto') it tries horizontal-first,
-   * then vertical-first, and takes the first that doesn't run through another Pin (which would
-   * connect it by accident); '/' forces one or the other.
+   * Route from a to b with one corner. By default the corner follows the direction the wire is
+   * already going (or the Wire/Pin it starts from) and avoids running through other Pins;
+   * '/' forces the other way for this wire.
    */
   _route(a, b) {
-    if (a[0] === b[0] || a[1] === b[1]) return [b];
-    const h = [[b[0], a[1]], b], v = [[a[0], b[1]], b];
-    const posture = this.wiring?.posture || 'auto';
-    if (posture === 'h') return h;
-    if (posture === 'v') return v;
-    const pins = this.sheet.symbols.flatMap((y) => pinPositions(this.project, y).map((x) => x.at)).filter((q) => !eq(q, a) && !eq(q, b));
-    const crosses = ([c]) => pins.some((q) => onSegment(q, a, c) || onSegment(q, c, b));
-    return !crosses(h) ? h : !crosses(v) ? v : h;
+    const drawn = this.wiring ? this.wiring.points : [a];
+    const forced = this.wiring && this.wiring.posture !== 'auto' ? this.wiring.posture : null;
+    const axis = forced || preferredAxis(this.project, this.sheet, a, drawn);
+    return routeWire(this.project, this.sheet, a, b, { axis, auto: !forced });
   }
 
   /** Is `p` somewhere a Wire should end: a Pin tip or a point on an existing Wire? */
@@ -389,10 +385,11 @@ export class SchematicEditor {
     if (this.tool === 'wire') {
       if (e.key === 'Escape') { if (this.wiring) this.finishWire(); else this.setTool('select'); return true; }
       if (e.key === '/' && this.wiring) {
-        // flip whatever corner is showing now
+        // flip the corner that's showing now, for the rest of this wire
         const pts = this.wiring.points, last = pts[pts.length - 1];
         const shown = this.cursor ? this._route(last, this.cursor) : null;
-        this.wiring.posture = shown && shown.length === 2 && shown[0][1] === last[1] ? 'v' : 'h';
+        const shownAxis = shown && shown.length === 2 ? (shown[0][1] === last[1] ? 'h' : 'v') : preferredAxis(this.project, this.sheet, last, pts);
+        this.wiring.posture = shownAxis === 'h' ? 'v' : 'h';
         this.ws.view.invalidate(); return true;
       }
       if (e.key === 'Backspace' && this.wiring) { if (this.wiring.points.length > 1) this.wiring.points.pop(); else this.wiring = null; this.refresh(); return true; }

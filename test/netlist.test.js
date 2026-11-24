@@ -124,3 +124,43 @@ test('addWire snaps points, drops zero-length and merges straight runs', () => {
 test('references sort naturally', () => {
   assert.deepEqual(['R10', 'C2', 'R2', 'R1'].sort(compareRefs), ['C2', 'R1', 'R2', 'R10']);
 });
+
+// ---------------------------------------------------------------- wire corners (follow the direction)
+import { preferredAxis, routeWire } from '../src/renderer/core/schematic.js';
+
+test('a new run carries on in the direction the wire is already going', () => {
+  const p = newProject();
+  const s = p.schematic.sheets[0];
+  // drawn so far: right, then down -> the next corner goes down first
+  assert.equal(preferredAxis(p, s, [G * 10, G * 10], [[0, 0], [G * 10, 0], [G * 10, G * 10]]), 'v');
+  assert.deepEqual(routeWire(p, s, [G * 10, G * 10], [G * 20, G * 20], { axis: 'v' }), [[G * 10, G * 20], [G * 20, G * 20]]);
+  // drawn so far: down, then right -> horizontal first
+  assert.equal(preferredAxis(p, s, [G * 10, G * 10], [[0, 0], [0, G * 10], [G * 10, G * 10]]), 'h');
+});
+
+test('starting from the end of an existing Wire continues its direction', () => {
+  const p = newProject();
+  const s = p.schematic.sheets[0];
+  addWire(p, s, [[G * 10, G * 0], [G * 10, G * 10]]); // vertical, ends at (10,10)
+  assert.equal(preferredAxis(p, s, [G * 10, G * 10], [[G * 10, G * 10]]), 'v');
+});
+
+test('starting from a Pin leaves straight out of the part', () => {
+  const p = newProject();
+  const s = p.schematic.sheets[0];
+  const h = placeSymbol(p, s, RESISTOR, [G * 20, G * 20]).sym;            // pins point left/right
+  const v = placeSymbol(p, s, RESISTOR, [G * 40, G * 20], { rot: 90 }).sym; // pins point up/down
+  assert.equal(preferredAxis(p, s, pinAt(p, h, '2'), [pinAt(p, h, '2')]), 'h');
+  assert.equal(preferredAxis(p, s, pinAt(p, v, '1'), [pinAt(p, v, '1')]), 'v');
+});
+
+test('the preferred corner gives way when it would run through a Pin', () => {
+  const p = newProject();
+  const s = p.schematic.sheets[0];
+  const c = placeSymbol(p, s, CAPACITOR, [G * 30, G * 10], { rot: 90 }).sym; // pins at (30,7) and (30,13)
+  const from = [G * 10, G * 13], to = [G * 30, G * 7];
+  // horizontal-first would run along y=13 into the lower Pin; go vertical first instead
+  const r = routeWire(p, s, from, to, { axis: 'h' });
+  assert.deepEqual(r, [[G * 10, G * 7], [G * 30, G * 7]]);
+  void c;
+});
