@@ -22,7 +22,7 @@ Non-goals: simulation, autorouting, multi-user real-time editing, and board-only
 ```
 src/renderer/
   main.js              boot, wires App to the platform
-  app.js               shell: tabs (Schematic | Board | Library), menus, panels, shortcuts, file I/O
+  app.js               shell: workspace tabs (Schematic | Board | Gerber | Library), menus, panels, shortcuts, file I/O
   platform.js          desktop / browser bridge (same contract as DabbleCAD), see §10
   core/                pure model code — no DOM, unit-tested with node --test
     units.js           nm ↔ mm/mil, grids, formatting
@@ -167,7 +167,7 @@ Layer names follow KiCad so import and export are one-to-one. Eagle layers 1/2/1
 
 ## 8. Fab output
 
-Gerber X2 for each copper, mask, paste and silk layer plus Edge.Cuts; Excellon for PTH and NPTH; a BOM grouped by Part, Value and MPN; and a pick-and-place CSV in mm with Y flipped (top-left origin to fab bottom-left). All of these are pure functions of the Project, which means they can be tested with golden files. A built-in Gerber viewer re-renders the output so the user can check it before ordering.
+Gerber X2 for each copper, mask, paste and silk layer plus Edge.Cuts; Excellon for PTH and NPTH; a BOM grouped by Part, Value and MPN; and a pick-and-place CSV in mm with Y flipped (top-left origin to fab bottom-left). All of these are pure functions of the Project, which means they can be tested with golden files. All of this happens in the **Gerber** workspace tab. It generates the files and renders them back from the files themselves, so the user checks exactly what the board house will receive. It also opens external Gerber/Excellon files.
 
 ## 9. Interchange
 
@@ -197,7 +197,7 @@ Converters live in `io/kicad/*` and `io/eagle/*`, and each one returns `{ projec
 | M5 | Fab output | Gerber/Excellon/BOM/PnP plus the Gerber viewer; golden-file tests — **first orderable board** |
 | M6 | Push-and-shove | Shove mode (default) for Tracks and Vias, drag existing Tracks, spring-back |
 | M7 | Interchange | KiCad (read 6+, write 9) and Eagle XML import/export of libraries, then schematics and boards, with loss reports |
-| M8 | Polish | 3D preview (three.js), Back annotation, "Update from Library" diff, Electron packaging like DabbleCAD |
+| M8 | Polish | 3D preview (three.js, a 2D | 3D switch on the Board toolbar), Back annotation, "Update from Library" diff, Electron packaging like DabbleCAD |
 
 ## 12. Open questions
 

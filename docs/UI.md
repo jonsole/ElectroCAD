@@ -21,7 +21,7 @@ Copy these rather than restyle them, and keep the attribution in `NOTICE`:
 
 ```
 ┌ Top bar (48) ─ logo · name · commit │ project name · save state ─────── Import · Export │ theme · help · about · settings ┐
-├ Workspace tabs (36) ─ Schematic · Board · Library · 3D ────────────────────────────────────────────────────────────────┤
+├ Workspace tabs (36) ─ Schematic · Board · Gerber · Library ───────────────────────────────────────────────────────────┤
 ├ Toolbar (44) ─ file/edit actions │ undo/redo │ copy/paste/delete │ workspace actions … ───── Routing mode [Shove|Walk|Free] ┤
 ├ Hint bar (40) ─ "Nothing selected. Pick a tool on the left…" / active tool options (width, via, layer) ──────────────────┤
 │ Tools │ rulers                                                         │ Side panel (344): collapsible ▾ SECTIONS     │
@@ -39,7 +39,22 @@ Copy these rather than restyle them, and keep the attribution in `NOTICE`:
 | **Coordinate pill** | Bottom-left of the canvas, monospace, as in the Laser workspace | Same |
 | **Mode banner** | Shows tool hints with `kbd` keys, e.g. "Wire: click to bend · Esc to finish" | e.g. "Routing: V via · / posture · Backspace undo segment" |
 
-The Library workspace reuses the same side panel and canvas, with Symbol and Footprint editors as sub-tabs.
+## Workspaces
+
+There are four workspace tabs: **Schematic · Board · Gerber · Library**. Each keeps its own pan/zoom and selection when you switch away and back.
+
+- **Board** has a segmented **2D | 3D** control at the right of its toolbar (like the fork's segmented control in the top bar). 3D swaps the canvas for the three.js board preview. The side panel and tabs stay.
+- **Gerber** is the Fab output workspace. It generates and views the files in one place:
+  - **Toolbar:** Generate, Download zip, Open Gerber files…, Top/Bottom view.
+  - **Tool palette:** Pan, Measure.
+  - **Canvas:** the generated (or opened) Gerber and Excellon layers, rendered from the files themselves.
+  - **Side panel sections:** FAB PRESET, LAYERS (one chip per Gerber/drill file with visibility), OUTPUT (which files to include: Gerber, drill, BOM, pick-and-place), and CHECKS (DRC summary and missing-layer warnings).
+  - **Bottom chips:** one per output layer.
+- **Library** holds the user's Libraries and the Part, Symbol and Footprint editors:
+  - **Side panel sections:** LIBRARIES (tree of libraries and Parts, with search), PART (prefix, default Value, Units, Preferred footprints and Pin maps), and PROPERTIES (the selected Pin, Pad or graphic).
+  - **Toolbar:** a segmented **Symbol | Footprint** control picks what the canvas edits.
+  - **Tool palette:** changes with that choice. For Symbol: Pin, Line, Rectangle, Circle, Arc, Text. For Footprint: Pad, Line, Rectangle, Circle, Arc, Text, Generator….
+  - **Bottom chips:** one per Unit (Symbol) or per footprint layer (Footprint).
 
 ## Canvas colours
 

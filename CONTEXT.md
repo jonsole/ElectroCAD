@@ -10,6 +10,10 @@ ElectroCAD is a schematic-capture and PCB-layout editor that runs in the browser
 The unit a user opens and saves. It holds one Schematic, one Board and the Library parts they use.
 _Avoid_: Design, file, workspace
 
+**Workspace**:
+One of the four top-level tabs of the editor: Schematic, Board, Gerber or Library.
+_Avoid_: Mode, view, page
+
 **Schematic**:
 The logical drawing of the circuit: Symbols joined by Wires and Net labels, spread over one or more Sheets.
 _Avoid_: Diagram, circuit
