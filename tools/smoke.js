@@ -12,7 +12,7 @@ const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
 const shots = fs.mkdtempSync(path.join(os.tmpdir(), 'electrocad-shots-'));
 const suites = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-const list = suites.length ? suites : ['smoke-boot.js'];
+const list = suites.length ? suites : ['smoke-boot.js', 'smoke-save.js'];
 
 let failed = false;
 for (const suite of list) {

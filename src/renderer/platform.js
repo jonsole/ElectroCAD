@@ -17,11 +17,49 @@ const LS = {
 
 const version = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '0.0.0';
 
+// Browser file helpers (as in DabbleCAD's platform.js): a hidden file input to open, a download to save.
+function pickFile(accept) {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = accept;
+    input.onchange = async () => {
+      const f = input.files[0];
+      resolve(f ? { name: f.name, path: null, text: await f.text() } : null);
+    };
+    input.oncancel = () => resolve(null);
+    input.click();
+  });
+}
+
+function download(name, text, type = 'application/json') {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
 export const platform = {
   isDesktop,
   async getSettings() {
     if (native) return native.getSettings();
     return { ...BROWSER_DEFAULTS, ...LS.get(SETTINGS_KEY, {}), platform: 'browser', version };
+  },
+  /** Ask the user for a project file. Resolves to { name, path, text } or null if cancelled. */
+  async openProject() {
+    if (native) return native.openProject();
+    return pickFile('.ecad,application/json');
+  },
+  /**
+   * Save project text. On desktop, `path` (from an earlier open/save) writes in place; without
+   * it a Save dialog asks. In the browser the file is downloaded (save-in-place is ticket #6).
+   * Resolves to { name, path } or null if cancelled.
+   */
+  async saveProject({ path, text, suggestedName }) {
+    if (native) return native.saveProject({ path, text, suggestedName });
+    download(suggestedName, text);
+    return { name: suggestedName, path: null };
   },
   async setSettings(patch) {
     if (native) return native.setSettings(patch);

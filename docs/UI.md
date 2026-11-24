@@ -19,8 +19,10 @@ Copy these rather than restyle them, and keep the attribution in `NOTICE`:
 
 ## Screen layout
 
+The top bar's **File** menu holds New project (Ctrl+N), Open… (Ctrl+O), Save (Ctrl+S) and Save as… (Ctrl+Shift+S). Desktop saves go to a real `.ecad` file (in place after the first save). The browser downloads the file and opens one by upload; saving in place in Chrome/Edge comes with #6. The save state next to the project name reads "Not saved yet", "Unsaved changes" or "Saved". Import and Export are only for KiCad and Eagle files.
+
 ```
-┌ Top bar (48) ─ logo · name · commit │ project name · save state ─────── Import · Export │ theme · help · about · settings ┐
+┌ Top bar (48) ─ logo · name · commit │ project name · save state ──── File · Import · Export │ theme · help · about · settings ┐
 ├ Workspace tabs (36) ─ Schematic · Board · Gerber · Library ───────────────────────────────────────────────────────────┤
 ├ Toolbar (44) ─ file/edit actions │ undo/redo │ copy/paste/delete │ workspace actions … ───── Routing mode [Shove|Walk|Free] ┤
 ├ Hint bar (40) ─ "Nothing selected. Pick a tool on the left…" / active tool options (width, via, layer) ──────────────────┤

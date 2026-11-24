@@ -1,5 +1,5 @@
 // ElectroCAD - Electron main process (modelled on DabbleCAD's main process).
-const { app, BrowserWindow, ipcMain, shell, Menu, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Menu, nativeTheme, dialog } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -42,6 +42,42 @@ ipcMain.handle('settings:set', (_e, patch) => {
   saveSettings();
   return settings;
 });
+
+// ---------------------------------------------------------------- project files
+// The renderer may only write to paths the user picked in a dialog (or opened) this session.
+const trustedPaths = new Set();
+const PROJECT_FILTERS = [{ name: 'ElectroCAD project', extensions: ['ecad'] }, { name: 'All files', extensions: ['*'] }];
+const smokeDialogs = []; // smoke tests queue dialog answers here instead of clicking
+
+async function pickOpenPath() {
+  if (SMOKE) return smokeDialogs.shift() || null;
+  const r = await dialog.showOpenDialog(win, { title: 'Open project', filters: PROJECT_FILTERS, properties: ['openFile'] });
+  return r.canceled || !r.filePaths.length ? null : r.filePaths[0];
+}
+async function pickSavePath(suggestedName) {
+  if (SMOKE) return smokeDialogs.shift() || null;
+  const r = await dialog.showSaveDialog(win, { title: 'Save project', defaultPath: suggestedName, filters: PROJECT_FILTERS });
+  if (r.canceled || !r.filePath) return null;
+  return /\.ecad$/i.test(r.filePath) ? r.filePath : r.filePath + '.ecad';
+}
+
+ipcMain.handle('project:open', async () => {
+  const file = await pickOpenPath();
+  if (!file) return null;
+  const text = fs.readFileSync(file, 'utf8');
+  trustedPaths.add(file);
+  return { name: path.basename(file), path: file, text };
+});
+ipcMain.handle('project:save', async (_e, { path: target, text, suggestedName } = {}) => {
+  if (typeof text !== 'string') throw new Error('Nothing to save');
+  let file = typeof target === 'string' && trustedPaths.has(target) ? target : null;
+  if (!file) file = await pickSavePath(suggestedName || 'Untitled.ecad');
+  if (!file) return null;
+  fs.writeFileSync(file, text);
+  trustedPaths.add(file);
+  return { name: path.basename(file), path: file };
+});
+ipcMain.handle('smoke:dialog', (_e, answer) => { if (SMOKE) smokeDialogs.push(answer); return !!SMOKE; });
 
 // ---------------------------------------------------------------- window
 let win = null;
