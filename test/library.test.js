@@ -82,3 +82,19 @@ test('a dropped Component gets the chosen Footprint: Preferred by key, or any ot
   assert.deepEqual(c.comp.footprint, { fpKey: 'builtin/SOIC-8_3.9x4.9mm_P1.27mm' });
   assert.equal(padForPin(p, c.comp, '2'), '2');
 });
+
+import { groupParts, groupOf, searchParts } from '../src/renderer/library/starter.js';
+
+test('the picker tree groups Parts by category or manufacturer', () => {
+  const byCat = groupParts(STARTER_LIBRARY, 'category');
+  assert.deepEqual(byCat.map((g) => g.key), CATEGORIES);
+  assert.equal(byCat.reduce((n, g) => n + g.parts.length, 0), STARTER_LIBRARY.length);
+  const byMfr = groupParts(STARTER_LIBRARY, 'manufacturer');
+  assert.deepEqual(byMfr.map((g) => g.key), ['Advanced Monolithic Systems', 'Nexperia', 'Texas Instruments', 'Generic']);
+  assert.deepEqual(byMfr.find((g) => g.key === 'Texas Instruments').parts.map((p) => p.name), ['LM324', 'LM358', 'NE555']);
+  assert.equal(groupOf(RESISTOR, 'manufacturer'), 'Generic');
+  assert.deepEqual(searchParts(STARTER_LIBRARY, 'nexperia').map((p) => p.name), ['NPN transistor', 'PNP transistor', 'N-MOSFET', '74HC00'], 'search finds manufacturers');
+  const p = newProject();
+  placeSymbol(p, p.schematic.sheets[0], LM358, [0, 0]);
+  assert.ok(!('manufacturer' in Object.values(p.parts)[0]), 'Library-only keys stay in the Library');
+});

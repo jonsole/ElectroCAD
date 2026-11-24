@@ -441,3 +441,41 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .fp-search-pop .input { height: 30px; }
 .fp-search-list { overflow-y: auto; }
 .fp-search-list .menu-item { font: 12px ui-monospace, Consolas, monospace; }
+
+/* ---------- Part picker views: Icons, Small icons, List, Details (Explorer's View menu) ---------- */
+.picker-filter { display: flex; gap: 6px; align-items: center; }
+.picker-filter .select { flex: 1; min-width: 0; }
+.picker-view { height: 34px; min-width: 34px; padding: 0; flex: none; }
+.picker-grid.view-small, .picker-grid.view-list, .picker-grid.view-details { align-content: start; }
+.picker-grid.view-small { grid-template-columns: 1fr 1fr; gap: 4px; }
+.picker-grid.view-list, .picker-grid.view-details { grid-template-columns: 1fr; gap: 1px; }
+.view-small .part-tile, .view-list .part-tile { flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; padding: 3px 8px 3px 3px; }
+.view-small .part-tile img { width: 36px; height: 36px; margin: 0; flex: none; }
+.view-list .part-tile { background: transparent; padding: 2px 8px 2px 2px; }
+.view-list .part-tile img { width: 24px; height: 24px; margin: 0; flex: none; border-radius: 4px; }
+.view-list .part-tile:hover, .view-details .part-tile:hover { background: var(--panel-2); }
+.view-small .pt-name, .view-list .pt-name, .view-details .pt-name { text-align: left; font-size: 12px; color: var(--text); flex: 1; min-width: 0; }
+.view-small .unit-badge, .view-list .unit-badge { position: static; margin-left: auto; flex: none; }
+/* Details: a table, the header sorts */
+.view-details .part-tile, .pd-head { display: grid; grid-template-columns: 24px minmax(0, 1.7fr) minmax(0, 1.25fr) minmax(0, 1fr) 46px 26px; gap: 6px; align-items: center; }
+.view-details .part-tile { background: transparent; padding: 2px 4px 2px 2px; border-radius: 6px; }
+.view-details .part-tile img { width: 24px; height: 24px; margin: 0; border-radius: 4px; }
+.view-details .unit-badge { display: none; }
+.pd-cell { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-units, .pd-footprints { text-align: right; font-variant-numeric: tabular-nums; }
+.pd-head { position: sticky; top: 0; z-index: 1; padding: 0 4px 4px 2px; background: var(--panel); border-bottom: 1px solid var(--border); margin-bottom: 2px; }
+.pd-col { background: none; border: 0; padding: 4px 0; text-align: left; color: var(--muted); font: 600 11px "Segoe UI", system-ui, sans-serif; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pd-col:hover, .pd-col.on { color: var(--text); }
+.pd-head .pd-col:nth-last-child(-n+2) { text-align: right; }
+.view-details .part-tile span.pd-cell { text-align: left; padding: 0; font-size: 11.5px; }
+.view-details .part-tile span.pd-units, .view-details .part-tile span.pd-footprints { text-align: right; }
+.view-details .part-tile span.pt-name { text-align: left; padding: 0; }
+/* the picker tree: group headers span the grid, fold and unfold */
+.pg-head { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; height: 28px; margin-top: 4px; padding: 0 6px 0 2px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: 600 12px "Segoe UI", system-ui, sans-serif; cursor: pointer; text-align: left; }
+.pg-head:first-child { margin-top: 0; }
+.pg-head:hover { background: var(--panel-2); }
+.pg-head .icon { color: var(--muted); transition: transform .12s; flex: none; }
+.pg-head.open .icon { transform: rotate(90deg); }
+.pg-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-count { color: var(--muted); font-weight: 600; font-size: 11px; min-width: 20px; padding: 0 6px; height: 18px; line-height: 18px; text-align: center; border-radius: 9px; background: var(--panel-2); }
+.view-details .pg-head { margin-top: 2px; }

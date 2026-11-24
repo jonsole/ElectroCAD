@@ -91,8 +91,8 @@ export function nextRef(project, prefix) {
 export function addComponent(project, sheet, part, at, opts = {}) {
   const key = partKey(part);
   if (!project.parts[key]) {
-    const { category, ...copy } = structuredClone(part); // Library-only (the picker's categories)
-    void category;
+    const { category, manufacturer, ...copy } = structuredClone(part); // Library-only (the picker's categories and grouping)
+    void category; void manufacturer;
     project.parts[key] = { ...copy, id: key };
   }
   const stored = project.parts[key];

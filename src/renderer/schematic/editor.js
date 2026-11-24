@@ -4,7 +4,7 @@
 import { h, icon, button, popupMenu, toast } from '../ui/dom.js';
 import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { later } from '../workspaces/workspace.js';
-import { STARTER_LIBRARY, CATEGORIES, searchParts } from '../library/starter.js';
+import { STARTER_LIBRARY, CATEGORIES, searchParts, groupParts } from '../library/starter.js';
 import { allFootprints } from '../library/footprints.js';
 import { toggleNoConnect, hitNoConnect, placedUnits, unitSuggestion, nextUnplacedUnit, unitLetter, placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, addLabel, addSheet, renameSheet, moveSheet, deleteSheet, validateSheetName, hitWire, preferredAxis, routeWire, moveSelection, copySelection, pasteClip, itemsInRect, itemsBounds, cleanupWires } from '../core/schematic.js';
 import { buildNetlist } from '../core/netlist.js';
@@ -30,6 +30,26 @@ const LABEL_TOOLS = {
 };
 
 /** EN1 → EN2, D7 → D8; names without a trailing number stay as they are. */
+/** The picker's layouts (Explorer's View menu). */
+const VIEWS = {
+  icons: { label: 'Icons', icon: 'viewIcons' },
+  small: { label: 'Small icons', icon: 'viewSmall' },
+  list: { label: 'List', icon: 'viewList' },
+  details: { label: 'Details', icon: 'viewDetails' },
+};
+/** The picker tree's groupings (View menu). */
+const GROUPS = { none: 'No groups', category: 'Group by category', manufacturer: 'Group by manufacturer' };
+/** Details view columns (the first is the name next to the thumbnail). */
+const DETAIL_COLS = [
+  { key: 'name', label: 'Name', get: (p) => p.name },
+  { key: 'category', label: 'Category', get: (p) => p.category || '' },
+  { key: 'value', label: 'Value', get: (p) => p.defaultValue || '' },
+  { key: 'units', label: 'Units', short: 'Units', get: (p) => p.units.length },
+  { key: 'footprints', label: 'Footprints', short: 'Fp', get: (p) => Object.keys(p.footprints || {}).length },
+];
+const readPref = (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } };
+const writePref = (k, v) => { try { localStorage.setItem(k, v); } catch { /* private window */ } };
+
 /** Chips in the footprint row go smallest first: 0402, 0603, 0805, 1206, then through-hole, then packages. */
 const FP_ORDER = ['0402', '0603', '0805', '1206', 'THT'];
 const fpOrder = (fpId) => { const i = FP_ORDER.findIndex((s) => fpId.endsWith(s)); return i < 0 ? FP_ORDER.length : i; };
@@ -65,6 +85,12 @@ export class SchematicEditor {
     this.query = '';
     this.parts = STARTER_LIBRARY;
     this.category = 'All';
+    // the picker's layout, like Explorer's View menu; a per-browser preference
+    this.pickerView = readPref('electrocad.pickerView', 'icons');
+    this.pickerSort = { key: 'name', dir: 1 }; // Details view
+    // the tree: group by category or manufacturer, with folded groups remembered
+    this.pickerGroup = readPref('electrocad.pickerGroup', 'category');
+    try { this.pickerFolded = new Set(JSON.parse(readPref('electrocad.pickerFolded', '[]'))); } catch { this.pickerFolded = new Set(); }
     this.fpChoice = new Map(); // Part id -> the Footprint chosen in the picker's footprint row (ADR-0008)
     this.fpPart = null;        // the Part the footprint row is for (last clicked or dragged tile)
     this.fpHover = null;       // a tile under the pointer (previews its row)
@@ -107,7 +133,7 @@ export class SchematicEditor {
     catSel.addEventListener('change', () => { this.category = catSel.value; this.renderTiles(); });
     this.grid.addEventListener('pointerleave', () => { if (this.fpHover) { this.fpHover = null; this.renderFootprintRow(); } });
     this.panel = h('div', { class: 'side-panel picker', 'aria-label': 'Part picker' },
-      h('div', { class: 'side-filter' }, catSel),
+      h('div', { class: 'side-filter picker-filter' }, catSel, this.viewBtn = button({ icon: VIEWS[this.pickerView].icon, title: `View: ${VIEWS[this.pickerView].label}`, cls: 'btn-ghost picker-view', onClick: (e) => this.viewMenu(e.currentTarget) })),
       h('div', { class: 'side-search' }, icon('search', 16), search),
       this.grid,
       this.fpRow = h('div', { class: 'fp-row', 'aria-label': 'Footprint for the next part' }),
@@ -200,8 +226,35 @@ export class SchematicEditor {
   renderTiles() {
     if (!this.grid) return;
     const C = this.app.canvasColors('schematic');
-    const list = searchParts(this.parts, this.query, this.category);
-    this.grid.replaceChildren(...list.map((part) => this._tile(part, C)));
+    let list = searchParts(this.parts, this.query, this.category);
+    this.grid.className = `shape-grid picker-grid view-${this.pickerView}`;
+    const items = [];
+    if (this.pickerView === 'details') {
+      const { key, dir } = this.pickerSort;
+      list = [...list].sort((a, b) => dir * String(DETAIL_COLS.find((c) => c.key === key).get(a)).localeCompare(String(DETAIL_COLS.find((c) => c.key === key).get(b)), undefined, { numeric: true }));
+      items.push(h('div', { class: 'pd-head', role: 'row' }, h('span', {}), ...DETAIL_COLS.map((c) => {
+        const b = h('button', { class: 'pd-col' + (key === c.key ? ' on' : ''), type: 'button', title: `${c.label}: click to sort` }, c.short || c.label, key === c.key ? (dir > 0 ? ' ▲' : ' ▼') : '');
+        b.addEventListener('click', () => { this.pickerSort = { key: c.key, dir: key === c.key ? -dir : 1 }; this.renderTiles(); });
+        return b;
+      })));
+    }
+    if (GROUPS[this.pickerGroup] && this.pickerGroup !== 'none') {
+      // an expandable tree, like Explorer's grouped views; searching opens every group
+      for (const g of groupParts(list, this.pickerGroup)) {
+        const id = `${this.pickerGroup}:${g.key}`;
+        const open = !!this.query.trim() || !this.pickerFolded.has(id);
+        const head = h('button', { class: 'pg-head' + (open ? ' open' : ''), type: 'button', 'aria-expanded': String(open), dataset: { group: g.key }, title: open ? 'Fold this group' : 'Unfold this group' },
+          icon('chevronRight', 14), h('span', { class: 'pg-name' }, g.key), h('span', { class: 'pg-count' }, String(g.parts.length)));
+        head.addEventListener('click', () => {
+          if (this.pickerFolded.has(id)) this.pickerFolded.delete(id); else this.pickerFolded.add(id);
+          writePref('electrocad.pickerFolded', JSON.stringify([...this.pickerFolded]));
+          this.renderTiles();
+        });
+        items.push(head);
+        if (open) items.push(...g.parts.map((part) => this._tile(part, C)));
+      }
+      this.grid.replaceChildren(...items);
+    } else this.grid.replaceChildren(...items, ...list.map((part) => this._tile(part, C)));
     if (!list.length) this.grid.append(h('div', { class: 'side-empty' }, this.query ? 'No parts match.' : 'No parts in this category yet.'));
     this.renderFootprintRow();
   }
@@ -214,8 +267,9 @@ export class SchematicEditor {
     const img = h('img', { alt: '', draggable: false, src: symbolThumbnail(part, C), style: { background: C.paper || C.background } });
     const tile = h('div', { class: 'shape-tile part-tile', role: 'listitem', tabindex: '0', dataset: { part: part.id }, 'aria-label': part.name,
       title: `${part.name}${part.units.length > 1 ? ` (${part.units.length} units)` : ''}: drag onto the sheet, or click then click to place (R rotates, X mirrors, Esc stops)` },
-      img, h('span', {}, part.name),
-      part.units.length > 1 ? h('b', { class: 'unit-badge', title: `${part.units.length} units: ${part.units.map((u) => u.name).join(', ')}` }, `×${part.units.length}`) : null);
+      img, h('span', { class: 'pt-name' }, part.name),
+      part.units.length > 1 ? h('b', { class: 'unit-badge', title: `${part.units.length} units: ${part.units.map((u) => u.name).join(', ')}` }, `×${part.units.length}`) : null,
+      ...(this.pickerView === 'details' ? DETAIL_COLS.slice(1).map((c) => h('span', { class: `pd-cell pd-${c.key}` }, String(c.get(part)))) : []));
     tile.classList.toggle('active', this.fpPart === part);
     tile.addEventListener('pointerdown', (e) => { this._setFpPart(part); this._tilePointerDown(e, part); });
     tile.addEventListener('pointerenter', () => { this.fpHover = part; this.renderFootprintRow(); });
@@ -224,6 +278,30 @@ export class SchematicEditor {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.placeAtViewCenter(part); }
     });
     return tile;
+  }
+
+  /** The View menu: Icons, Small icons, List or Details, as in Explorer. */
+  viewMenu(anchor) {
+    popupMenu([
+      ...Object.entries(VIEWS).map(([id, v]) => ({ label: v.label, icon: v.icon, checked: this.pickerView === id, onClick: () => this.setPickerView(id) })),
+      'sep',
+      ...Object.entries(GROUPS).map(([id, label]) => ({ label, checked: this.pickerGroup === id, onClick: () => this.setPickerGroup(id) })),
+    ], anchor);
+  }
+
+  setPickerGroup(id) {
+    if (!GROUPS[id]) return;
+    this.pickerGroup = id;
+    writePref('electrocad.pickerGroup', id);
+    this.renderTiles();
+  }
+
+  setPickerView(id) {
+    if (!VIEWS[id]) return;
+    this.pickerView = id;
+    writePref('electrocad.pickerView', id);
+    if (this.viewBtn) { this.viewBtn.replaceChildren(icon(VIEWS[id].icon, 18)); this.viewBtn.title = `View: ${VIEWS[id].label}`; }
+    this.renderTiles();
   }
 
   // ---------------------------------------------------------------- footprint row (#12, ADR-0008)

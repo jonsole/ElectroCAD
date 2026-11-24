@@ -47,4 +47,48 @@ check('other-applied', !!c.comp.footprint?.fpKey && app.project.footprints[c.com
 ed.placeAtViewCenter(ed.parts.find((x) => x.name === 'Capacitor'));
 check('per-part', Object.values(app.project.components).find((x) => x.ref === 'C1')?.footprint?.fpId === 'C_0805');
 check('no-preview-left', !document.querySelector('.fp-preview'));
+// views: Icons, Small icons, List, Details (Explorer's View menu), remembered in this browser
+document.querySelector('.picker-view').click();
+const viewItems = [...document.querySelectorAll('.menu .menu-item')].map((x) => x.textContent);
+check('view-menu', viewItems.join() === 'Icons,Small icons,List,Details,No groups,Group by category,Group by manufacturer', viewItems);
+[...document.querySelectorAll('.menu .menu-item')].find((x) => x.textContent === 'List').click();
+const grid = document.querySelector('.picker-grid');
+check('list-view', grid.classList.contains('view-list') && localStorage.getItem('electrocad.pickerView') === 'list');
+// placing still works from a List row
+const n0 = Object.keys(app.project.components).length;
+const row = document.querySelector('.part-tile[aria-label="Diode"]');
+row.dispatchEvent(new PointerEvent('pointerdown', { button: 0, bubbles: true, clientX: 5, clientY: 5 }));
+document.dispatchEvent(new PointerEvent('pointerup', { button: 0, bubbles: true, clientX: 5, clientY: 5 }));
+ed.placing.at = [80 * G, 40 * G]; ed.commitPlace(); ed.endPlace();
+check('list-place', Object.keys(app.project.components).length === n0 + 1);
+ed.setPickerGroup('none'); // sorting is easiest to check on a flat table
+ed.setPickerView('details');
+const heads = [...grid.querySelectorAll('.pd-col')].map((x) => x.textContent.replace(/[▲▼]/g, '').trim());
+check('details-cols', heads.join() === 'Name,Category,Value,Units,Fp', heads);
+const names = () => [...grid.querySelectorAll('.part-tile')].map((t) => t.getAttribute('aria-label'));
+check('details-sorted-by-name', names()[0] === '74HC00', names().slice(0, 3));
+[...grid.querySelectorAll('.pd-col')].find((x) => x.textContent.startsWith('Units')).click();
+[...document.querySelectorAll('.picker-grid .pd-col')].find((x) => x.textContent.startsWith('Units')).click();
+check('details-sort-units-desc', ['LM324', '74HC00'].includes(names()[0]) && names()[2] === 'LM358', names().slice(0, 3));
+check('details-cells', document.querySelector('.part-tile[aria-label="Resistor"] .pd-category')?.textContent === 'Passives');
+ed.setPickerView('icons');
+check('icons-back', grid.classList.contains('view-icons'));
+ed.setPickerGroup('category');
+// the tree: grouped by category by default; fold a group; group by manufacturer; search opens groups
+const groups = () => [...grid.querySelectorAll('.pg-head')].map((x) => x.dataset.group);
+check('tree-category', groups().join() === 'Passives,Semiconductors,Connectors,ICs,Power', groups());
+grid.querySelector('.pg-head[data-group="Connectors"]').click();
+check('folded', !tiles().some((t) => t.startsWith('Conn_')) && grid.querySelector('.pg-head[data-group="Connectors"]').getAttribute('aria-expanded') === 'false');
+check('folded-remembered', JSON.parse(localStorage.getItem('electrocad.pickerFolded')).includes('category:Connectors'));
+search.value = 'conn_01x0'; search.dispatchEvent(new Event('input'));
+check('search-opens', tiles().length === 9 && groups().join() === 'Connectors', [groups(), tiles().length]);
+search.value = ''; search.dispatchEvent(new Event('input'));
+grid.querySelector('.pg-head[data-group="Connectors"]').click();
+check('unfolded', tiles().some((t) => t === 'Conn_02x05'));
+ed.setPickerGroup('manufacturer');
+check('tree-mfr', groups().join() === 'Advanced Monolithic Systems,Nexperia,Texas Instruments,Generic', groups());
+check('mfr-members', [...grid.querySelectorAll('.pg-head[data-group="Texas Instruments"] ~ .part-tile')].slice(0, 3).map((t) => t.getAttribute('aria-label')).join() === 'LM324,LM358,NE555');
+ed.setPickerGroup('none');
+check('no-groups', groups().length === 0 && tiles().length >= 30);
+ed.setPickerGroup('category');
 return { fails };

@@ -1,7 +1,8 @@
 // The built-in starter Library (#12): generated, not hand-drawn, and no third-party library is
 // bundled. Symbols follow KiCad's conventions so Pins land on the 50 mil grid (local frame, nm,
-// +Y down); Footprints come from ./footprints.js. `category` is Library-only (the picker's
-// category select); it isn't copied into Projects.
+// +Y down); Footprints come from ./footprints.js. `category` and `manufacturer` are Library-only
+// (the picker's category select and grouping); they aren't copied into Projects. Generic parts
+// (passives, connectors, discretes made by everyone) have no manufacturer.
 //
 // For chip parts the 0805 Footprint is the first Preferred footprint (the default for a new
 // Component); the picker shows the choices in size order.
@@ -134,7 +135,7 @@ export const DIODE = {
 };
 
 /** A three-terminal transistor in a circle: control on the left, the other two top and bottom. */
-function transistor({ id, name, value, keywords, left, top, bottom, arrow }) {
+function transistor({ id, name, value, manufacturer, keywords, left, top, bottom, arrow }) {
   const lines = [
     { type: 'circle', c: [Math.round(0.6 * G), 0], r: Math.round(2.7 * G), fill: 'none' },
     { type: 'line', pts: [[-G, -1.5 * G], [-G, 1.5 * G]].map(round), width: 2 },
@@ -143,7 +144,7 @@ function transistor({ id, name, value, keywords, left, top, bottom, arrow }) {
     { type: 'poly', pts: arrow.map(round), fill: 'outline' },
   ];
   return {
-    id, name, prefix: 'Q', defaultValue: value, category: 'Semiconductors', keywords,
+    id, name, prefix: 'Q', defaultValue: value, category: 'Semiconductors', manufacturer, keywords,
     origin: origin(id),
     units: [{
       name: 'A', hidePinNumbers: true, hidePinNames: true, graphics: lines,
@@ -159,13 +160,13 @@ function transistor({ id, name, value, keywords, left, top, bottom, arrow }) {
 }
 
 // BC847 / BC857 / 2N7002 in SOT-23: pad 1 = B (G), 2 = E (S), 3 = C (D)
-export const NPN = transistor({ id: 'npn', name: 'NPN transistor', value: 'BC847', keywords: 'npn transistor bjt bc847 q',
+export const NPN = transistor({ id: 'npn', name: 'NPN transistor', value: 'BC847', manufacturer: 'Nexperia', keywords: 'npn transistor bjt bc847 q',
   left: { number: '1', name: 'B', type: 'input' }, top: { number: '3', name: 'C', type: 'passive' }, bottom: { number: '2', name: 'E', type: 'passive' },
   arrow: [[2 * G, 2 * G], [1.1 * G, 1.9 * G], [1.6 * G, 1.3 * G], [2 * G, 2 * G]] });
-export const PNP = transistor({ id: 'pnp', name: 'PNP transistor', value: 'BC857', keywords: 'pnp transistor bjt bc857 q',
+export const PNP = transistor({ id: 'pnp', name: 'PNP transistor', value: 'BC857', manufacturer: 'Nexperia', keywords: 'pnp transistor bjt bc857 q',
   left: { number: '1', name: 'B', type: 'input' }, top: { number: '2', name: 'E', type: 'passive' }, bottom: { number: '3', name: 'C', type: 'passive' },
   arrow: [[-0.6 * G, -0.7 * G], [0.4 * G, -0.9 * G], [0, -1.5 * G], [-0.6 * G, -0.7 * G]] });
-export const NMOS = transistor({ id: 'nmos', name: 'N-MOSFET', value: '2N7002', keywords: 'mosfet nmos n-channel fet transistor 2n7002 q',
+export const NMOS = transistor({ id: 'nmos', name: 'N-MOSFET', value: '2N7002', manufacturer: 'Nexperia', keywords: 'mosfet nmos n-channel fet transistor 2n7002 q',
   left: { number: '1', name: 'G', type: 'input' }, top: { number: '3', name: 'D', type: 'passive' }, bottom: { number: '2', name: 'S', type: 'passive' },
   arrow: [[-0.4 * G, 0.6 * G], [0.4 * G, 0.95 * G], [0.2 * G, 0.25 * G], [-0.4 * G, 0.6 * G]] });
 
@@ -224,7 +225,7 @@ const powerUnit = (name, top, bottom, [topName, bottomName] = ['V+', 'V-']) => (
 
 // LM324: four op-amps (Units A–D) and a power Unit (E), sharing one package (ADR-0005)
 export const LM324 = {
-  id: 'lm324', name: 'LM324', prefix: 'U', defaultValue: 'LM324', category: 'ICs', keywords: 'lm324 op-amp opamp quad amplifier ic',
+  id: 'lm324', name: 'LM324', prefix: 'U', defaultValue: 'LM324', category: 'ICs', manufacturer: 'Texas Instruments', keywords: 'lm324 op-amp opamp quad amplifier ic',
   origin: origin('lm324'),
   units: [opAmpUnit('A', '2', '3', '1'), opAmpUnit('B', '6', '5', '7'), opAmpUnit('C', '9', '10', '8'), opAmpUnit('D', '13', '12', '14'), powerUnit('E', '4', '11')],
   footprints: { SOIC14: soic(14), DIP14: dip(14) },
@@ -232,7 +233,7 @@ export const LM324 = {
 };
 
 export const LM358 = {
-  id: 'lm358', name: 'LM358', prefix: 'U', defaultValue: 'LM358', category: 'ICs', keywords: 'lm358 op-amp opamp dual amplifier ic',
+  id: 'lm358', name: 'LM358', prefix: 'U', defaultValue: 'LM358', category: 'ICs', manufacturer: 'Texas Instruments', keywords: 'lm358 op-amp opamp dual amplifier ic',
   origin: origin('lm358'),
   units: [opAmpUnit('A', '2', '3', '1'), opAmpUnit('B', '6', '5', '7'), powerUnit('C', '8', '4')],
   footprints: { SOIC8: soic(8), DIP8: dip(8) },
@@ -240,7 +241,7 @@ export const LM358 = {
 };
 
 export const NE555 = {
-  id: 'ne555', name: 'NE555', prefix: 'U', defaultValue: 'NE555', category: 'ICs', keywords: 'ne555 555 timer oscillator ic',
+  id: 'ne555', name: 'NE555', prefix: 'U', defaultValue: 'NE555', category: 'ICs', manufacturer: 'Texas Instruments', keywords: 'ne555 555 timer oscillator ic',
   origin: origin('ne555'),
   units: [{
     name: 'A', hidePinNumbers: false, hidePinNames: false,
@@ -276,7 +277,7 @@ const nandUnit = (name, a, b, y) => ({
 });
 
 export const HC00 = {
-  id: '74hc00', name: '74HC00', prefix: 'U', defaultValue: '74HC00', category: 'ICs', keywords: '74hc00 nand gate logic quad 7400 ic',
+  id: '74hc00', name: '74HC00', prefix: 'U', defaultValue: '74HC00', category: 'ICs', manufacturer: 'Nexperia', keywords: '74hc00 nand gate logic quad 7400 ic',
   origin: origin('74hc00'),
   units: [nandUnit('A', '1', '2', '3'), nandUnit('B', '4', '5', '6'), nandUnit('C', '9', '10', '8'), nandUnit('D', '12', '13', '11'), powerUnit('E', '14', '7', ['VCC', 'GND'])],
   footprints: { SOIC14: soic(14), DIP14: dip(14) },
@@ -286,7 +287,7 @@ export const HC00 = {
 // ---------------------------------------------------------------- Power
 
 export const AMS1117 = {
-  id: 'ams1117-3.3', name: 'AMS1117-3.3', prefix: 'U', defaultValue: 'AMS1117-3.3', category: 'Power', keywords: 'ams1117 ldo regulator 3.3v 3v3 linear power',
+  id: 'ams1117-3.3', name: 'AMS1117-3.3', prefix: 'U', defaultValue: 'AMS1117-3.3', category: 'Power', manufacturer: 'Advanced Monolithic Systems', keywords: 'ams1117 ldo regulator 3.3v 3v3 linear power',
   origin: origin('ams1117-3.3'),
   units: [{
     name: 'A', hidePinNumbers: false, hidePinNames: false,
@@ -313,6 +314,20 @@ export const STARTER_LIBRARY = [
   AMS1117,
 ];
 
+/** The name a Part is grouped under for a grouping ('category' or 'manufacturer'). */
+export const groupOf = (part, by) => (by === 'manufacturer' ? part.manufacturer || 'Generic' : part.category || 'Other');
+
+/**
+ * Group Parts for the picker's tree: [{ key, parts }] in a stable order (categories in CATEGORIES
+ * order; manufacturers alphabetically with Generic last). Empty groups are left out.
+ */
+export function groupParts(parts, by) {
+  const groups = new Map();
+  for (const p of parts) { const k = groupOf(p, by); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(p); }
+  const rank = (k) => (by === 'category' ? (CATEGORIES.indexOf(k) + 1 || CATEGORIES.length + 1) : k === 'Generic' ? 2 : 1);
+  return [...groups].map(([key, list]) => ({ key, parts: list })).sort((a, b) => rank(a.key) - rank(b.key) || a.key.localeCompare(b.key));
+}
+
 /**
  * Parts in `category` ('All' or a category) whose name, keywords or default Value contain every
  * word of the query. "All" searches every category.
@@ -321,7 +336,7 @@ export function searchParts(parts, query, category = 'All') {
   const words = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
   return parts.filter((p) => {
     if (category !== 'All' && p.category !== category) return false;
-    const hay = `${p.name} ${p.keywords || ''} ${p.prefix} ${p.defaultValue || ''}`.toLowerCase();
+    const hay = `${p.name} ${p.keywords || ''} ${p.prefix} ${p.defaultValue || ''} ${p.manufacturer || ''}`.toLowerCase();
     return words.every((w) => hay.includes(w));
   });
 }
