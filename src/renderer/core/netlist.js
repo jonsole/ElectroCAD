@@ -108,3 +108,44 @@ export function junctions(project, sheet) {
   }
   return out;
 }
+
+/**
+ * Pins with something attached: a Wire end or run touching the Pin tip, or another Pin at the
+ * same point. Returns a Set of `${symbolId}:${pinNumber}`. Drawing only (connected Pins take the
+ * Wire colour); connectivity itself comes from buildNetlist.
+ */
+export function connectedPins(project, sheet) {
+  const out = new Set();
+  const tips = new Map();
+  for (const sym of sheet.symbols) {
+    for (const { pin, at } of pinPositions(project, sym)) {
+      const k = key(at);
+      if (!tips.has(k)) tips.set(k, []);
+      tips.get(k).push(`${sym.id}:${pin.number}`);
+    }
+  }
+  for (const [k, ids] of tips) {
+    const at = k.split(',').map(Number);
+    if (ids.length > 1 || sheet.wires.some((w) => onSegment(at, w.a, w.b))) for (const id of ids) out.add(id);
+  }
+  return out;
+}
+
+/**
+ * Places where two Wires cross without connecting: one horizontal and one vertical run that
+ * intersect strictly inside both (neither ends there). Returns [{ at, over, under }] where
+ * `over` is the horizontal Wire (drawn with a hop) and `under` the vertical one.
+ */
+export function wireCrossings(sheet) {
+  const horiz = sheet.wires.filter((w) => w.a[1] === w.b[1] && w.a[0] !== w.b[0]);
+  const vert = sheet.wires.filter((w) => w.a[0] === w.b[0] && w.a[1] !== w.b[1]);
+  const out = [];
+  for (const h of horiz) {
+    const y = h.a[1], hx0 = Math.min(h.a[0], h.b[0]), hx1 = Math.max(h.a[0], h.b[0]);
+    for (const v of vert) {
+      const x = v.a[0], vy0 = Math.min(v.a[1], v.b[1]), vy1 = Math.max(v.a[1], v.b[1]);
+      if (x > hx0 && x < hx1 && y > vy0 && y < vy1) out.push({ at: [x, y], over: h.id, under: v.id });
+    }
+  }
+  return out;
+}

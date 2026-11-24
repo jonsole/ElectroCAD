@@ -3,7 +3,7 @@
 import { place } from '../core/geom.js';
 import { partOf } from '../core/project.js';
 import { mm } from '../core/units.js';
-import { junctions } from '../core/netlist.js';
+import { junctions, connectedPins, wireCrossings } from '../core/netlist.js';
 import { placeFields, styleFor } from '../core/fields.js';
 
 const LINE = mm(0.2);      // symbol body line width
@@ -58,7 +58,14 @@ export function drawUnit(ctx, toScreen, scale, part, unitIndex, sym, fields, C, 
     const d = DIRS[pin.dir] || [0, 0];
     const end = [pin.at[0] + d[0] * pin.length, pin.at[1] + d[1] * pin.length];
     const [ax, ay] = P(pin.at), [bx, by] = P(end);
+    // a connected Pin takes the Wire colour so it reads as part of the Wire; a bare one keeps the
+    // Pin colour and gets a small open circle at its tip (only when connection info is given)
+    const conn = opts.connected ? opts.connected.has(pin.number) : null;
+    ctx.strokeStyle = conn ? C.wire : C.pin;
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+    if (conn === false) {
+      ctx.beginPath(); ctx.arc(ax, ay, Math.max(2, mm(0.3) * scale), 0, Math.PI * 2); ctx.stroke();
+    }
     if (!unit.hidePinNumbers && scale * TEXT > 5) {
       ctx.fillStyle = C.pinNumber; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
       ctx.fillText(pin.number, (ax + bx) / 2, (ay + by) / 2 - 2);
@@ -101,6 +108,7 @@ function bodyHalfHeight(unit) {
 }
 
 const WIRE = mm(0.15);
+const HOP = mm(0.5); // radius of the bridge where Wires cross without connecting
 const JUNCTION = mm(0.5);
 
 function strokeWire(ctx, view, a, b) {
@@ -157,13 +165,35 @@ export function drawSheet(ctx, view, C, project, sheet, { selection = new Set(),
     ctx.globalAlpha = 1;
   }
   ctx.strokeStyle = C.wire; ctx.lineWidth = wireW;
-  ctx.beginPath(); for (const w of sheet.wires) strokeWire(ctx, view, w.a, w.b); ctx.stroke();
+  // horizontal Wires hop over vertical ones they cross without connecting
+  const hops = new Map();
+  for (const c of wireCrossings(sheet)) { if (!hops.has(c.over)) hops.set(c.over, []); hops.get(c.over).push(c.at[0]); }
+  const r = Math.max(4, HOP * view.scale);
+  ctx.beginPath();
+  for (const w of sheet.wires) {
+    const xs = hops.get(w.id);
+    if (!xs) { strokeWire(ctx, view, w.a, w.b); continue; }
+    const [ax, ay] = view.toScreen(w.a), [bx] = view.toScreen(w.b);
+    const dir = bx >= ax ? 1 : -1;
+    const pts = xs.map((x) => view.toScreen([x, w.a[1]])[0]).sort((p, q) => (p - q) * dir);
+    ctx.moveTo(ax, ay);
+    for (const x of pts) {
+      ctx.lineTo(x - dir * r, ay);
+      // a semicircle bridge, bulging up the screen
+      ctx.arc(x, ay, r, dir > 0 ? Math.PI : 0, dir > 0 ? 0 : Math.PI, dir < 0);
+    }
+    ctx.lineTo(bx, ay);
+  }
+  ctx.stroke();
   ctx.restore();
+  const conn = connectedPins(project, sheet);
   for (const sym of sheet.symbols) {
     const comp = project.components[sym.componentId];
     const part = partOf(project, comp);
     if (!part) continue;
-    drawUnit(ctx, toScreen, view.scale, part, sym.unit, sym, null, C); // fields come from the placer
+    const unit = part.units[sym.unit || 0];
+    const connected = new Set(unit ? unit.pins.filter((pn) => conn.has(`${sym.id}:${pn.number}`)).map((pn) => pn.number) : []);
+    drawUnit(ctx, toScreen, view.scale, part, sym.unit, sym, null, C, { connected }); // fields come from the placer
     if (selection.has(sym.id) && bounds) {
       const b = bounds(sym);
       const [x0, y0] = view.toScreen([b.x0, b.y0]), [x1, y1] = view.toScreen([b.x1, b.y1]);

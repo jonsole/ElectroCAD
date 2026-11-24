@@ -164,3 +164,27 @@ test('the preferred corner gives way when it would run through a Pin', () => {
   assert.deepEqual(r, [[G * 10, G * 7], [G * 30, G * 7]]);
   void c;
 });
+
+// ---------------------------------------------------------------- drawing aids: connected Pins, crossings
+import { connectedPins, wireCrossings } from '../src/renderer/core/netlist.js';
+
+test('connected Pins: a Wire on the tip, or another Pin, counts; a bare Pin does not', () => {
+  const { p, s, r1, r2 } = series();
+  const c = connectedPins(p, s);
+  assert.ok(c.has(`${r1.id}:2`) && c.has(`${r2.id}:1`));
+  assert.ok(!c.has(`${r1.id}:1`) && !c.has(`${r2.id}:2`));
+  // pin-to-pin with no wire
+  const r3 = placeSymbol(p, s, RESISTOR, [pinAt(p, r2, '2')[0] + mm(5.08), mm(25.4)]).sym;
+  assert.ok(connectedPins(p, s).has(`${r3.id}:1`) && connectedPins(p, s).has(`${r2.id}:2`));
+});
+
+test('crossings: a plain crossing is found, T-joins and corners are not', () => {
+  const p = newProject();
+  const s = p.schematic.sheets[0];
+  const [h] = addWire(p, s, [[G * 0, G * 10], [G * 20, G * 10]]);
+  const [v] = addWire(p, s, [[G * 10, G * 0], [G * 10, G * 20]]);
+  assert.deepEqual(wireCrossings(s), [{ at: [G * 10, G * 10], over: h.id, under: v.id }]);
+  addWire(p, s, [[G * 15, G * 10], [G * 15, G * 18]]); // T-join onto h: not a crossing
+  addWire(p, s, [[G * 20, G * 10], [G * 20, G * 2]]);  // corner at h's end: not a crossing
+  assert.equal(wireCrossings(s).length, 1);
+});

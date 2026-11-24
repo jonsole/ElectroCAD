@@ -84,6 +84,12 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 - **If that would run through another Pin,** the corner goes the other way.
 - **`/`** flips the corner for the rest of the Wire.
 
+**Showing connections:**
+- **Connected Pins:** a Pin with a Wire on its tip, or touching another Pin, draws in the Wire colour, so it reads as part of the Wire.
+- **Bare Pins:** a Pin with nothing on it keeps the Pin colour and gets a small open circle at its tip.
+- **Junctions:** a dot where Wires really connect (a T-join, or three or more ends).
+- **Crossings:** where a horizontal and a vertical Wire cross without connecting, the horizontal one draws a small semicircle **hop** over the other.
+
 ## Selecting and moving
 
 - **Selecting:** click to select, Shift-click to add or remove an item, and drag on an empty canvas to box-select. Dragging **left to right** takes only items fully inside the box (solid outline); **right to left** takes anything the box touches (dashed outline). Ctrl+A selects all.
