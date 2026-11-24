@@ -419,7 +419,7 @@ Selecting something in one editor highlights the same thing in the other (#18). 
 - **Placing corners:** click to fix corners. Points snap to the grid, pad centres and handles.
 - **Finishing:** click a pad of the same Net. Double-click or Enter ends the track where it is.
 - **Keys while routing:** **/** flips which way the bend goes, **Backspace** takes back the last corner, **Esc** cancels.
-- **Board toolbar controls** (remembered per browser):
+- **Routing options** pop up in a strip at the top of the canvas while the Route tool is active, and hide with any other tool (remembered per browser):
   - **90° | 45° | Any:** how tracks bend, as Eagle's bend styles.
   - **Chamfer** (mm), as Eagle's mitre: every bend of 90° or sharper is cut back by that length on both sides and joined at 45°. Bends you click get it too; it shortens when a segment is too short. 0 for none.
 - **Routing mode:** **Free** is the live mode, and tracks go where you draw them. Walkaround (#22) and Shove (#29) come later.

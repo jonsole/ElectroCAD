@@ -30,7 +30,14 @@ const click = (x, y) => { move(x, y); const o = { ...pt(x, y), button: 0, button
 const key = (k, more = {}) => document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, ...more }));
 const unrouted = () => Object.values(ed._rats.unrouted).reduce((a, b) => a + b, 0);
 check('rats-1', unrouted() === 1, ed._rats.unrouted);
-// toolbar: 90° with a 1 mm chamfer
+// the routing options pop up only with the Route tool
+const strip = document.querySelector('[data-ws="board"] .route-strip');
+check('strip-hidden', strip.hidden && !document.querySelector('[data-ws="board"] .toolbar .corner-seg'));
+key('x');
+check('strip-shown', !strip.hidden && strip.contains(document.querySelector('[data-ws="board"] .corner-seg')));
+key('Escape');
+check('strip-hides', strip.hidden);
+// 90° with a 1 mm chamfer
 [...document.querySelectorAll('[data-ws="board"] .corner-seg button')].find((b) => b.dataset.corner === '90').click();
 const ch = document.querySelector('[data-ws="board"] input[aria-label="Chamfer (mm)"]'); ch.value = '1'; ch.dispatchEvent(new Event('change'));
 check('options', ed.corner === '90' && ed.chamfer === MM && localStorage.getItem('electrocad.boardCorner') === '"90"');

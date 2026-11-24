@@ -122,8 +122,10 @@ export class BoardEditor {
     this.chamferIn.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') this.chamferIn.blur(); });
     this.chamferIn.addEventListener('change', () => { const v = parseFloat(this.chamferIn.value); if (Number.isFinite(v) && v >= 0) this.setChamfer(mm(v)); });
     const chamfer = h('label', { class: 'chamfer-box', title: 'Auto chamfer (as Eagle\'s mitre): bends of 90° or sharper are cut back by this length and joined at 45°. 0 for none' }, h('span', {}, 'Chamfer'), this.chamferIn, h('em', {}, 'mm'));
-    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.del, this.btn.rotate, this.btn.flip, this.btn.lock, h('span', { class: 'sep' }), ...this.cards.buttons(), this.gridCard.button,
-      h('span', { class: 'sep' }), this.cornerSeg, chamfer];
+    // the Route tool's options pop up over the canvas while it is the tool (see attach)
+    this.routeStrip = h('div', { class: 'tool-strip route-strip', role: 'toolbar', 'aria-label': 'Routing options', hidden: true },
+      h('span', { class: 'tool-strip-label' }, 'Corners'), this.cornerSeg, h('span', { class: 'sep' }), chamfer);
+    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.del, this.btn.rotate, this.btn.flip, this.btn.lock, h('span', { class: 'sep' }), ...this.cards.buttons(), this.gridCard.button];
   }
 
   tools(later) {
@@ -319,6 +321,7 @@ export class BoardEditor {
       this.btn.lock.replaceChildren(icon(fs.length && fs.every((f) => f.locked) ? 'unlock' : 'lock', 20));
     }
     if (this.toolBtn) for (const [id, b] of Object.entries(this.toolBtn)) b.classList.toggle('active', this.tool === id);
+    if (this.routeStrip) this.routeStrip.hidden = this.tool !== 'route';
     if (this.stackEl) { this.renderStack(); this.renderLayers(); this.renderProps(); }
     this._home();
     if (this.ws) { this.ws.view.grid = this.gridStep; this.ws.view.origin = this.board.origin; }
@@ -579,6 +582,8 @@ export class BoardEditor {
     watchAlt(ws, (on) => this.setAlt(on));
     this.gridCard.mount(ws);
     this.cards.mount(ws);
+    ws.view.el.append(this.routeStrip);
+    this.routeStrip.addEventListener('pointerdown', (e) => e.stopPropagation());
     c.addEventListener('pointercancel', up);
     c.addEventListener('pointerleave', () => { if (this.tool !== 'select') { this.cursor = null; ws.view.invalidate(); } });
     this.refresh();
