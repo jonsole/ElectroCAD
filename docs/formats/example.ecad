@@ -1,0 +1,822 @@
+{
+ "format": "electrocad",
+ "version": 2,
+ "id": "p1",
+ "name": "LED indicator",
+ "parts": {
+  "mini-capacitor": {
+   "id": "mini-capacitor",
+   "name": "Capacitor",
+   "prefix": "C",
+   "defaultValue": "100n",
+   "keywords": "capacitor cap c passive",
+   "origin": {
+    "library": "builtin-mini",
+    "partId": "capacitor",
+    "version": 1
+   },
+   "units": [
+    {
+     "name": "A",
+     "hidePinNumbers": true,
+     "hidePinNames": true,
+     "graphics": [
+      {
+       "type": "line",
+       "pts": [
+        [
+         -508000,
+         -2032000
+        ],
+        [
+         -508000,
+         2032000
+        ]
+       ],
+       "width": 2
+      },
+      {
+       "type": "line",
+       "pts": [
+        [
+         508000,
+         -2032000
+        ],
+        [
+         508000,
+         2032000
+        ]
+       ],
+       "width": 2
+      }
+     ],
+     "pins": [
+      {
+       "number": "1",
+       "name": "~",
+       "at": [
+        -3810000,
+        0
+       ],
+       "dir": "R",
+       "length": 3302000,
+       "type": "passive"
+      },
+      {
+       "number": "2",
+       "name": "~",
+       "at": [
+        3810000,
+        0
+       ],
+       "dir": "L",
+       "length": 3302000,
+       "type": "passive"
+      }
+     ],
+     "fields": {
+      "reference": {
+       "at": [
+        0,
+        -3302000
+       ]
+      },
+      "value": {
+       "at": [
+        0,
+        3302000
+       ]
+      }
+     }
+    }
+   ],
+   "footprints": {
+    "C_0805": {
+     "name": "C_0805_2012Metric",
+     "pads": [
+      {
+       "number": "1",
+       "at": [
+        -912500,
+        0
+       ],
+       "shape": "roundrect",
+       "size": [
+        1025000,
+        1400000
+       ],
+       "layers": [
+        "F.Cu",
+        "F.Paste",
+        "F.Mask"
+       ]
+      },
+      {
+       "number": "2",
+       "at": [
+        912500,
+        0
+       ],
+       "shape": "roundrect",
+       "size": [
+        1025000,
+        1400000
+       ],
+       "layers": [
+        "F.Cu",
+        "F.Paste",
+        "F.Mask"
+       ]
+      }
+     ],
+     "graphics": [
+      {
+       "type": "rect",
+       "layer": "F.CrtYd",
+       "a": [
+        -1680000,
+        -950000
+       ],
+       "b": [
+        1680000,
+        950000
+       ]
+      }
+     ]
+    }
+   },
+   "pinMap": {
+    "C_0805": {
+     "1": "1",
+     "2": "2"
+    }
+   }
+  },
+  "mini-resistor": {
+   "id": "mini-resistor",
+   "name": "Resistor",
+   "prefix": "R",
+   "defaultValue": "10k",
+   "keywords": "resistor res r passive",
+   "origin": {
+    "library": "builtin-mini",
+    "partId": "resistor",
+    "version": 1
+   },
+   "units": [
+    {
+     "name": "A",
+     "hidePinNumbers": true,
+     "hidePinNames": true,
+     "graphics": [
+      {
+       "type": "rect",
+       "a": [
+        -2540000,
+        -1016000
+       ],
+       "b": [
+        2540000,
+        1016000
+       ],
+       "fill": "background"
+      }
+     ],
+     "pins": [
+      {
+       "number": "1",
+       "name": "~",
+       "at": [
+        -5080000,
+        0
+       ],
+       "dir": "R",
+       "length": 2540000,
+       "type": "passive"
+      },
+      {
+       "number": "2",
+       "name": "~",
+       "at": [
+        5080000,
+        0
+       ],
+       "dir": "L",
+       "length": 2540000,
+       "type": "passive"
+      }
+     ],
+     "fields": {
+      "reference": {
+       "at": [
+        0,
+        -2540000
+       ]
+      },
+      "value": {
+       "at": [
+        0,
+        2540000
+       ]
+      }
+     }
+    }
+   ],
+   "footprints": {
+    "R_0805": {
+     "name": "R_0805_2012Metric",
+     "pads": [
+      {
+       "number": "1",
+       "at": [
+        -912500,
+        0
+       ],
+       "shape": "roundrect",
+       "size": [
+        1025000,
+        1400000
+       ],
+       "layers": [
+        "F.Cu",
+        "F.Paste",
+        "F.Mask"
+       ]
+      },
+      {
+       "number": "2",
+       "at": [
+        912500,
+        0
+       ],
+       "shape": "roundrect",
+       "size": [
+        1025000,
+        1400000
+       ],
+       "layers": [
+        "F.Cu",
+        "F.Paste",
+        "F.Mask"
+       ]
+      }
+     ],
+     "graphics": [
+      {
+       "type": "rect",
+       "layer": "F.CrtYd",
+       "a": [
+        -1680000,
+        -950000
+       ],
+       "b": [
+        1680000,
+        950000
+       ]
+      }
+     ]
+    }
+   },
+   "pinMap": {
+    "R_0805": {
+     "1": "1",
+     "2": "2"
+    }
+   }
+  },
+  "mini-led": {
+   "id": "mini-led",
+   "name": "LED",
+   "prefix": "D",
+   "defaultValue": "LED",
+   "keywords": "led diode light",
+   "origin": {
+    "library": "builtin-mini",
+    "partId": "led",
+    "version": 1
+   },
+   "units": [
+    {
+     "name": "A",
+     "hidePinNumbers": true,
+     "hidePinNames": true,
+     "graphics": [
+      {
+       "type": "poly",
+       "pts": [
+        [
+         -1270000,
+         -1270000
+        ],
+        [
+         1270000,
+         0
+        ],
+        [
+         -1270000,
+         1270000
+        ],
+        [
+         -1270000,
+         -1270000
+        ]
+       ],
+       "fill": "background"
+      },
+      {
+       "type": "line",
+       "pts": [
+        [
+         1270000,
+         -1270000
+        ],
+        [
+         1270000,
+         1270000
+        ]
+       ],
+       "width": 1.5
+      },
+      {
+       "type": "line",
+       "pts": [
+        [
+         -254000,
+         -1778000
+        ],
+        [
+         762000,
+         -2794000
+        ]
+       ]
+      },
+      {
+       "type": "line",
+       "pts": [
+        [
+         254000,
+         -2794000
+        ],
+        [
+         762000,
+         -2794000
+        ],
+        [
+         762000,
+         -2286000
+        ]
+       ]
+      },
+      {
+       "type": "line",
+       "pts": [
+        [
+         635000,
+         -1778000
+        ],
+        [
+         1651000,
+         -2794000
+        ]
+       ]
+      },
+      {
+       "type": "line",
+       "pts": [
+        [
+         1143000,
+         -2794000
+        ],
+        [
+         1651000,
+         -2794000
+        ],
+        [
+         1651000,
+         -2286000
+        ]
+       ]
+      }
+     ],
+     "pins": [
+      {
+       "number": "2",
+       "name": "A",
+       "at": [
+        -3810000,
+        0
+       ],
+       "dir": "R",
+       "length": 2540000,
+       "type": "passive"
+      },
+      {
+       "number": "1",
+       "name": "K",
+       "at": [
+        3810000,
+        0
+       ],
+       "dir": "L",
+       "length": 2540000,
+       "type": "passive"
+      }
+     ],
+     "fields": {
+      "reference": {
+       "at": [
+        0,
+        -4064000
+       ]
+      },
+      "value": {
+       "at": [
+        0,
+        2794000
+       ]
+      }
+     }
+    }
+   ],
+   "footprints": {
+    "LED_0805": {
+     "name": "LED_0805_2012Metric",
+     "pads": [
+      {
+       "number": "1",
+       "at": [
+        -912500,
+        0
+       ],
+       "shape": "roundrect",
+       "size": [
+        1025000,
+        1400000
+       ],
+       "layers": [
+        "F.Cu",
+        "F.Paste",
+        "F.Mask"
+       ]
+      },
+      {
+       "number": "2",
+       "at": [
+        912500,
+        0
+       ],
+       "shape": "roundrect",
+       "size": [
+        1025000,
+        1400000
+       ],
+       "layers": [
+        "F.Cu",
+        "F.Paste",
+        "F.Mask"
+       ]
+      }
+     ],
+     "graphics": [
+      {
+       "type": "rect",
+       "layer": "F.CrtYd",
+       "a": [
+        -1680000,
+        -950000
+       ],
+       "b": [
+        1680000,
+        950000
+       ]
+      }
+     ]
+    }
+   },
+   "pinMap": {
+    "LED_0805": {
+     "1": "1",
+     "2": "2"
+    }
+   }
+  }
+ },
+ "components": {
+  "c1": {
+   "id": "c1",
+   "partId": "mini-capacitor",
+   "ref": "C1",
+   "value": "100n",
+   "mpn": null,
+   "footprint": {
+    "fpId": "C_0805"
+   },
+   "fields": {}
+  },
+  "c2": {
+   "id": "c2",
+   "partId": "mini-resistor",
+   "ref": "R1",
+   "value": "330",
+   "mpn": {
+    "manufacturer": "Yageo",
+    "number": "RC0805FR-07330RL"
+   },
+   "footprint": {
+    "fpId": "R_0805"
+   },
+   "fields": {
+    "Tolerance": "1%"
+   }
+  },
+  "c3": {
+   "id": "c3",
+   "partId": "mini-led",
+   "ref": "D1",
+   "value": "LED",
+   "mpn": null,
+   "footprint": {
+    "library": "User",
+    "footprint": {
+     "name": "LED_1206",
+     "pads": [
+      {
+       "number": "1",
+       "at": [
+        -1600000,
+        0
+       ],
+       "shape": "roundrect",
+       "size": [
+        1000000,
+        1700000
+       ],
+       "layers": [
+        "F.Cu",
+        "F.Paste",
+        "F.Mask"
+       ]
+      },
+      {
+       "number": "2",
+       "at": [
+        1600000,
+        0
+       ],
+       "shape": "roundrect",
+       "size": [
+        1000000,
+        1700000
+       ],
+       "layers": [
+        "F.Cu",
+        "F.Paste",
+        "F.Mask"
+       ]
+      }
+     ]
+    }
+   },
+   "fields": {},
+   "fieldStyle": "rkm"
+  }
+ },
+ "schematic": {
+  "sheets": [
+   {
+    "id": "s1",
+    "name": "Power",
+    "symbols": [
+     {
+      "id": "y1",
+      "componentId": "c1",
+      "unit": 0,
+      "at": [
+       25400000,
+       25400000
+      ],
+      "rot": 90,
+      "mirror": false
+     }
+    ],
+    "wires": [],
+    "labels": [
+     {
+      "id": "l1",
+      "at": [
+       25400000,
+       21590000
+      ],
+      "rot": 0,
+      "net": "+3V3",
+      "scope": "global",
+      "style": "power"
+     },
+     {
+      "id": "l2",
+      "at": [
+       25400000,
+       29210000
+      ],
+      "rot": 0,
+      "net": "GND",
+      "scope": "global",
+      "style": "gnd"
+     }
+    ],
+    "noConnects": []
+   },
+   {
+    "id": "s2",
+    "name": "Indicator",
+    "symbols": [
+     {
+      "id": "y2",
+      "componentId": "c2",
+      "unit": 0,
+      "at": [
+       25400000,
+       25400000
+      ],
+      "rot": 0,
+      "mirror": false,
+      "fieldPins": {
+       "value": [
+        0,
+        3810000
+       ]
+      }
+     },
+     {
+      "id": "y3",
+      "componentId": "c3",
+      "unit": 0,
+      "at": [
+       40640000,
+       25400000
+      ],
+      "rot": 0,
+      "mirror": false
+     }
+    ],
+    "wires": [
+     {
+      "id": "w1",
+      "a": [
+       30480000,
+       25400000
+      ],
+      "b": [
+       36830000,
+       25400000
+      ]
+     }
+    ],
+    "labels": [
+     {
+      "id": "l3",
+      "at": [
+       20320000,
+       25400000
+      ],
+      "rot": 0,
+      "net": "+3V3",
+      "scope": "global",
+      "style": "power"
+     },
+     {
+      "id": "l4",
+      "at": [
+       33020000,
+       25400000
+      ],
+      "rot": 0,
+      "net": "LED_A",
+      "scope": "global",
+      "style": "label"
+     },
+     {
+      "id": "l5",
+      "at": [
+       44450000,
+       25400000
+      ],
+      "rot": 0,
+      "net": "GND",
+      "scope": "global",
+      "style": "gnd"
+     },
+     {
+      "id": "l6",
+      "at": [
+       33020000,
+       38100000
+      ],
+      "rot": 180,
+      "net": "SPARE",
+      "scope": "local",
+      "style": "label"
+     }
+    ],
+    "noConnects": []
+   }
+  ]
+ },
+ "board": {
+  "stack": {
+   "copper": 2,
+   "thickness": 1600000
+  },
+  "preset": "generic",
+  "outline": [],
+  "footprints": [],
+  "tracks": [],
+  "vias": [],
+  "zones": [],
+  "rules": {
+   "clearance": 200000,
+   "trackWidth": 250000,
+   "viaDrill": 300000,
+   "viaDiameter": 600000,
+   "minHole": 300000,
+   "annularRing": 130000,
+   "edgeClearance": 300000
+  },
+  "netClasses": {}
+ },
+ "fieldStyles": {
+  "default": "classic",
+  "styles": {
+   "classic": {
+    "id": "classic",
+    "name": "Classic",
+    "builtin": true,
+    "arrangement": "stacked",
+    "show": {
+     "reference": true,
+     "value": true,
+     "footprint": false,
+     "mpn": false,
+     "hideValueIfPartName": false
+    },
+    "text": {
+     "size": 1270000,
+     "bold": false,
+     "italic": false,
+     "gap": 500000
+    },
+    "valueFormat": "as-typed",
+    "placement": {
+     "horizontal": [
+      "split",
+      "above",
+      "below",
+      "right",
+      "left"
+     ],
+     "vertical": [
+      "right",
+      "left",
+      "above",
+      "below"
+     ]
+    }
+   },
+   "rkm": {
+    "builtin": true,
+    "arrangement": "stacked",
+    "show": {
+     "reference": true,
+     "value": true,
+     "footprint": false,
+     "mpn": false,
+     "hideValueIfPartName": false
+    },
+    "text": {
+     "size": 1270000,
+     "bold": false,
+     "italic": false,
+     "gap": 500000
+    },
+    "valueFormat": "rkm",
+    "id": "rkm",
+    "name": "RKM values",
+    "placement": {
+     "horizontal": [
+      "split",
+      "above",
+      "below",
+      "right",
+      "left"
+     ],
+     "vertical": [
+      "right",
+      "left",
+      "above",
+      "below"
+     ]
+    }
+   }
+  }
+ }
+}

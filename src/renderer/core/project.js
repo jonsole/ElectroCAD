@@ -1,5 +1,5 @@
 // Project model: factories, helpers and the Native format (.ecad).
-// Schema: docs/DESIGN.md §3 and the spec (issue #1). Terms: CONTEXT.md.
+// Schema: docs/formats/ecad.md and ecad.schema.json (checked by test/formats.test.js). Terms: CONTEXT.md.
 //   - Parts are generic and hold Units (ADR-0005), embedded as frozen copies (ADR-0004).
 //   - A Component's Footprint is a live property: a Preferred footprint or any other (ADR-0008).
 //   - All coordinates are integer nm, +Y down (ADR-0003).

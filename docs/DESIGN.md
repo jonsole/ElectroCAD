@@ -57,11 +57,13 @@ The **core** layer is plain data and pure functions. Editors read the Project, a
 
 ## 3. Data model (Native format)
 
+The full, current reference for the file is [formats/ecad.md](formats/ecad.md) (with a JSON Schema and an example). This section is the original design sketch; the Board part is still the plan.
+
 Every object has a stable string `id`. Coordinates are integer nm with +Y down ([ADR-0003](adr/0003-integer-nanometre-coordinates.md)). Rotation is in degrees, counter-clockwise on screen. The Schematic restricts it to multiples of 90°, and the Board allows any angle for Footprints.
 
 ```js
 Project {
-  format: 'electrocad', version: 1, id, name,
+  format: 'electrocad', version: 2, id, name,
   parts:      { [partId]: Part },        // frozen embedded copies of every Part used (ADR-0004)
   components: { [componentId]: Component },
   schematic:  { sheets: [ Sheet ] },
