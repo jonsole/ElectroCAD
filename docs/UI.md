@@ -143,7 +143,7 @@ The inspector is a floating card at the top right of the canvas, like the fork's
 
 ### Moving and sizing the cards
 
-The inspector and the Sheets and Netlist cards float together at the top right, like DabbleCAD's inspector. Drag any card's header to move them, and drag the grip at the bottom-right corner to resize them (width 250–480 px). The place and size are remembered in this browser and kept inside the canvas. Double-click a header's empty space to put the cards back. As in DabbleCAD, the inspector's header has icon buttons for the selection: Rotate, Mirror (parts only), Duplicate and Delete.
+The inspector, Sheets and Netlist cards start docked in a column at the top right, like DabbleCAD's inspector. Each card moves on its own: drag its header to float it anywhere over the canvas, and drag its bottom-right corner to resize it (width 250–520 px). A floating card comes to the front when touched, stays fully inside the canvas, and its place and size are remembered in this browser. Double-click an empty part of a card's header to dock it again. As in DabbleCAD, the inspector's header has icon buttons for the selection: Rotate, Mirror (parts only), Duplicate and Delete.
 
 The Part picker draws each part on the Schematic colour theme's paper colour, so a tile looks like the part on the sheet.
 

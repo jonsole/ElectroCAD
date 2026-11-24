@@ -357,13 +357,20 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .float-stack .netlist-panel { flex: 0 1 auto; min-height: 110px; }
 
 /* ---------- movable, resizable cards (DabbleCAD's draggable inspector) ---------- */
-.float-stack .insp-head, .float-stack .fp-head { cursor: grab; }
-.float-stack.dragging .insp-head, .float-stack.dragging .fp-head { cursor: grabbing; }
-.float-stack.dragging { user-select: none; -webkit-user-select: none; }
-.float-stack.empty { display: none; }
-.card-grip { position: absolute; right: -2px; bottom: -2px; width: 16px; height: 16px; cursor: nwse-resize; z-index: 2; pointer-events: auto; opacity: 0.5; touch-action: none;
+.card-layer { position: absolute; inset: 0; pointer-events: none; z-index: 11; overflow: hidden; }
+.card-layer > .card-free { pointer-events: auto; }
+.card .insp-head, .card .fp-head { cursor: grab; }
+.card.dragging .insp-head, .card.dragging .fp-head { cursor: grabbing; }
+.card.dragging { user-select: none; -webkit-user-select: none; }
+.card-free { position: absolute; right: auto; margin: 0; z-index: 12; box-shadow: var(--shadow); }
+.card-free.inspector { overflow: auto; }
+.card-free.float-panel { display: flex; flex-direction: column; }
+/* the resize grip in each card's bottom-right corner (drawn here; the card handles the drag) */
+.card { position: relative; }
+.card-free { position: absolute; }
+.card::after { content: ''; position: absolute; right: 2px; bottom: 2px; width: 12px; height: 12px; pointer-events: none; opacity: 0; transition: opacity .12s;
   background: linear-gradient(135deg, transparent 0 55%, var(--muted) 55% 62%, transparent 62% 72%, var(--muted) 72% 79%, transparent 79%); }
-.float-stack:hover .card-grip, .float-stack.dragging .card-grip { opacity: 1; }
+.card:hover::after, .card.dragging::after { opacity: 0.9; }
 .insp-head .insp-title { cursor: inherit; }
 
 /* Part picker tiles show the part on the schematic's paper colour */

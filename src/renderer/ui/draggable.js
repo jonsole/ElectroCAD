@@ -1,36 +1,44 @@
-// Floating cards over the canvas: move them by their header and resize them from the corner grip.
-// Ported from DabbleCAD's makeDraggable (see NOTICE) and extended with resizing. The position and
-// size are remembered in this browser and always kept inside the view the card floats over.
-// Double-clicking the header's empty space puts the card back in its default place and size.
-export function makeDraggable(el, { key, handle = '.insp-head', resize = null }) {
+// Floating cards over the canvas: move one by its header and resize it from its bottom-right
+// corner. Ported from DabbleCAD's makeDraggable (see NOTICE) and extended: cards start docked in a
+// column (the `dock` element) and float on their own once moved or resized; double-clicking a
+// header's empty space docks the card again. Place and size are remembered in this browser and
+// kept inside the view (`layer`). The corner grip is drawn with CSS (::after), so cards that
+// re-render their contents keep it.
+const GRIP = 16; // px: the corner that resizes
+let topZ = 12;
+
+export function makeDraggable(el, { key, layer, dock, handle = '.insp-head, .fp-head', resize = { minW: 250, maxW: 520, minH: 140 } }) {
   const STORE = 'electrocad.card.' + key;
-  let pos = null; // { left, top, w, h } in px; null = default place (CSS)
+  let pos = null; // { left, top, w, h } in px within `layer`; null = docked
   try { pos = JSON.parse(localStorage.getItem(STORE) || 'null'); } catch { pos = null; }
   const save = () => { try { if (pos) localStorage.setItem(STORE, JSON.stringify(pos)); else localStorage.removeItem(STORE); } catch { /* private window */ } };
-  const parentOf = () => el.offsetParent || el.parentElement;
+  el.classList.add('card');
   const clamp = () => {
-    const parent = parentOf();
-    if (!pos || !parent) return;
-    const pw = parent.clientWidth, ph = parent.clientHeight;
-    if (resize && pos.w) pos.w = Math.min(Math.max(resize.minW, pos.w), Math.min(resize.maxW, pw - 8));
-    const w = pos.w || el.offsetWidth || 280;
-    pos.left = Math.min(Math.max(0, pos.left), Math.max(0, pw - w));
-    pos.top = Math.min(Math.max(0, pos.top), Math.max(0, ph - 48));
+    const pw = layer.clientWidth, ph = layer.clientHeight;
+    if (!pw || !ph) return;
+    pos.w = Math.min(Math.max(resize.minW, pos.w || 280), Math.min(resize.maxW, Math.max(resize.minW, pw - 8)));
+    pos.left = Math.min(Math.max(0, pos.left), Math.max(0, pw - pos.w));
+    pos.top = Math.min(Math.max(0, pos.top), Math.max(0, ph - Math.min(Math.max(el.scrollHeight, el.offsetHeight, 48), pos.h || Infinity, ph) - 14)); // keep it all on screen
   };
   const apply = () => {
-    if (!pos) { el.style.left = el.style.top = el.style.right = el.style.width = el.style.maxHeight = ''; return; }
+    if (!pos) {
+      el.classList.remove('card-free');
+      el.style.left = el.style.top = el.style.width = el.style.maxHeight = el.style.zIndex = '';
+      if (el.parentElement !== dock.el) dock.put(el);
+      return;
+    }
+    if (el.parentElement !== layer) layer.append(el);
+    el.classList.add('card-free');
     clamp();
-    el.style.left = pos.left + 'px'; el.style.top = pos.top + 'px'; el.style.right = 'auto';
-    if (pos.w) el.style.width = pos.w + 'px';
+    el.style.left = pos.left + 'px'; el.style.top = pos.top + 'px'; el.style.width = pos.w + 'px';
     const room = `calc(100% - ${pos.top + 14}px)`;
-    el.style.maxHeight = pos.h ? `min(${Math.max(resize?.minH || 120, pos.h)}px, ${room})` : room;
+    el.style.maxHeight = pos.h ? `min(${Math.max(resize.minH, pos.h)}px, ${room})` : room;
   };
   apply();
-  if (window.ResizeObserver && el.parentElement) new ResizeObserver(() => apply()).observe(el.parentElement);
-  // the current place in px, so a card in its default (right-anchored) place can be moved or sized
+  if (window.ResizeObserver) new ResizeObserver(() => { if (pos) apply(); }).observe(layer);
   const here = () => {
-    const pr = parentOf().getBoundingClientRect(), er = el.getBoundingClientRect();
-    return { left: er.left - pr.left, top: er.top - pr.top, w: pos?.w, h: pos?.h };
+    const lr = layer.getBoundingClientRect(), er = el.getBoundingClientRect();
+    return { left: er.left - lr.left, top: er.top - lr.top, w: er.width, h: pos?.h };
   };
   const track = (e, onMove) => {
     e.preventDefault();
@@ -45,22 +53,26 @@ export function makeDraggable(el, { key, handle = '.insp-head', resize = null })
     el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
   };
   el.addEventListener('pointerdown', (e) => {
+    if (pos) el.style.zIndex = String(++topZ); // the card you touch comes to the front
     if (e.button !== 0) return;
-    if (resize && e.target.closest('.card-grip')) {
-      const start = here(), sx = e.clientX, sy = e.clientY, w0 = el.offsetWidth, h0 = el.offsetHeight;
-      pos = { ...start };
-      track(e, (ev) => { pos.w = w0 + ev.clientX - sx; pos.h = h0 + ev.clientY - sy; });
+    const r = el.getBoundingClientRect();
+    if (e.clientX > r.right - GRIP && e.clientY > r.bottom - GRIP) {
+      const start = here(), sx = e.clientX, sy = e.clientY, h0 = r.height;
+      pos = { ...start }; apply();
+      track(e, (ev) => { pos.w = start.w + ev.clientX - sx; pos.h = h0 + ev.clientY - sy; });
       return;
     }
     const head = e.target.closest && e.target.closest(handle);
     if (!head || !el.contains(head) || e.target.closest('button, input, select, textarea, a')) return;
+    // come out of the dock first: moving the element later would drop the pointer capture
     const start = here(), sx = e.clientX, sy = e.clientY;
+    pos = { ...start }; apply();
     track(e, (ev) => { pos = { ...start, left: start.left + ev.clientX - sx, top: start.top + ev.clientY - sy }; });
   });
   el.addEventListener('dblclick', (e) => {
     const head = e.target.closest && e.target.closest(handle);
-    if (!head || e.target.closest('button, input, select, textarea, a, .insp-title')) return;
+    if (!head || !el.contains(head) || e.target.closest('button, input, select, textarea, a')) return;
     pos = null; apply(); save();
   });
-  return { reset: () => { pos = null; apply(); save(); } };
+  return { get docked() { return !pos; }, dock: () => { pos = null; apply(); save(); } };
 }

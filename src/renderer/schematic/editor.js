@@ -208,7 +208,6 @@ export class SchematicEditor {
     this.renderStyleFoot();
     this.ws?.renderBar();
     this.inspector?.render();
-    this.stack?.classList.toggle('empty', !this.inspector.el.childElementCount && !this.netlistOpen && !this.sheetsOpen);
     this._hint();
     this.ws?.view.invalidate();
   }
@@ -325,12 +324,19 @@ export class SchematicEditor {
     this.inspector = new SchematicInspector(this);
     this.netlistEl = h('div', { class: 'float-panel netlist-panel', role: 'region', 'aria-label': 'Netlist' });
     this.sheetsEl = h('div', { class: 'float-panel sheets-panel', role: 'region', 'aria-label': 'Sheets' });
-    // the cards move together by any header and resize from the corner grip (like DabbleCAD's inspector)
-    this.stack = h('div', { class: 'float-stack' }, this.inspector.el, this.sheetsEl, this.netlistEl,
-      h('div', { class: 'card-grip', title: 'Drag to resize', 'aria-hidden': 'true' }));
-    ws.view.el.append(this.stack);
-    makeDraggable(this.stack, { key: 'schematic-cards', handle: '.insp-head, .fp-head', resize: { minW: 250, maxW: 480, minH: 160 } });
-    this.stack.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
+    // Cards dock in a column at the top right; each one moves by its header and resizes from its
+    // corner on its own (like DabbleCAD's inspector), and docks again on a header double-click.
+    const order = [this.inspector.el, this.sheetsEl, this.netlistEl];
+    this.stack = h('div', { class: 'float-stack' });
+    const layer = h('div', { class: 'card-layer' }, this.stack);
+    ws.view.el.append(layer);
+    const dock = { el: this.stack, put: (card) => this.stack.append(...order.filter((c) => c === card || c.parentElement === this.stack)) };
+    for (const c of order) this.stack.append(c);
+    this.cards = {};
+    for (const [k, c] of [['inspector', this.inspector.el], ['sheets', this.sheetsEl], ['netlist', this.netlistEl]]) {
+      this.cards[k] = makeDraggable(c, { key: `schematic-${k}`, layer, dock });
+      c.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
+    }
     this.renderNetlist();
     this.renderSheets();
     c.addEventListener('pointerleave', () => { if (this.placing && !this.placing.drag) { this.placing.at = null; ws.view.invalidate(); } });

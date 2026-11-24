@@ -14,21 +14,31 @@ check('hidden-when-empty', insp().childElementCount === 0);
 ed.selection = new Set([a.sym.id]); ed.refresh();
 check('shown-on-select', /R1/.test(insp().querySelector('.insp-title').textContent));
 check('header-icons', ['Rotate (R)', 'Mirror (X)', 'Duplicate (Ctrl+D)', 'Delete (Del)'].every((t) => insp().querySelector(`.insp-head button[title="${t}"]`)));
-{ // drag the card by its header, then resize it from the grip; both are remembered
-  const stack = document.querySelector('.float-stack');
-  const head = insp().querySelector('.insp-title').getBoundingClientRect();
+{ // each card moves by its header and resizes from its corner on its own; double-click docks it
+  const card = insp();
   const ev = (type, x, y, target) => target.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, button: 0, buttons: 1, bubbles: true, pointerId: 7 }));
-  const before = stack.getBoundingClientRect();
-  ev('pointerdown', head.left + 5, head.top + 5, insp().querySelector('.insp-title')); ev('pointermove', head.left - 195, head.top + 45, stack); ev('pointerup', head.left - 195, head.top + 45, stack);
-  const after = stack.getBoundingClientRect();
-  check('card-moved', Math.abs(after.left - (before.left - 200)) < 2 && Math.abs(after.top - (before.top + 40)) < 2, [before.left, after.left]);
-  const grip = document.querySelector('.card-grip').getBoundingClientRect();
-  ev('pointerdown', grip.left + 8, grip.top + 8, document.querySelector('.card-grip')); ev('pointermove', grip.left + 68, grip.top + 8, stack); ev('pointerup', grip.left + 68, grip.top + 8, stack);
-  check('card-resized', Math.abs(stack.getBoundingClientRect().width - (after.width + 60)) < 2, stack.getBoundingClientRect().width);
-  check('card-remembered', !!localStorage.getItem('electrocad.card.schematic-cards'));
-  stack.querySelector('.insp-head').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
-  check('card-reset', !stack.style.left && !localStorage.getItem('electrocad.card.schematic-cards'));
+  const head = card.querySelector('.insp-title').getBoundingClientRect();
+  const before = card.getBoundingClientRect();
+  ev('pointerdown', head.left + 5, head.top + 5, card.querySelector('.insp-title')); ev('pointermove', head.left - 195, head.top + 45, card); ev('pointerup', head.left - 195, head.top + 45, card);
+  const after = card.getBoundingClientRect();
+  check('card-moved', card.classList.contains('card-free') && Math.abs(after.left - (before.left - 200)) < 2 && Math.abs(after.top - (before.top + 40)) < 2, [before.left, after.left]);
+  ev('pointerdown', after.right - 4, after.bottom - 4, card); ev('pointermove', after.right + 56, after.bottom - 4, card); ev('pointerup', after.right + 56, after.bottom - 4, card);
+  check('card-resized', Math.abs(card.getBoundingClientRect().width - (after.width + 60)) < 2, card.getBoundingClientRect().width);
+  check('card-remembered', !!localStorage.getItem('electrocad.card.schematic-inspector'));
+  // the Netlist card stays docked and moves separately
+  ed.toggleNetlist(true);
+  const nl = document.querySelector('.netlist-panel');
+  check('netlist-still-docked', nl.parentElement.classList.contains('float-stack'));
+  const nh = nl.querySelector('.fp-head b').getBoundingClientRect();
+  ev('pointerdown', nh.left + 3, nh.top + 3, nl.querySelector('.fp-head b')); ev('pointermove', nh.left - 297, nh.top + 103, nl); ev('pointerup', nh.left - 297, nh.top + 103, nl);
+  check('netlist-moved-alone', nl.classList.contains('card-free') && Math.abs(card.getBoundingClientRect().left - after.left) < 2);
+  for (const c of [card, nl]) c.querySelector('.insp-head, .fp-head').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  check('cards-docked-again', card.parentElement.classList.contains('float-stack') && nl.parentElement.classList.contains('float-stack') && !card.style.left
+    && !localStorage.getItem('electrocad.card.schematic-inspector') && !localStorage.getItem('electrocad.card.schematic-netlist'));
+  check('dock-order', [...document.querySelector('.float-stack').children].indexOf(card) < [...document.querySelector('.float-stack').children].indexOf(nl));
+  ed.toggleNetlist(false);
 }
+
 const set = (label, v) => { const i = insp().querySelector(`input[aria-label="${label}"]`); i.value = v; i.dispatchEvent(new Event('change')); return i; };
 const depth = () => app.history.undoStack.length;
 let d = depth();
