@@ -13,8 +13,10 @@ import { shapePoints, distToSegment2 } from '../core/geom.js';
 import { newLibrary, newPart, addUnit, removeUnit, addPin, partProblems, savePart, renameLibrary, unitName, PIN_TYPES, PART_CATEGORIES, LibraryError } from '../core/library.js';
 import { STARTER_LIBRARY } from '../library/starter.js';
 import { drawUnit } from '../schematic/render.js';
-import { shapeHandles, hitHandle, dragHandle } from '../core/handles.js';
-import { drawHandles } from '../view/handles.js';
+import { shapeHandles, hitHandle, dragHandle, snapPoint } from '../core/handles.js';
+import { drawHandles, drawSnapMark } from '../view/handles.js';
+import { SCHEMATIC_GRIDS, DEFAULT_SCHEMATIC_GRID, gridLabel, setGridStep, snapToGrid } from '../core/grid.js';
+import { gridPanel, watchAlt } from '../ui/grid.js';
 
 const HALF = G / 2;
 const snap = (v, step) => Math.round(v / step) * step;
@@ -32,7 +34,14 @@ export const LIB_TOOLS = {
   circle: { icon: 'lellipse', title: 'Circle (C): click the centre, then a point on the edge', key: 'c' },
   arc: { icon: 'arc', title: 'Arc (A): click the start, a point on the arc, then the end', key: 'a' },
   text: { icon: 'ltext', title: 'Text (T): click, then type', key: 't' },
+  origin: { icon: 'target', title: 'Origin (O): click to make that point the Symbol\'s anchor (where it is placed from); the drawing moves, not the point', key: 'o' },
 };
+
+const LIB_GRID_KEY = 'electrocad.libGrid';
+function loadLibGrid() {
+  try { const g = JSON.parse(localStorage.getItem(LIB_GRID_KEY)); if (g && g.main > 0 && g.alt > 0) return g; } catch { /* none yet */ }
+  return { ...DEFAULT_SCHEMATIC_GRID };
+}
 
 export class LibraryEditor {
   constructor(app) {
@@ -46,12 +55,54 @@ export class LibraryEditor {
     this.tool = 'select';
     this.drawing = null;    // points clicked so far for line/rect/circle/arc
     this.query = '';
+    this.grid = loadLibGrid(); // the Symbol editor's grids are a per-browser preference
     this.history = new History(() => this.draft, (d) => { this.draft = d; }, () => this.refresh());
   }
 
   get libraries() { return this.app.libraries; }
   get library() { return this.libraries.find((l) => l.id === this.libId) || null; }
   get unitObj() { return this.draft?.units[this.unit] || null; }
+  /** The grid in use: the Alt grid while Alt is held. Pins snap to it, graphics to half of it. */
+  get gridStep() { return this.alt ? this.grid.alt : this.grid.main; }
+
+  setAlt(on) {
+    if (!!on === !!this.alt) return;
+    this.alt = !!on;
+    if (this.ws) { this.ws.view.grid = this.gridStep; this.ws.renderBar(); this.ws.view.invalidate(); }
+  }
+
+  setGrid(which, nm) {
+    setGridStep(this.grid, which, nm);
+    try { localStorage.setItem(LIB_GRID_KEY, JSON.stringify(this.grid)); } catch { /* private mode */ }
+    this.refresh();
+  }
+
+  /** Snap onto a Pin tip, a graphic's handle or the origin within the Settings distance, else the grid. */
+  snapAt(w, { step = this.gridStep, skip = null, not = null } = {}) {
+    const u = this.unitObj, targets = [[0, 0]];
+    if (u) {
+      for (const p of u.pins) targets.push(p.at);
+      u.graphics.forEach((g, i) => { if (i !== skip) for (const hd of shapeHandles(g)) targets.push(hd.at); });
+    }
+    const tol = this.app.snapDistance() / (this.ws?.view.view.scale || 1);
+    const r = snapPoint(w, targets.filter((t) => !not || t[0] !== not[0] || t[1] !== not[1]), tol, (p) => snapToGrid(p, step));
+    this.snapMark = r.target;
+    return r.at;
+  }
+
+  /** Origin tool: shift the whole Part (every Unit) so the clicked point becomes its anchor. */
+  placeOrigin(w) {
+    const at = this.snapAt(w, { not: [0, 0] });
+    this.snapMark = null;
+    if (at[0] || at[1]) {
+      this.edit('Move origin', (p) => { for (let i = 0; i < p.units.length; i++) moveItems(p.units[i], new Set([...p.units[i].pins.map((_, k) => `pin:${k}`), ...p.units[i].graphics.map((_, k) => `g:${k}`)]), [-at[0], -at[1]]); });
+      // keep the drawing where it was on screen: the origin mark moves instead
+      const v = this.ws.view.view;
+      v.pan(-at[0] * v.scale, -at[1] * v.scale);
+    }
+    this.setTool('select');
+  }
+
   get dirty() { return !!this.draft && JSON.stringify(this.draft) !== this.saved; }
 
   // ---------------------------------------------------------------- panels
@@ -88,7 +139,7 @@ export class LibraryEditor {
   tools() {
     this.toolBtn = {};
     for (const [id, t] of Object.entries(LIB_TOOLS)) this.toolBtn[id] = button({ icon: t.icon, title: t.title, onClick: () => this.setTool(id) });
-    return [this.toolBtn.select, this.toolBtn.pin, null, this.toolBtn.line, this.toolBtn.rect, this.toolBtn.circle, this.toolBtn.arc, this.toolBtn.text];
+    return [this.toolBtn.select, this.toolBtn.pin, null, this.toolBtn.line, this.toolBtn.rect, this.toolBtn.circle, this.toolBtn.arc, this.toolBtn.text, null, this.toolBtn.origin];
   }
 
   /** Bottom chips: one per Unit, and + to add one. */
@@ -103,7 +154,7 @@ export class LibraryEditor {
   status() {
     if (!this.draft) return 'No Part open';
     const pins = this.draft.units.reduce((n, u) => n + u.pins.length, 0);
-    return `${this.draft.name}${this.dirty ? ' (unsaved)' : ''} · ${this.library?.name || 'no library'} · ${pins} pin${pins === 1 ? '' : 's'} · ${this.draft.units.length > 1 ? `unit ${unitName(this.unit)} of ${this.draft.units.length} · ` : ''}grid 50 mil`;
+    return `${this.draft.name}${this.dirty ? ' (unsaved)' : ''} · ${this.library?.name || 'no library'} · ${pins} pin${pins === 1 ? '' : 's'} · ${this.draft.units.length > 1 ? `unit ${unitName(this.unit)} of ${this.draft.units.length} · ` : ''}grid ${gridLabel(this.gridStep)}${this.alt ? ' (Alt)' : ''}`;
   }
 
   renderLibraries() {
@@ -212,7 +263,13 @@ export class LibraryEditor {
     if (!el) return;
     const u = this.unitObj;
     const sel = [...this.selection];
-    if (!u || !sel.length) { el.replaceChildren(h('p', { class: 'side-note' }, this.draft ? 'Select a Pin or a graphic on the canvas.' : 'Nothing selected.')); return; }
+    if (!u || !sel.length) {
+      el.replaceChildren(gridPanel({
+        grid: this.grid, choices: SCHEMATIC_GRIDS, onGrid: (which, nm) => this.setGrid(which, nm),
+        originText: 'the Symbol\'s anchor (the Origin tool moves it)',
+      }), h('p', { class: 'side-note' }, this.draft ? 'Select a Pin or a graphic on the canvas. Pins snap to the grid, graphics to half of it; hold Alt for the Alt grid. Keep Pins on 50 mil so they meet wires on the Schematic.' : 'Nothing selected.'));
+      return;
+    }
     const pins = sel.filter((s) => s.startsWith('pin:')).map((s) => +s.slice(4));
     const gs = sel.filter((s) => s.startsWith('g:')).map((s) => +s.slice(2));
     const rows = [];
@@ -274,6 +331,7 @@ export class LibraryEditor {
     this.renderLibraries();
     this.renderPart();
     this.renderProps();
+    if (this.ws) this.ws.view.grid = this.gridStep;
     this.ws?.renderBar();
     this._hint();
     this.ws?.view.invalidate();
@@ -289,6 +347,7 @@ export class LibraryEditor {
       else if (this.tool === 'circle') t = this.drawing ? 'Circle: click a point on the edge' : 'Circle: click the centre';
       else if (this.tool === 'arc') t = !this.drawing ? 'Arc: click the start' : this.drawing.length === 1 ? 'Arc: click a point the arc passes through' : 'Arc: click the end';
       else if (this.tool === 'text') t = 'Text: click where the text goes, then type and press Enter';
+      else if (this.tool === 'origin') t = 'Origin: click the point the Symbol should be placed from; the whole Part moves so that point is its anchor (it snaps onto Pin tips and handles) · Esc back to Select';
       else t = `Editing ${this.draft.name}${this.draft.units.length > 1 ? `, unit ${unitName(this.unit)}` : ''}: click to select, drag to move (Pins snap to 50 mil, graphics to 25 mil) · Del delete · R turn Pins · Ctrl+S save`;
     }
     this.ws.hint.textContent = t;
@@ -300,9 +359,12 @@ export class LibraryEditor {
     this.ws = ws;
     const c = ws.view.canvas;
     const world = (e) => ws.view.view.toWorld(ws.view.local(e));
+    watchAlt(ws, (on) => this.setAlt(on));
     c.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || !this.draft) return;
       const w = world(e);
+      this.setAlt(e.altKey);
+      if (this.tool === 'origin') { this.placeOrigin(w); return; }
       if (this.tool === 'select') {
         const handle = !e.shiftKey && this._handleAt(w, 5 / ws.view.view.scale);
         if (handle) {
@@ -325,14 +387,18 @@ export class LibraryEditor {
     });
     c.addEventListener('pointermove', (e) => {
       const w = world(e);
+      this.setAlt(e.altKey);
       this.cursor = w;
+      this.snapMark = null;
+      if (this.tool !== 'select' && this.draft) this.snapped = this.snapAt(w, { step: this.tool === 'pin' || this.tool === 'origin' ? this.gridStep : this.gridStep / 2 });
       if (this.handleDrag && (e.buttons & 1)) {
         const d = this.handleDrag;
         if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 3) return;
         d.moved = true;
         this.draft = structuredClone(d.snapshot);
         const gs = this.draft.units[this.unit].graphics;
-        gs[d.index] = dragHandle(gs[d.index], d.key, snapPt(w, HALF));
+        const from = shapeHandles(d.snapshot.units[this.unit].graphics[d.index]).find((x) => x.key === d.key)?.at;
+        gs[d.index] = dragHandle(gs[d.index], d.key, this.snapAt(w, { step: this.gridStep / 2, skip: d.index, not: from }));
         ws.view.invalidate();
         return;
       }
@@ -345,7 +411,7 @@ export class LibraryEditor {
         if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 4) return;
         d.moved = true;
         const onlyGraphics = ![...this.selection].some((s) => s.startsWith('pin:'));
-        const step = onlyGraphics ? HALF : G;
+        const step = onlyGraphics ? this.gridStep / 2 : this.gridStep;
         const delta = [snap(w[0] - d.start[0], step), snap(w[1] - d.start[1], step)];
         this.draft = structuredClone(d.snapshot);
         moveItems(this.draft.units[this.unit], this.selection, delta);
@@ -419,15 +485,16 @@ export class LibraryEditor {
   toolClick(w, dbl) {
     const t = this.tool;
     if (t === 'pin') {
-      const at = snapPt(w, G);
+      const at = this.snapAt(w);
       const idx = this.unitObj.pins.length;
       this.edit('Add pin', (p) => addPin(p, this.unit, at));
       this.selection = new Set([`pin:${idx}`]);
       this.refresh();
       return;
     }
-    if (t === 'text') { this.textAt(snapPt(w, HALF)); return; }
-    const p = snapPt(w, HALF);
+    const p = this.snapAt(w, { step: this.gridStep / 2 });
+    this.snapMark = null;
+    if (t === 'text') { this.textAt(p); return; }
     const pts = this.drawing || [];
     if (t === 'line') {
       if (dbl || (pts.length && pts[pts.length - 1][0] === p[0] && pts[pts.length - 1][1] === p[1])) { this.finishLine(); return; }
@@ -494,9 +561,10 @@ export class LibraryEditor {
     ctx.restore();
     const hg = this._handleGraphic();
     if (hg) drawHandles(ctx, view, C, shapeHandles(hg.g), this.handleDrag?.key);
+    drawSnapMark(ctx, view, C, this.snapMark);
     // a shape being drawn, to the cursor
     if (this.drawing && this.cursor) {
-      const cur = snapPt(this.cursor, HALF);
+      const cur = this.snapped || this.cursor;
       const pts = [...this.drawing, cur].map(toScreen);
       ctx.save(); ctx.strokeStyle = C.selection; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.8; ctx.beginPath();
       if (this.tool === 'rect') { const [a, b] = pts; ctx.rect(a[0], a[1], b[0] - a[0], b[1] - a[1]); }
@@ -506,7 +574,7 @@ export class LibraryEditor {
     }
     // the Pin tool's ghost
     if (this.tool === 'pin' && this.cursor) {
-      const at = snapPt(this.cursor, G);
+      const at = this.snapped || snapPt(this.cursor, G);
       const ghost = { ...part, units: part.units.map((x, i) => (i === this.unit ? { ...x, graphics: [], pins: [{ number: '?', name: '~', at, dir: pinDirLocal(at), length: 2 * G, type: 'passive' }] } : x)) };
       drawUnit(ctx, toScreen, view.scale, ghost, this.unit, { at: [0, 0], rot: 0, mirror: false }, null, C, { alpha: 0.5 });
     }
@@ -674,7 +742,7 @@ export class LibraryEditor {
     if (k === 'r') { this.rotatePins(); return true; }
     const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
     if (arrows[e.key] && this.selection.size) {
-      const step = [...this.selection].some((s) => s.startsWith('pin:')) ? G : HALF;
+      const step = [...this.selection].some((s) => s.startsWith('pin:')) ? this.grid.main : this.grid.main / 2;
       const [dx, dy] = arrows[e.key];
       this.edit('Move', (p) => moveItems(p.units[this.unit], this.selection, [dx * step, dy * step]));
       return true;

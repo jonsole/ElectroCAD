@@ -70,6 +70,20 @@ ed.selection = new Set([ln.id]); ed.refresh();
 drag(50, 20, 50, 25);
 check('line-end', sheet().drawings.find((d) => d.type === 'line').pts[1][1] === 25 * G, sheet().drawings.find((d) => d.type === 'line').pts);
 ed.selection.clear(); ed.refresh();
+// object snapping: a new line ending near the box's corner lands on it, not on the half grid
+key('i'); click(60, 40); click(45.3, 35.2); click(45.3, 35.2, 2);
+const snapped = sheet().drawings.filter((d) => d.type === 'line').at(-1);
+check('snap-to-corner', snapped.pts.at(-1)[0] === 45 * G && snapped.pts.at(-1)[1] === 35 * G, snapped.pts);
+key('Escape'); ed.setTool('select'); ed.selection.clear(); ed.refresh();
+// grid and origin: the Sheet card (inspector with nothing selected) sets the grid; O moves the origin
+const gsel = document.querySelector('.inspector select[aria-label="Grid"]');
+gsel.value = String(G * 2); gsel.dispatchEvent(new Event('change'));
+check('sch-grid', app.project.schematic.grid.main === 2 * G && ws.view.grid === 2 * G);
+const gsel2 = document.querySelector('.inspector select[aria-label="Grid"]');
+gsel2.value = String(G); gsel2.dispatchEvent(new Event('change'));
+key('o'); click(10.2, 10.1);
+check('sch-origin', JSON.stringify(app.project.schematic.origin) === JSON.stringify([10 * G, 10 * G]) && ws.view.origin === app.project.schematic.origin, app.project.schematic.origin);
+key('z', { ctrlKey: true });
 // Sheet setup: A3 portrait, title block fields; the frame follows
 ed.sheetSetup();
 const modalEl = document.querySelector('.modal');

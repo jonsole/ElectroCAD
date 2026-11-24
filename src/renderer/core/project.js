@@ -3,7 +3,7 @@
 //   - Parts are generic and hold Units (ADR-0005), embedded as frozen copies (ADR-0004).
 //   - A Component's Footprint is a live property: a Preferred footprint or any other (ADR-0008).
 //   - All coordinates are integer nm, +Y down (ADR-0003).
-import { mm } from './units.js';
+import { mm, mil } from './units.js';
 import { place } from './geom.js';
 import { ECAD_SCHEMA } from './ecad-schema.js';
 import { checkSchema } from './schema-check.js';
@@ -13,7 +13,7 @@ export const FORMAT = 'electrocad';
 // 3: Parts keyed by Library origin, Project footprints table, no Unit.fields, Board object shapes.
 // 4: text in Symbol and Footprint graphics (#13).
 // 5: Schematic markup, Sheet paper sizes and the title block (#59).
-export const VERSION = 5;
+export const VERSION = 6;
 
 /** Thrown when a file can't be opened as a Project; the message is shown to the user. */
 export class ProjectFileError extends Error {
@@ -30,7 +30,7 @@ export function newProject(name = 'Untitled') {
   return {
     format: FORMAT, version: VERSION, id: uid('p'), name,
     parts: {}, components: {}, footprints: {},
-    schematic: { sheets: [newSheet('Sheet 1')] },
+    schematic: { sheets: [newSheet('Sheet 1')], grid: { main: mil(50), alt: mil(25) }, origin: [0, 0] },
     board: newBoard(),
     fieldStyles: defaultFieldStyles(),
     titleBlock: { title: '', company: '', author: '', revision: '', date: '', comment: '' },
@@ -63,6 +63,9 @@ export function newBoard(copper = 2) {
       minHole: mm(0.3), annularRing: mm(0.13), edgeClearance: mm(0.3),
     },
     netClasses: {},
+    grid: { main: mm(0.5), alt: mm(0.1) },
+    origin: [0, 0],
+    annotation: { components: {}, nets: {} },
   };
 }
 

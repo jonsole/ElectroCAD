@@ -42,6 +42,11 @@ check('lib-resize', ed.draft.units[0].graphics[1].b[0] === 2.5 * G, ed.draft.uni
 key('z', { ctrlKey: true });
 check('lib-resize-undo', ed.draft.units[0].graphics[1].b[0] === 2 * G);
 ed.selection.clear(); ed.refresh();
+// the Origin tool makes a clicked point the anchor: click Pin 1's tip, the Part shifts
+key('o'); click(-6.1, -2);
+check('lib-origin', JSON.stringify(ed.draft.units[0].pins[0].at) === '[0,0]' && ed.draft.units[0].pins[2].at[0] === 12 * G && ed.tool === 'select', ed.draft.units[0].pins.map((p) => p.at));
+key('z', { ctrlKey: true });
+check('lib-origin-undo', ed.draft.units[0].pins[0].at[0] === -6 * G);
 // a second Unit without Pins can't be saved
 document.querySelector('.ws-root[data-ws="library"] .chip-add').click();
 check('unit-b', ed.draft.units.length === 2 && ed.unit === 1);

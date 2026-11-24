@@ -9,24 +9,24 @@ import { section } from '../workspaces/workspace.js';
 import { mm, toMm } from '../core/units.js';
 import {
   boardLayers, setCopperLayers, setThickness, BOARD_THICKNESSES, LAYER_HELP, copperLayerNames,
+  GRID_CHOICES, gridLabel, setGrid, snapToGrid,
   rectOutline, circleOutline, polygonOutline, checkOutline, outlineBounds, hitOutline, moveOutline,
 } from '../core/board.js';
 import { drawBoard } from './render.js';
-import { shapeHandles, hitHandle, dragOutlineHandle } from '../core/handles.js';
-import { drawHandles } from '../view/handles.js';
+import { shapeHandles, hitHandle, dragOutlineHandle, snapPoint, handlePoints } from '../core/handles.js';
+import { drawHandles, drawSnapMark } from '../view/handles.js';
+import { gridPanel, watchAlt } from '../ui/grid.js';
 
-export const BOARD_GRID = mm(0.5);
-const snap = (v, g = BOARD_GRID) => Math.round(v / g) * g;
-const snapPt = ([x, y]) => [snap(x), snap(y)];
 const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
 
 /** The palette tools that work now: key, icon, title. */
 export const BOARD_TOOLS = {
   select: { icon: 'select', title: 'Select (V)', key: 'v' },
-  outline: { icon: 'outline', title: 'Outline rectangle (O): click two corners. Round the corners with Corner radius in Properties', key: 'o' },
+  outline: { icon: 'outline', title: 'Outline rectangle (B): click two corners. Round the corners with Corner radius in Properties', key: 'b' },
   polygon: { icon: 'lpolygon', title: 'Outline polygon (P): click corners; A makes the next side an arc; click the first point to close', key: 'p' },
   circle: { icon: 'lellipse', title: 'Round outline or hole (C): click the centre, then the edge', key: 'c' },
   measure: { icon: 'ruler', title: 'Measure (M): click two points', key: 'm' },
+  origin: { icon: 'target', title: 'Grid origin (O): click to move the origin there; it snaps onto handles. Reset it in Properties', key: 'o' },
 };
 
 const pref = {
@@ -51,6 +51,30 @@ export class BoardEditor {
 
   get project() { return this.app.project; }
   get board() { return this.project.board; }
+  /** The grid in use: the Alt grid while Alt is held. */
+  get gridStep() { return this.alt ? this.board.grid.alt : this.board.grid.main; }
+  snapPt(w) { return snapToGrid(w, this.gridStep, this.board.origin); }
+  /**
+   * Snap `w` onto another object's handle (pads come with #17) within the snap distance from
+   * Settings, else to the grid. `skip`: outline indices not to snap to; `not`: a point to ignore
+   * (where a dragged handle started). Remembers where it snapped, for the mark.
+   */
+  snapAt(w, skip = new Set(), not = null) {
+    const tol = this.app.snapDistance() / (this.ws?.view.view.scale || 1);
+    const targets = [...handlePoints(this.board.outline, skip), this.board.origin].filter((t) => !not || t[0] !== not[0] || t[1] !== not[1]);
+    const r = snapPoint(w, targets, tol, (p) => this.snapPt(p));
+    this.snapMark = r.target;
+    return r.at;
+  }
+  /** A point as the user sees it: measured from the origin, in mm. */
+  rel(p) { return `${fmt(p[0] - this.board.origin[0])}, ${fmt(p[1] - this.board.origin[1])}`; }
+
+  /** Holding Alt switches to the Alt grid (and shows it) while drawing, moving or resizing. */
+  setAlt(on) {
+    if (!!on === !!this.alt) return;
+    this.alt = !!on;
+    if (this.ws) { this.ws.view.grid = this.gridStep; this.ws.renderBar(); this.ws.view.invalidate(); }
+  }
 
   // ---------------------------------------------------------------- panels
 
@@ -69,7 +93,7 @@ export class BoardEditor {
     const T = this.toolBtn;
     return [T.select, later({ icon: 'route', title: 'Route (X)' }, 20), later({ icon: 'dragTrack', title: 'Drag track (D)' }, 31),
       later({ icon: 'via', title: 'Via' }, 21), later({ icon: 'zone', title: 'Zone' }, 23), null,
-      T.outline, T.polygon, T.circle, null, later({ icon: 'ltext', title: 'Text' }, 19), T.measure];
+      T.outline, T.polygon, T.circle, null, later({ icon: 'ltext', title: 'Text' }, 19), T.measure, T.origin];
   }
 
   buildSide() {
@@ -129,6 +153,7 @@ export class BoardEditor {
     if (['outline', 'polygon', 'circle'].includes(this.tool) || (!sel.length && this.tool === 'select')) {
       if (this.tool === 'outline') parts.push(field('Corner radius', fmt(this.radius), (v) => { this.radius = mm(Math.max(0, v)); pref.set('boardCornerRadius', toMm(this.radius)); this.ws?.view.invalidate(); }));
     }
+    if (!sel.length && (this.tool === 'select' || this.tool === 'origin')) parts.push(this.gridPanel());
     if (sel.length === 1) {
       const s = sel[0], i = [...this.selection][0];
       const label = { rect: 'Rectangle', circle: 'Circle', line: 'Line', arc: 'Arc' }[s.type] || s.type;
@@ -141,7 +166,7 @@ export class BoardEditor {
         parts.push(field('Diameter', fmt(s.r * 2), (v) => this.edit('Resize outline', (o) => { o[i].r = Math.round(mm(v) / 2); })));
       } else {
         const e = s.type === 'arc' ? [s.start, s.end] : [s.pts[0], s.pts[s.pts.length - 1]];
-        parts.push(h('p', { class: 'side-note' }, `From ${fmt(e[0][0])}, ${fmt(e[0][1])} to ${fmt(e[1][0])}, ${fmt(e[1][1])} mm`));
+        parts.push(h('p', { class: 'side-note' }, `From ${this.rel(e[0])} to ${this.rel(e[1])} mm`));
       }
     } else if (sel.length > 1) parts.push(h('div', { class: 'prop-title' }, `${sel.length} outline shapes`));
     // the Outline's state, always
@@ -154,6 +179,18 @@ export class BoardEditor {
     el.replaceChildren(...parts);
   }
 
+  /** Grid and origin: the main and Alt grid steps, and where the origin is. */
+  gridPanel() {
+    const o = this.board.origin;
+    return gridPanel({
+      grid: this.board.grid, choices: GRID_CHOICES,
+      onGrid: (which, nm) => this.app.edit(`${which === 'alt' ? 'Alt grid' : 'Grid'}: ${gridLabel(nm)}`, (p) => setGrid(p, which, nm)),
+      originText: o[0] || o[1] ? `${fmt(o[0])}, ${fmt(o[1])} mm from the page origin` : 'at the page origin',
+      onResetOrigin: o[0] || o[1] ? () => this.app.edit('Reset grid origin', (p) => { p.board.origin = [0, 0]; }) : null,
+      resetTitle: 'Put the grid origin back at the page origin',
+    });
+  }
+
   chips() {
     return [...copperLayerNames(this.board.stack.copper), 'Edge.Cuts'].map((name) => h('button', {
       class: 'chip' + (name === this.activeLayer ? ' on' : ''), type: 'button', title: `${name}: ${LAYER_HELP[name]} (click to make it the active layer)`,
@@ -164,7 +201,7 @@ export class BoardEditor {
   status() {
     const b = outlineBounds(this.board.outline);
     const size = b ? `${fmt(b.x1 - b.x0)} × ${fmt(b.y1 - b.y0)} mm` : 'no outline';
-    return `${this.board.stack.copper}-layer · ${fmt(this.board.stack.thickness)} mm · ${size} · ${this.board.footprints.length} footprints · active ${this.activeLayer} · grid 0.5 mm`;
+    return `${this.board.stack.copper}-layer · ${fmt(this.board.stack.thickness)} mm · ${size} · ${this.board.footprints.length} footprints · active ${this.activeLayer} · grid ${gridLabel(this.gridStep)}${this.alt ? ' (Alt)' : ''}`;
   }
 
   // ---------------------------------------------------------------- state
@@ -181,6 +218,7 @@ export class BoardEditor {
     if (this.toolBtn) for (const [id, b] of Object.entries(this.toolBtn)) b.classList.toggle('active', this.tool === id);
     if (this.stackEl) { this.renderStack(); this.renderLayers(); this.renderProps(); }
     this._home();
+    if (this.ws) { this.ws.view.grid = this.gridStep; this.ws.view.origin = this.board.origin; }
     this.ws?.renderBar();
     this._hint();
     this.ws?.view.invalidate();
@@ -204,11 +242,12 @@ export class BoardEditor {
         : this.arcNext ? (p.mid ? 'Arc: click where it ends' : 'Arc: click a point the side passes through · A for a straight side')
           : 'Outline polygon: click the next corner · A arc side · Backspace undo corner · click the first corner to close · Esc cancel'; break;
       case 'circle': t = p ? 'Circle: click a point on the edge' : 'Circle: click the centre (a round board, or a hole inside the board)'; break;
+      case 'origin': t = 'Grid origin: click where the grid, rulers and coordinates should measure from (outline corners attract it) · Esc back to Select'; break;
       case 'measure': t = this.measure && !this.measure.done ? 'Measure: click the second point' : 'Measure: click two points · Esc to stop'; break;
       default: t = this.board.outline.length
-        ? (this.selection.size === 1 ? 'Drag a handle to resize (a side handle moves that side; corners stay round) · drag the shape to move · Del delete · arrows nudge 0.5 mm'
-          : 'Click an outline shape to select it, drag to move · Del delete · arrows nudge 0.5 mm · O, P, C draw more outline')
-        : 'No board yet: draw the Outline with O (rectangle), P (polygon) or C (round), then use Annotate (coming in #16) to bring Components over.';
+        ? (this.selection.size === 1 ? 'Drag a handle to resize (a side handle moves that side; corners stay round) · drag the shape to move · Del delete · arrows nudge one grid step · hold Alt for the Alt grid'
+          : 'Click an outline shape to select it, drag to move · Del delete · arrows nudge one grid step · B, P, C draw more outline · hold Alt for the Alt grid')
+        : 'No board yet: draw the Outline with B (rectangle), P (polygon) or C (round), then use Annotate (coming in #16) to bring Components over.';
     }
     this.ws.hint.textContent = t;
   }
@@ -276,6 +315,8 @@ export class BoardEditor {
     c.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       const w = world(e);
+      this.setAlt(e.altKey);
+      if (this.tool === 'origin') { this.placeOrigin(w); return; }
       if (this.tool === 'select') {
         const tol = 5 / ws.view.view.scale;
         const handle = this._handleAt(w, tol);
@@ -289,17 +330,24 @@ export class BoardEditor {
         if (e.shiftKey && hit) { if (this.selection.has(i)) this.selection.delete(i); else this.selection.add(i); this.refresh(); return; }
         if (hit) {
           if (!this.selection.has(i)) this.selection = new Set([i]);
-          this.drag = { start: w, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), moved: false, delta: [0, 0], only: i };
+          // the selection moves by its handle nearest the pointer, so that handle lands on the grid or another object
+          const anchors = handlePoints(this.board.outline.filter((_, k) => this.selection.has(k)));
+          const anchor = anchors.reduce((b, p) => (Math.hypot(p[0] - w[0], p[1] - w[1]) < Math.hypot(b[0] - w[0], b[1] - w[1]) ? p : b), anchors[0] || w);
+          this.drag = { start: w, anchor, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), moved: false, delta: [0, 0], only: i };
           try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
         } else this.selection.clear();
         this.refresh();
         return;
       }
-      this.click(snapPt(w));
+      this.click(this.snapAt(w));
     });
     c.addEventListener('pointermove', (e) => {
       const w = world(e);
-      this.cursor = snapPt(w);
+      this.setAlt(e.altKey);
+      this.snapMark = null;
+      if (this.handleDrag) { const d = this.handleDrag; this.cursor = this.snapAt(w, new Set([d.index]), shapeHandles(d.snapshot[d.index]).find((x) => x.key === d.key)?.at); }
+      else if (this.tool !== 'select') this.cursor = this.snapAt(w);
+      else this.cursor = this.snapPt(w);
       if (this.handleDrag && (e.buttons & 1)) {
         const d = this.handleDrag;
         if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 3) return;
@@ -313,7 +361,8 @@ export class BoardEditor {
         const d = this.drag;
         if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 4) return;
         d.moved = true;
-        d.delta = [snap(w[0] - d.start[0]), snap(w[1] - d.start[1])];
+        const to = this.snapAt([d.anchor[0] + w[0] - d.start[0], d.anchor[1] + w[1] - d.start[1]], this.selection);
+        d.delta = [to[0] - d.anchor[0], to[1] - d.anchor[1]];
         const moved = structuredClone(d.snapshot);
         moveOutline([...this.selection].map((i) => moved[i]), d.delta);
         this.preview = moved;
@@ -324,6 +373,7 @@ export class BoardEditor {
       }
     });
     const up = () => {
+      this.snapMark = null;
       if (this.handleDrag) {
         const d = this.handleDrag; this.handleDrag = null;
         const result = this.preview; this.preview = null;
@@ -337,6 +387,7 @@ export class BoardEditor {
       else { if (!d.moved) this.selection = new Set([d.only]); this.refresh(); } // a click picks one shape out of a group
     };
     c.addEventListener('pointerup', up);
+    watchAlt(ws, (on) => this.setAlt(on));
     c.addEventListener('pointercancel', up);
     c.addEventListener('pointerleave', () => { if (this.tool !== 'select') { this.cursor = null; ws.view.invalidate(); } });
     this.refresh();
@@ -357,6 +408,14 @@ export class BoardEditor {
     const s = this.board.outline[index];
     const h = s && hitHandle(s, w, tol);
     return h ? { index, key: h.key, cursor: h.cursor } : null;
+  }
+
+  /** Origin tool: move the grid origin to `w`, onto another object's handle when close, else the grid. */
+  placeOrigin(w) {
+    const at = this.snapAt(w, new Set(), this.board.origin);
+    this.snapMark = null;
+    this.app.edit('Move grid origin', (p) => { p.board.origin = [...at]; });
+    this.setTool('select');
   }
 
   /** A click of a drawing tool at grid point `p`. */
@@ -421,6 +480,7 @@ export class BoardEditor {
     const board = this.preview ? { ...this.board, outline: this.preview } : this.board;
     drawBoard(ctx, view, C, board, { hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure });
     drawHandles(ctx, view, C, this._handles(), this.handleDrag?.key);
+    drawSnapMark(ctx, view, C, this.snapMark);
   }
 
   // ---------------------------------------------------------------- keys
@@ -447,7 +507,7 @@ export class BoardEditor {
     }
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selection.size) { this.deleteSelection(); return true; }
     const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
-    if (arrows[e.key] && this.selection.size) { const [dx, dy] = arrows[e.key]; this.nudge(dx * BOARD_GRID, dy * BOARD_GRID); return true; }
+    if (arrows[e.key] && this.selection.size) { const [dx, dy] = arrows[e.key]; this.nudge(dx * this.board.grid.main, dy * this.board.grid.main); return true; }
     for (const [id, t] of Object.entries(BOARD_TOOLS)) if (k === t.key) { this.setTool(id); return true; }
     return false;
   }

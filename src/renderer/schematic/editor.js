@@ -9,12 +9,14 @@ import { allFootprints } from '../library/footprints.js';
 import { addDrawing, toggleNoConnect, hitNoConnect, placedUnits, unitSuggestion, nextUnplacedUnit, unitLetter, placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, addLabel, addSheet, renameSheet, moveSheet, deleteSheet, validateSheetName, hitWire, preferredAxis, routeWire, moveSelection, copySelection, pasteClip, itemsInRect, itemsBounds, cleanupWires } from '../core/schematic.js';
 import { buildNetlist } from '../core/netlist.js';
 import { runErc, filterViolations } from '../core/erc.js';
-import { shapeHandles, hitHandle, dragHandle } from '../core/handles.js';
-import { drawHandles } from '../view/handles.js';
+import { shapeHandles, hitHandle, dragHandle, snapPoint } from '../core/handles.js';
+import { drawHandles, drawSnapMark } from '../view/handles.js';
+import { snapToGrid, gridLabel } from '../core/grid.js';
+import { watchAlt } from '../ui/grid.js';
 import { hitDrawing, drawingDefaults, paperRect, titleBlockLayout, PAPER_SIZES, TITLE_FIELDS, LINE_STYLES } from '../core/drawings.js';
 import { pinPositions, nextRef, partOf } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
-import { snapPt, SCH_GRID, mm } from '../core/units.js';
+import { SCH_GRID, mm } from '../core/units.js';
 
 const mm127 = mm(1.27);
 import { drawSheet, symbolThumbnail, measureText, drawFootprintPreview } from './render.js';
@@ -463,7 +465,8 @@ export class SchematicEditor {
       this.toolBtn.netLabel, this.toolBtn.globalLabel, this.toolBtn.power, this.toolBtn.ground,
       this.toolBtn.noConnect, null,
       ...Object.entries(DRAW_TOOLS).map(([id, t]) => (this.toolBtn[id] = button({ icon: t.icon, title: t.title, onClick: () => this.setTool(id) }))),
-      toolButton('ruler', 'Measure', { ticket: 8 })];
+      toolButton('ruler', 'Measure', { ticket: 8 }),
+      (this.toolBtn.origin = button({ icon: 'target', title: 'Grid origin (O): click to move the origin there; it snaps onto Pins, Wire ends and handles. Reset it in the Sheet card', onClick: () => this.setTool('origin') }))];
   }
 
   setTool(tool) {
@@ -499,6 +502,7 @@ export class SchematicEditor {
     }
     if (this.toolBtn) for (const [t, b] of Object.entries(this.toolBtn)) b.classList.toggle('active', this.tool === t && !this.placing);
     this._syncFrame();
+    if (this.ws) { this.ws.view.grid = this.gridStep; this.ws.view.origin = this.project.schematic.origin; }
     this.renderNetlist();
     this.renderSheets();
     this.renderErc();
@@ -517,6 +521,7 @@ export class SchematicEditor {
     if (this.tool === 'wire') text = this.wiring
       ? 'Drawing a wire: click to add a corner · click a Pin or Wire (or double-click) to finish · / switch corner direction · Backspace undo corner · Esc finish'
       : 'Wire: click a Pin or a point on the grid to start · Esc back to Select';
+    else if (this.tool === 'origin') text = 'Grid origin: click where the grid, rulers and coordinates should measure from (it snaps onto Pins, Wire ends and handles) · Esc back to Select';
     else if (DRAW_TOOLS[this.tool]) {
       const n = this.drawingPts?.length || 0;
       text = { text: 'Text: click where it goes, type, Enter to finish (Shift+Enter: new line). ${TITLE}, ${REV}, ${SHEET_NAME}, ${SHEET_NUMBER} of ${SHEET_COUNT}… are filled in',
@@ -557,12 +562,14 @@ export class SchematicEditor {
     c.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       const world = ws.view.view.toWorld(ws.view.local(e));
+      this.setAlt(e.altKey);
       if (this.placing && !this.placing.drag) { this._update(world); this.commitPlace(); return; }
+      if (this.tool === 'origin') { this.placeOrigin(world); return; }
       if (this.tool === 'wire') { this._wireClick(world, e.detail >= 2); return; }
-      if (LABEL_TOOLS[this.tool]) { e.preventDefault(); this._labelClick(snapPt(world, SCH_GRID)); return; } // keep focus in the name box
+      if (LABEL_TOOLS[this.tool]) { e.preventDefault(); this._labelClick(this.snapAt(world)); return; } // keep focus in the name box
       if (DRAW_TOOLS[this.tool]) { if (this.tool === 'text') e.preventDefault(); this._drawClick(world, e.detail >= 2); return; }
       if (this.tool === 'noConnect') {
-        const at = snapPt(world, SCH_GRID);
+        const at = this.snapAt(world);
         const there = (this.sheet.noConnects || []).some((n) => n.at[0] === at[0] && n.at[1] === at[1]);
         this.app.edit(there ? 'Remove no-connect' : 'Mark no-connect', (p) => toggleNoConnect(p, this._S(p), at));
         this.refresh();
@@ -592,7 +599,7 @@ export class SchematicEditor {
       if (hit) {
         if (!this.selection.has(hit.id)) this.selection = new Set([hit.id]);
         // press on a selected item: dragging moves the selection, wires following
-        this.drag = { start: snapPt(world, SCH_GRID), startPx: [e.clientX, e.clientY], ids: [...this.selection], snapshot: structuredClone(this.project), delta: [0, 0], moved: false };
+        this.drag = { start: this.snapG(world), startPx: [e.clientX, e.clientY], ids: [...this.selection], snapshot: structuredClone(this.project), delta: [0, 0], moved: false };
       } else {
         if (!e.shiftKey) this.selection = new Set();
         this.marquee = { a: world, b: world, startPx: [e.clientX, e.clientY], add: e.shiftKey, base: new Set(this.selection) };
@@ -653,7 +660,10 @@ export class SchematicEditor {
     c.addEventListener('pointermove', (e) => {
       if (this.placing && !this.placing.drag) this._update(ws.view.view.toWorld(ws.view.local(e)));
       const world = ws.view.view.toWorld(ws.view.local(e));
-      this.cursor = snapPt(world, SCH_GRID);
+      this.setAlt(e.altKey);
+      this.snapMark = null;
+      // wires, labels and no-connects snap onto Pins and Wire ends; everything else to the grid
+      this.cursor = this.tool === 'wire' || LABEL_TOOLS[this.tool] || this.tool === 'noConnect' || this.tool === 'origin' ? this.snapAt(world) : this.snapG(world);
       this.cursorRaw = world; // markup snaps to half a grid
       if (this.tool !== 'select') ws.view.invalidate();
       if (this.handleDrag && (e.buttons & 1)) {
@@ -662,7 +672,8 @@ export class SchematicEditor {
         d.moved = true;
         const pv = structuredClone(d.snapshot);
         const ds = this._S(pv).drawings, i = ds.findIndex((x) => x.id === d.id);
-        ds[i] = dragHandle(ds[i], d.key, snapPt(world, SCH_GRID / 2));
+        const from = shapeHandles(d.snapshot.schematic.sheets.find((x) => x.id === this.sheet.id).drawings[i]).find((x) => x.key === d.key)?.at;
+        ds[i] = dragHandle(ds[i], d.key, this.snapAt(world, { step: this.gridStep / 2, skipId: d.id, not: from }));
         this.preview = pv;
         ws.view.invalidate();
         return;
@@ -729,6 +740,7 @@ export class SchematicEditor {
     this.renderSheets();
     this.renderErc();
     ws.view.onContextMenu = (e) => this.contextMenu(e);
+    watchAlt(ws, (on) => this.setAlt(on));
     c.addEventListener('pointerleave', () => { if (this.placing && !this.placing.drag) { this.placing.at = null; ws.view.invalidate(); } });
   }
 
@@ -750,6 +762,7 @@ export class SchematicEditor {
       erc: this.ercOpen ? (this.ercShown || []).filter((x) => x.sheetId === sheet.id && x.severity !== 'info') : null, ercFocus: this.ercFocus,
       ghostDrawing: this._ghostDrawing() });
     drawHandles(ctx, view, C, this._handles(), this.handleDrag?.key);
+    drawSnapMark(ctx, view, C, this.snapMark);
     if (this.marquee && (this.marquee.a[0] !== this.marquee.b[0] || this.marquee.a[1] !== this.marquee.b[1])) {
       const m = this.marquee;
       const [x0, y0] = view.toScreen(m.a), [x1, y1] = view.toScreen(m.b);
@@ -786,7 +799,7 @@ export class SchematicEditor {
 
   _update(world) {
     if (!this.placing) return;
-    this.placing.at = snapPt(world, SCH_GRID);
+    this.placing.at = this.snapG(world);
     this.ws.view.invalidate();
   }
 
@@ -810,7 +823,7 @@ export class SchematicEditor {
   /** Enter or Space on a tile: drop the Part in the middle of the view. */
   placeAtViewCenter(part) {
     const v = this.ws.view;
-    const at = snapPt(v.view.toWorld([v.w / 2, v.h / 2]), SCH_GRID);
+    const at = this.snapG(v.view.toWorld([v.w / 2, v.h / 2]));
     const { componentId, unit } = unitSuggestion(this.project, part);
     const res = this.app.edit(`Place ${part.name}`, (p) => placeSymbol(p, this._S(p), part, at, { unit, component: componentId ? p.components[componentId] : undefined, footprint: this.footprintFor(part) || undefined }));
     this.selection = new Set([res.sym.id]);
@@ -900,7 +913,7 @@ export class SchematicEditor {
   }
 
   _wireClick(world, dbl) {
-    const p = snapPt(world, SCH_GRID);
+    const p = this.snapAt(world);
     if (!this.wiring) {
       this.wiring = { points: [p], posture: 'auto' };
       this.refresh();
@@ -934,7 +947,54 @@ export class SchematicEditor {
     if (!v.frame || v.frame.x1 !== r.x1 || v.frame.y1 !== r.y1) { v.frame = r; v.home = r; v.invalidate(); }
   }
 
+  // ---------------------------------------------------------------- grid, origin and snapping
+
+  /** The grid in use: the Alt grid while Alt is held. */
+  get gridStep() { const g = this.project.schematic.grid; return this.alt ? g.alt : g.main; }
+  /** Snap to the grid (or `step`), measured from the grid origin. */
+  snapG(w, step = this.gridStep) { return snapToGrid(w, step, this.project.schematic.origin); }
+
+  setAlt(on) {
+    if (!!on === !!this.alt) return;
+    this.alt = !!on;
+    if (this.ws) { this.ws.view.grid = this.gridStep; this.ws.renderBar(); this.ws.view.invalidate(); }
+  }
+
+  /** Points other things snap onto: Pin ends, Wire ends, labels, no-connects and markup handles (not `skipId`'s). */
+  _snapTargets(skipId = null) {
+    const sh = this.sheet, out = [];
+    for (const sym of sh.symbols) for (const { at } of pinPositions(this.project, sym)) out.push(at);
+    for (const w of sh.wires) out.push(w.a, w.b);
+    for (const l of sh.labels || []) out.push(l.at);
+    for (const n of sh.noConnects || []) out.push(n.at);
+    for (const d of sh.drawings || []) if (d.id !== skipId) for (const hd of shapeHandles(d)) out.push(hd.at);
+    out.push(this.project.schematic.origin);
+    return out;
+  }
+
+  /** Snap onto a nearby object's point within the Settings distance, else the grid (or `step`). */
+  snapAt(world, { step = this.gridStep, skipId = null, not = null } = {}) {
+    const tol = this.app.snapDistance() / (this.ws?.view.view.scale || 1);
+    const targets = this._snapTargets(skipId).filter((t) => !not || t[0] !== not[0] || t[1] !== not[1]);
+    const r = snapPoint(world, targets, tol, (p) => this.snapG(p, step));
+    this.snapMark = r.target;
+    return r.at;
+  }
+
+  /** Origin tool: move the grid origin (snapping onto objects), then back to Select. */
+  placeOrigin(world) {
+    const at = this.snapAt(world, { not: this.project.schematic.origin });
+    this.snapMark = null;
+    this.app.edit('Move grid origin', (p) => { p.schematic.origin = [...at]; });
+    this.setTool('select');
+  }
+
   /** The one selected markup shape (not text), or null: it shows resize handles. */
+  status() {
+    const n = Object.keys(this.project.components).length, ns = this.project.schematic.sheets.length;
+    return `${this.sheet.name} · ${n} component${n === 1 ? '' : 's'} · ${ns} sheet${ns === 1 ? '' : 's'} · grid ${gridLabel(this.gridStep)}${this.alt ? ' (Alt)' : ''}`;
+  }
+
   _handleDrawing(proj = this.project) {
     if (this.tool !== 'select' || this.placing || this.selection.size !== 1 || this.drag?.moved) return null;
     const id = [...this.selection][0];
@@ -952,7 +1012,7 @@ export class SchematicEditor {
   }
 
   _drawClick(world, dbl) {
-    const p = snapPt(world, SCH_GRID / 2);
+    const p = this.snapAt(world, { step: this.gridStep / 2 });
     const t = this.tool;
     if (t === 'text') { this.editText({ at: p }); return; }
     const pts = this.drawingPts || [];
@@ -986,7 +1046,7 @@ export class SchematicEditor {
   _ghostDrawing() {
     const pts = this.drawingPts;
     if (!pts || !this.cursorRaw || !DRAW_TOOLS[this.tool]) return null;
-    const cur = snapPt(this.cursorRaw, SCH_GRID / 2);
+    const cur = this.snapAt(this.cursorRaw, { step: this.gridStep / 2 });
     const base = { id: 'ghost', ...drawingDefaults({ gline: 'line', grect: 'rect', gcircle: 'circle', garc: 'arc' }[this.tool]) };
     if (this.tool === 'gline') return { ...base, type: 'line', pts: [...pts, cur] };
     if (this.tool === 'grect') return { ...base, type: 'rect', a: pts[0], b: cur };
@@ -1472,9 +1532,9 @@ export class SchematicEditor {
     const b = itemsBounds(tmp, tmp.schematic.sheets[0], ids0);
     let delta = offset;
     if (!delta) {
-      const anchor = snapPt([(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2], SCH_GRID);
-      delta = this.cursor ? [this.cursor[0] - anchor[0], this.cursor[1] - anchor[1]] : [SCH_GRID * 4, SCH_GRID * 4];
-      if (!delta[0] && !delta[1]) delta = [SCH_GRID * 4, SCH_GRID * 4];
+      const anchor = this.snapG([(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2]);
+      delta = this.cursor ? [this.cursor[0] - anchor[0], this.cursor[1] - anchor[1]] : [this.project.schematic.grid.main * 4, this.project.schematic.grid.main * 4];
+      if (!delta[0] && !delta[1]) delta = [this.project.schematic.grid.main * 4, this.project.schematic.grid.main * 4];
     }
     const ids = this.app.edit('Paste', (p) => pasteClip(p, this._S(p), clip, delta));
     this.selection = new Set(ids);
@@ -1485,14 +1545,14 @@ export class SchematicEditor {
     if (!this.selection.size) return;
     const saved = this.clipboard;
     this.clipboard = copySelection(this.project, this.sheet, [...this.selection]);
-    this.paste([SCH_GRID * 4, SCH_GRID * 4]);
+    this.paste([this.project.schematic.grid.main * 4, this.project.schematic.grid.main * 4]);
     this.clipboard = saved || this.clipboard;
   }
 
   nudge(dx, dy) {
     if (!this.selection.size) return;
     const ids = [...this.selection];
-    this.app.edit('Move', (p) => { moveSelection(p, this._S(p), ids, [dx * SCH_GRID, dy * SCH_GRID]); cleanupWires(p, this._S(p)); });
+    this.app.edit('Move', (p) => { moveSelection(p, this._S(p), ids, [dx * this.project.schematic.grid.main, dy * this.project.schematic.grid.main]); cleanupWires(p, this._S(p)); });
     this.refresh();
   }
 
@@ -1536,6 +1596,8 @@ export class SchematicEditor {
     if (k === 'p') { this.setTool('power'); return true; }
     if (k === 'g') { this.setTool('ground'); return true; }
     if (k === 'q') { this.setTool('noConnect'); return true; }
+    if (k === 'o') { this.setTool('origin'); return true; }
+    if (this.tool === 'origin' && e.key === 'Escape') { this.setTool('select'); return true; }
     if (DRAW_TOOLS[this.tool]) {
       if (e.key === 'Escape') { if (this.tool === 'gline' && this.drawingPts?.length > 1) this._finishGline(); else if (this.drawingPts) { this.drawingPts = null; this.refresh(); } else this.setTool('select'); return true; }
       if (e.key === 'Enter' && this.tool === 'gline') { this._finishGline(); return true; }

@@ -15,3 +15,13 @@ export function drawHandles(ctx, view, C, handles, active = null) {
   }
   ctx.restore();
 }
+
+/** A diamond on the point a snap went to (another object's handle or pad). */
+export function drawSnapMark(ctx, view, C, at) {
+  if (!at) return;
+  const [x, y] = view.toScreen(at);
+  ctx.save();
+  ctx.strokeStyle = C.selection; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x, y - 7); ctx.lineTo(x + 7, y); ctx.lineTo(x, y + 7); ctx.lineTo(x - 7, y); ctx.closePath(); ctx.stroke();
+  ctx.restore();
+}

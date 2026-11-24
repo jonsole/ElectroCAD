@@ -4,7 +4,7 @@
 import { h, button, icon } from '../ui/dom.js';
 import { Workspace, later, sep, spacer, section, segmented, toolButton } from './workspace.js';
 import { SCH_GRID, mm } from '../core/units.js';
-import { BoardEditor, BOARD_GRID } from '../board/editor.js';
+import { BoardEditor } from '../board/editor.js';
 import { SchematicEditor } from '../schematic/editor.js';
 import { LibraryEditor } from '../libedit/editor.js';
 import { openPrintDialog } from '../print/dialog.js';
@@ -17,7 +17,7 @@ function schematic(app) {
     draw: (ctx, view, C) => editor.draw(ctx, view, C),
     onRefresh: () => { editor.renderTiles(); editor.refresh(); },
     id: 'schematic', label: 'Schematic', icon: 'schematic', title: 'Schematic: place Parts, wire them and check the Netlist',
-    grid: SCH_GRID,
+    grid: app.project.schematic.grid.main,
     frame: { x0: 0, y0: 0, x1: mm(297), y1: mm(210) }, // A4 landscape sheet
     toolbar: [...editor.toolbar(), spacer(),
       button({ label: 'Print', icon: 'print', title: 'Print or export the schematic to PDF or SVG (Ctrl+P)', onClick: () => openPrintDialog(app) })],
@@ -25,7 +25,7 @@ function schematic(app) {
     tools: editor.tools(toolButton),
     side: editor.buildPicker(),
     chips: () => editor.sheetChips(),
-    status: () => { const n = Object.keys(app.project.components).length, ns = app.project.schematic.sheets.length; return `${editor.sheet.name} · ${n} component${n === 1 ? '' : 's'} · ${ns} sheet${ns === 1 ? '' : 's'} · grid 50 mil`; },
+    status: () => editor.status(),
   });
   ws.editor = editor;
   editor.attach(ws);
@@ -40,7 +40,7 @@ function board(app) {
     draw: (ctx, view, C) => editor.draw(ctx, view, C),
     onRefresh: () => editor.refresh(),
     id: 'board', label: 'Board', icon: 'board', title: 'Board: draw the Outline, place Footprints, route Tracks and pour Zones',
-    grid: BOARD_GRID, home: { x0: -10e6, y0: -10e6, x1: 110e6, y1: 90e6 },
+    grid: app.project.board.grid.main, home: { x0: -10e6, y0: -10e6, x1: 110e6, y1: 90e6 },
     toolbar: [...editor.toolbar(), sep(),
       later({ label: 'Annotate', icon: 'annotate', title: 'Forward annotation: bring Schematic changes onto the Board' }, 16),
       later({ label: 'DRC', icon: 'erc', title: 'Design rule check' }, 25), spacer(),

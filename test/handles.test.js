@@ -72,3 +72,13 @@ test('polygons (Symbol graphics) have a handle per point', () => {
   assert.deepEqual(shapeHandles(tri).map((h) => h.key), ['p0', 'p1', 'p2']);
   assert.deepEqual(dragHandle(tri, 'p2', [5, 12]).pts[2], [5, 12]);
 });
+
+test('object snapping prefers a nearby handle, else the grid', async () => {
+  const { snapPoint, handlePoints } = await import('../src/renderer/core/handles.js');
+  const grid = ([x, y]) => [Math.round(x / 10) * 10, Math.round(y / 10) * 10];
+  const targets = handlePoints([{ type: 'line', pts: [[3, 3], [33, 3]] }, rect], new Set([1]));
+  assert.deepEqual(targets, [[3, 3], [33, 3], [18, 3]]);
+  assert.deepEqual(snapPoint([5, 4], targets, 4, grid), { at: [3, 3], target: [3, 3] });
+  assert.deepEqual(snapPoint([9, 9], targets, 4, grid), { at: [10, 10], target: null });
+  assert.deepEqual(snapPoint([5, 4], targets, 0, grid).target, null); // 0 turns it off
+});

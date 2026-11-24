@@ -164,3 +164,19 @@ export function dragOutlineHandle(outline, index, key, pt) {
   }
   return out;
 }
+
+/**
+ * Object snapping: the nearest of `targets` within `tol` of `w`, else `grid(w)`.
+ * Returns { at, target } where target is the point snapped onto (null when it went to the grid).
+ */
+export function snapPoint(w, targets, tol, grid = (p) => p) {
+  let best = null, bd = tol;
+  if (tol > 0) for (const t of targets) {
+    const d = Math.hypot(t[0] - w[0], t[1] - w[1]);
+    if (d <= bd) { bd = d; best = t; }
+  }
+  return best ? { at: [best[0], best[1]], target: best } : { at: grid(w), target: null };
+}
+
+/** Every handle position of `shapes` (as snap targets), skipping indices in `skip`. */
+export const handlePoints = (shapes, skip = new Set()) => shapes.flatMap((s, i) => (skip.has(i) ? [] : shapeHandles(s).map((h) => h.at)));

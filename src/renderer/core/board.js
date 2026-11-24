@@ -6,6 +6,7 @@
 // (closed loops); rectangles and circles are closed by themselves. One loop is the board edge,
 // loops inside it are cut-outs.
 import { mm } from './units.js';
+import { BOARD_GRIDS, gridLabel, setGridStep, snapToGrid } from './grid.js';
 import { arcCircle } from './geom.js';
 
 // ---------------------------------------------------------------- Layer stack
@@ -223,3 +224,11 @@ export function outlineLoops(outline) {
   }
   return loops;
 }
+
+// ---------------------------------------------------------------- grids and origin
+
+export const GRID_CHOICES = BOARD_GRIDS;
+export { gridLabel, snapToGrid };
+
+/** Set the Board's main or Alt grid (nm, at least 1 µm). */
+export const setGrid = (project, which, nm) => setGridStep(project.board.grid, which, nm);

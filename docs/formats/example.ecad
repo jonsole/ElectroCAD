@@ -1,6 +1,6 @@
 {
  "format": "electrocad",
- "version": 5,
+ "version": 6,
  "id": "p1",
  "name": "LED indicator",
  "parts": {
@@ -807,7 +807,12 @@
      "orientation": "portrait"
     }
    }
-  ]
+  ],
+  "grid": {
+   "main": 1270000,
+   "alt": 635000
+  },
+  "origin": [0, 0]
  },
  "board": {
   "stack": {
@@ -829,7 +834,16 @@
    "annularRing": 130000,
    "edgeClearance": 300000
   },
-  "netClasses": {}
+  "netClasses": {},
+  "grid": {
+   "main": 500000,
+   "alt": 100000
+  },
+  "origin": [0, 0],
+  "annotation": {
+   "components": {},
+   "nets": {}
+  }
  },
  "fieldStyles": {
   "default": "classic",

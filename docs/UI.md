@@ -241,6 +241,36 @@ The Part picker draws each part on the Schematic colour theme's paper colour, so
 - **Right-click menu** (as in DabbleCAD): a right-click that doesn't pan opens Copy, Paste, Duplicate, Delete, Rotate, Mirror and Re-apply style for what's under the cursor, or Paste, Select all and Fit on empty canvas. Right-drag still pans.
 - **Crowded spots:** a field that can't find a free spot gets a small amber triangle, a note in the hint bar, and an ERC warning ("R7 fields overlap C3").
 
+## Grids, origin and snapping
+
+The Schematic, Board and Library editors work the same way here.
+
+- **Two grids.** Each editor has a main grid and an **Alt grid**.
+  - Hold **Alt** while drawing, moving or resizing to snap to the Alt grid. The canvas shows the Alt grid while Alt is held, and the status bar says "(Alt)".
+  - Choose both grids where the properties are shown when nothing is selected:
+    - Board: PROPERTIES;
+    - Schematic: the inspector's Sheet card;
+    - Library: PROPERTIES.
+  - Defaults:
+    - Schematic: 50 mil, Alt 25 mil. Markup snaps to half the grid.
+    - Board: 0.5 mm, Alt 0.1 mm.
+    - Library: 50 mil, Alt 25 mil. Pins snap to the grid and graphics to half of it.
+  - The Schematic and Board grids are saved in the Project. The Library's are a per-browser preference.
+  - Arrow keys nudge by one main-grid step.
+- **Origin tool (O)** in each palette.
+  - Schematic and Board: click to move the grid origin. The grid lines, rulers and the coordinate pill then measure from it. **Reset** next to the origin puts it back.
+  - Library: the origin is the Symbol's anchor (where it is placed from). Clicking a point shifts the whole Part, every Unit, so that point becomes the anchor. The drawing stays where it is on screen and the origin mark moves.
+  - The origin snaps onto handles like everything else.
+- **Snapping to objects.** While drawing, moving or resizing, a point that comes near another object's snap point jumps onto it, and a diamond marks the spot. Snap points are:
+  - handles (corners, ends and arc mid-points);
+  - on the Schematic: Pin ends, Wire ends, labels and no-connects;
+  - in the Library: Pin tips;
+  - on the Board: Pads, once Footprints arrive (#16 and #17);
+  - the origin.
+
+  A moved selection snaps by its handle nearest the pointer. Otherwise points go to the grid.
+- **Settings → Snap to objects within:** how close the pointer must be, in screen pixels: Off, or 5–30 px (default 10).
+
 ## Board: layer stack and Outline
 
 The Board tab (#15) edits the board's layer stack and its Outline. Footprints, Tracks and Zones come with their tickets.
@@ -256,7 +286,7 @@ The Board tab (#15) edits the board's layer stack and its Outline. Footprints, T
   - Visibility is remembered per browser.
 - **Bottom chips:** the copper layers and Edge; click one to make it the active layer.
 - **Outline tools** (on the palette, below the routing tools). Picking one makes Edge.Cuts the active layer. Everything snaps to the 0.5 mm grid.
-  - **O, Outline rectangle:** click two corners. **Corner radius** in PROPERTIES rounds the corners of new rectangles; a rounded rectangle is stored as four lines and four arcs.
+  - **B, Outline rectangle:** click two corners. **Corner radius** in PROPERTIES rounds the corners of new rectangles; a rounded rectangle is stored as four lines and four arcs.
   - **P, Outline polygon:** click each corner. **A** makes the next side an arc: click a point it passes through, then where it ends. **Backspace** removes the last corner. Clicking the first corner closes the polygon; a ring marks it under the cursor.
   - **C, Circle:** click the centre, then the edge. Use it for a round board or a mounting hole.
   - The shape follows the cursor as a dashed preview. **Esc** cancels it, and a second Esc returns to Select.

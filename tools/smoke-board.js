@@ -25,7 +25,7 @@ check('stack-4', board().stack.copper === 4);
 check('panel-4', [...document.querySelectorAll('[data-ws="board"] .ll-row')].some((r) => r.dataset.layer === 'In2.Cu'));
 check('chips-4', [...ws.chipStrip.querySelectorAll('.chip')].map((c) => c.dataset.layer).join() === 'F.Cu,In1.Cu,In2.Cu,B.Cu,Edge.Cuts');
 // rounded rectangle 0,0 – 50,40 with 3 mm corners
-key('o');
+key('b');
 const r = document.querySelector('[data-ws="board"] input[aria-label="Corner radius"]');
 r.value = '3'; r.dispatchEvent(new Event('change'));
 check('active-edge', ed.activeLayer === 'Edge.Cuts');
@@ -86,6 +86,30 @@ drag(11.5, 10, 13, 10);
 check('hole-radius', board().outline[hole].r === 3 * MM, board().outline[hole].r);
 key('z', { ctrlKey: true });
 check('hole-undo', board().outline[hole].r === 1.5 * MM);
+// grids: change the main grid in Properties; Alt switches to the Alt grid while held
+ed.selection.clear(); key('Escape'); ed.refresh();
+const gsel = document.querySelector('[data-ws="board"] select[aria-label="Grid"]');
+gsel.value = String(1e6); gsel.dispatchEvent(new Event('change'));
+check('grid-main', board().grid.main === 1e6 && ws.view.grid === 1e6, [board().grid, ws.view.grid]);
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Alt', altKey: true, bubbles: true }));
+check('alt-grid', ed.gridStep === board().grid.alt && ws.view.grid === board().grid.alt && /\(Alt\)/.test(ws.statusText.textContent), ws.statusText.textContent);
+document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Alt', bubbles: true }));
+check('alt-off', ed.gridStep === 1e6);
+// Alt while drawing: a circle with a 0.3 mm radius on the 0.1 mm Alt grid
+key('c');
+const altClick = (x, y) => {
+  const o = { ...pt(x, y), button: 0, buttons: 1, bubbles: true, cancelable: true, pointerId: 16, altKey: true };
+  ws.view.canvas.dispatchEvent(new PointerEvent('pointermove', { ...o, buttons: 0 }));
+  ws.view.canvas.dispatchEvent(new PointerEvent('pointerdown', o)); ws.view.canvas.dispatchEvent(new PointerEvent('pointerup', { ...o, buttons: 0 }));
+};
+altClick(30, 30); altClick(30.3, 30);
+check('alt-draw', board().outline.at(-1).type === 'circle' && board().outline.at(-1).r === 0.3 * MM, board().outline.at(-1));
+key('z', { ctrlKey: true });
+ed.setAlt(false);
+// the origin tool: click near the rounded rectangle's top-left arc end; it snaps onto it
+key('o'); click(0.2, 3.2);
+check('origin', JSON.stringify(board().origin) === JSON.stringify([0, 3 * MM]) && ws.view.origin === board().origin && ed.tool === 'select', board().origin);
+check('origin-panel', /0, 3 mm from the page origin/.test(document.querySelector('[data-ws="board"] .grid-panel').textContent));
 // the Board's view is kept across tabs
 const view = JSON.stringify(ws.view.view.toJSON());
 app.setWorkspace('schematic'); await new Promise((r2) => requestAnimationFrame(r2)); app.setWorkspace('board');

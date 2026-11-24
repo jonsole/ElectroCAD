@@ -357,6 +357,9 @@ export class App {
 
   recolor() { for (const w of this.workspaces) w.recolor(); }
 
+  /** How close (screen pixels) the pointer must come to another object's handle or pad to snap onto it; 0 is off. */
+  snapDistance() { const v = this.settings.snapDistance; return Number.isFinite(v) ? v : 10; }
+
   /** Schematic display options (Settings → Schematic display), with defaults filled in. */
   schematicDisplay() { return { ...DEFAULT_DISPLAY, ...(this.settings.schematicDisplay || {}) }; }
 
@@ -451,7 +454,11 @@ export class App {
     const sel = h('select', { class: 'select' }, h('option', { value: 'dark' }, 'Dark'), h('option', { value: 'light' }, 'Light'));
     sel.value = this.settings.theme === 'light' ? 'light' : 'dark';
     sel.addEventListener('change', () => { if (sel.value !== (this.settings.theme === 'light' ? 'light' : 'dark')) this.toggleTheme(); });
+    const snap = h('select', { class: 'select', title: 'While drawing, moving or resizing, points jump onto another object\'s handles (corners, ends, pads) when the pointer is this close' },
+      ...[[0, 'Off'], [5, '5 px'], [10, '10 px'], [15, '15 px'], [20, '20 px'], [30, '30 px']].map(([v, l]) => h('option', { value: String(v), selected: v === this.snapDistance() }, l)));
+    snap.addEventListener('change', () => { this.settings.snapDistance = +snap.value; platform.setSettings({ snapDistance: +snap.value }); });
     m.body.append(h('label', { class: 'field' }, h('span', {}, 'App theme'), sel),
+      h('label', { class: 'field' }, h('span', {}, 'Snap to objects within'), snap),
       this._displaySection(),
       colorsSection(this),
       fieldStylesSection(this),

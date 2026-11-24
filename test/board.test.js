@@ -108,3 +108,19 @@ test('loops inside another are cut-outs; side-by-side loops are separate pieces'
   assert.equal(c.cutouts, 1);
   assert.equal(c.pieces, 2);
 });
+
+test('grids and origin: snapping is measured from the origin; grids are set and checked', async () => {
+  const { setGrid, snapToGrid, GRID_CHOICES } = await import('../src/renderer/core/board.js');
+  const p = newProject('G');
+  assert.deepEqual(p.board.grid, { main: mm(0.5), alt: mm(0.1) });
+  assert.deepEqual(p.board.origin, [0, 0]);
+  setGrid(p, 'alt', mm(0.05));
+  assert.equal(p.board.grid.alt, mm(0.05));
+  assert.throws(() => setGrid(p, 'main', 0), RangeError);
+  assert.throws(() => setGrid(p, 'other', mm(1)), RangeError);
+  assert.deepEqual(snapToGrid([mm(1.2), mm(0.7)], mm(1), [mm(0.3), 0]), [mm(1.3), mm(1)]);
+  assert.ok(GRID_CHOICES.some(([v]) => v === 1270000));
+  p.board.origin = [mm(5), mm(5)];
+  assert.deepEqual(projectProblems(p), []);
+  assert.deepEqual(deserialize(serialize(p)).board.origin, [mm(5), mm(5)]);
+});

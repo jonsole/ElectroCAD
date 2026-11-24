@@ -27,6 +27,7 @@ export class Canvas2D {
   constructor({ grid, frame = null, draw = null, home = null, colors }) {
     this.getColors = colors; // () => resolved Colour theme tokens
     this.grid = grid;
+    this.origin = [0, 0]; // grid origin: grid lines, rulers and the coordinate pill measure from it
     this.frame = frame;
     this.drawContent = draw;
     this.home = home || frame || { x0: -50e6, y0: -40e6, x1: 50e6, y1: 40e6 };
@@ -96,7 +97,7 @@ export class Canvas2D {
   /** Update the coordinate pill for a screen point (also used by smoke tests). */
   setCursor([sx, sy]) {
     this.cursor = this.view.toWorld([sx, sy]);
-    const [x, y] = this.cursor;
+    const x = this.cursor[0] - this.origin[0], y = this.cursor[1] - this.origin[1];
     this.coords.textContent = `X ${toMm(x).toFixed(2)}   Y ${toMm(y).toFixed(2)} mm`;
     this.invalidate();
   }
@@ -148,7 +149,7 @@ export class Canvas2D {
       ctx.strokeRect(Math.round(x0) + 0.5, Math.round(y0) + 0.5, x1 - x0, y1 - y0);
     } else {
       // origin cross
-      const [ox, oy] = v.toScreen([0, 0]);
+      const [ox, oy] = v.toScreen(this.origin);
       ctx.strokeStyle = C.origin; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(ox - 8, oy + 0.5); ctx.lineTo(ox + 8, oy + 0.5); ctx.moveTo(ox + 0.5, oy - 8); ctx.lineTo(ox + 0.5, oy + 8); ctx.stroke();
     }
@@ -169,17 +170,18 @@ export class Canvas2D {
     }
     const [sx0, sy0] = v.toScreen([x0, y0]), [sx1, sy1] = v.toScreen([x1, y1]);
     ctx.lineWidth = 1;
+    const [ox, oy] = this.origin;
     const isMajor = (val) => Math.abs(Math.round(val / major) * major - val) < minor / 2;
     for (let pass = 0; pass < 2; pass++) { // minor lines first, major on top
       ctx.strokeStyle = pass ? C.gridMajor : C.gridMinor;
       ctx.beginPath();
-      for (let x = Math.ceil(x0 / minor) * minor; x <= x1; x += minor) {
-        if (isMajor(x) !== !!pass) continue;
+      for (let x = Math.ceil((x0 - ox) / minor) * minor + ox; x <= x1; x += minor) {
+        if (isMajor(x - ox) !== !!pass) continue;
         const sx = Math.round(v.toScreen([x, 0])[0]) + 0.5;
         ctx.moveTo(sx, sy0); ctx.lineTo(sx, sy1);
       }
-      for (let y = Math.ceil(y0 / minor) * minor; y <= y1; y += minor) {
-        if (isMajor(y) !== !!pass) continue;
+      for (let y = Math.ceil((y0 - oy) / minor) * minor + oy; y <= y1; y += minor) {
+        if (isMajor(y - oy) !== !!pass) continue;
         const sy = Math.round(v.toScreen([0, y])[1]) + 0.5;
         ctx.moveTo(sx0, sy); ctx.lineTo(sx1, sy);
       }
@@ -195,14 +197,15 @@ export class Canvas2D {
     const step = rulerStep(v.scale);
     const [wx0, wy0] = v.toWorld([RULER, RULER]);
     const [wx1, wy1] = v.toWorld([this.w, this.h]);
+    const [ox, oy] = this.origin;
     ctx.beginPath();
-    for (let x = Math.ceil(wx0 / step) * step; x <= wx1; x += step) {
-      const sx = Math.round(v.toScreen([x, 0])[0]) + 0.5;
+    for (let x = Math.ceil((wx0 - ox) / step) * step; x <= wx1 - ox; x += step) {
+      const sx = Math.round(v.toScreen([x + ox, 0])[0]) + 0.5;
       ctx.moveTo(sx, RULER - 7); ctx.lineTo(sx, RULER);
       ctx.fillText(rulerLabel(x), sx + 2, 10);
     }
-    for (let y = Math.ceil(wy0 / step) * step; y <= wy1; y += step) {
-      const sy = Math.round(v.toScreen([0, y])[1]) + 0.5;
+    for (let y = Math.ceil((wy0 - oy) / step) * step; y <= wy1 - oy; y += step) {
+      const sy = Math.round(v.toScreen([0, y + oy])[1]) + 0.5;
       ctx.moveTo(RULER - 7, sy); ctx.lineTo(RULER, sy);
       ctx.save(); ctx.translate(10, sy - 2); ctx.rotate(-Math.PI / 2); ctx.fillText(rulerLabel(y), 0, 0); ctx.restore();
     }

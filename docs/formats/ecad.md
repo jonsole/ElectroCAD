@@ -1,4 +1,4 @@
-# The ElectroCAD Project file (`.ecad`), version 5
+# The ElectroCAD Project file (`.ecad`), version 6
 
 A Project is one JSON file, the Native format ([ADR-0004](../adr/0004-native-format-is-json-foreign-formats-are-lossy-converters.md)). This page describes every key the app writes today, for review and for anyone writing a tool that reads or writes `.ecad` files.
 
@@ -24,7 +24,7 @@ A Project is one JSON file, the Native format ([ADR-0004](../adr/0004-native-for
 
 ## Versions and compatibility
 
-- `format` is always `"electrocad"`. `version` is the format version, currently **5**.
+- `format` is always `"electrocad"`. `version` is the format version, currently **6** (version 6 added the snap grids and grid origins, and the Board's `annotation`).
 - **Before 1.0 there is no compatibility** ([ADR-0014](../adr/0014-no-file-compatibility-before-1-0.md)). `version` goes up with every format change, and a file of any other version is refused with a message saying which version wrote it. There are no migrations.
 - **Opening is strict.** The file is checked against the schema, and then against what a schema can't express (`projectProblems()` in `project.js`):
   - ids unique across the file, Reference designators unique, Sheet names unique regardless of case;
@@ -45,7 +45,7 @@ A Project is one JSON file, the Native format ([ADR-0004](../adr/0004-native-for
 | `parts` | `{ [partKey]: Part }` | A frozen copy of every Part in use ([ADR-0004](../adr/0004-native-format-is-json-foreign-formats-are-lossy-converters.md)), keyed by Library origin `library/partId@version` so Parts from different Libraries never clash. A Part with no origin (made in the Project) uses its own id. Parts nothing uses are removed. |
 | `components` | `{ [componentId]: Component }` | The Components: one per Reference designator. |
 | `footprints` | `{ [fpKey]: { library, footprint } }` | Footprints Components use that are not one of their Part's Preferred footprints, each stored once (`library/name`, with `~2`… if two differ). Unused ones are removed. |
-| `schematic` | `{ sheets: [Sheet] }` | At least one Sheet, in display order. |
+| `schematic` | `{ sheets: [Sheet], grid: { main, alt }, origin }` | At least one Sheet, in display order. `grid` holds the snap grids in nm (default 50 and 25 mil); Alt selects `alt` while drawing, moving or resizing. `origin` is where the grid, rulers and coordinates measure from, on every Sheet. |
 | `board` | Board | The PCB: the layer stack, the Outline and rules today. |
 | `fieldStyles` | `{ default, styles }` | `default` is a key in `styles`; `styles` holds every Field style the Project uses ([ADR-0012](../adr/0012-fields-are-placed-automatically-by-field-styles.md)). |
 | `titleBlock` | `{ title, company, author, revision, date, comment }` | The title block on every Sheet (#59); an empty title shows the Project name. Sheet name and number are filled in per Sheet. |
@@ -172,6 +172,9 @@ The shapes are fixed by [ADR-0015](../adr/0015-board-objects-in-the-native-forma
 | `vias` | `[{ id, at, drill, diameter, from, to, net }]` | v1 has through vias only: `from: "F.Cu"`, `to: "B.Cu"` (#21). |
 | `zones` | `[{ id, layer, net, outline, priority, clearance, thermal: { gap, spoke } }]` | Copper pours (#23). `outline` has at least 3 points. The fill is **not stored**; it is recomputed. |
 | `netClasses` | `{ [name]: { trackWidth, clearance, viaDrill, viaDiameter, nets } }` | `nets` is a list of Net names (#24). |
+| `grid` | `{ main, alt }` | Snap grids in nm (default 0.5 and 0.1 mm). |
+| `origin` | point | The grid origin (default `[0, 0]`). |
+| `annotation` | `{ components: { [componentId]: { ref, value } }, nets: { [netName]: ["componentId:pad"] } }` | What the Board was last told by Forward annotation (#16). The Board draws References, Values and Pad nets from here; the next annotation lists the differences against the Schematic. |
 
 Board objects refer to Nets **by name**, matched regardless of case. Nets themselves are never stored: the Schematic is their source ([ADR-0002](../adr/0002-schematic-is-the-source-of-truth-for-nets.md)).
 

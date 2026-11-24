@@ -27,7 +27,7 @@ export const ECAD_SCHEMA = {
       "const": "electrocad"
     },
     "version": {
-      "const": 5,
+      "const": 6,
       "description": "Goes up with every format change. Before 1.0 there is no compatibility: a file of any other version is refused (ADR-0014)."
     },
     "id": {
@@ -60,10 +60,23 @@ export const ECAD_SCHEMA = {
     "schematic": {
       "type": "object",
       "required": [
-        "sheets"
+        "sheets",
+        "grid",
+        "origin"
       ],
       "additionalProperties": false,
       "properties": {
+        "grid": {
+          "type": "object",
+          "required": ["main", "alt"],
+          "additionalProperties": false,
+          "description": "The snap grids. Holding Alt while drawing, moving or resizing uses the alt grid. Markup snaps to half the grid.",
+          "properties": { "main": { "$ref": "#/$defs/nm" }, "alt": { "$ref": "#/$defs/nm" } }
+        },
+        "origin": {
+          "$ref": "#/$defs/point",
+          "description": "The grid origin on every Sheet: the grid, rulers and coordinates measure from it."
+        },
         "sheets": {
           "type": "array",
           "minItems": 1,
@@ -833,7 +846,10 @@ export const ECAD_SCHEMA = {
         "vias",
         "zones",
         "rules",
-        "netClasses"
+        "netClasses",
+        "grid",
+        "origin",
+        "annotation"
       ],
       "additionalProperties": false,
       "properties": {
@@ -859,6 +875,46 @@ export const ECAD_SCHEMA = {
         "preset": {
           "type": "string",
           "description": "Fab preset id (#24)."
+        },
+        "grid": {
+          "type": "object",
+          "required": ["main", "alt"],
+          "additionalProperties": false,
+          "description": "The snap grids (#15). Holding Alt while drawing, moving or resizing uses the alt grid.",
+          "properties": {
+            "main": { "$ref": "#/$defs/nm" },
+            "alt": { "$ref": "#/$defs/nm" }
+          }
+        },
+        "origin": {
+          "$ref": "#/$defs/point",
+          "description": "The grid origin: the grid lines, rulers and coordinates are measured from it."
+        },
+        "annotation": {
+          "type": "object",
+          "required": ["components", "nets"],
+          "additionalProperties": false,
+          "description": "What the Board was last told by Forward annotation (#16). The Board draws References, Values and Pad nets from here, and the next annotation lists the differences.",
+          "properties": {
+            "components": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "required": ["ref", "value"],
+                "additionalProperties": false,
+                "properties": { "ref": { "type": "string" }, "value": { "type": "string" } }
+              },
+              "description": "By Component id."
+            },
+            "nets": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": { "type": "string", "description": "componentId:padNumber" }
+              },
+              "description": "Net name -> the Pads on it."
+            }
+          }
         },
         "outline": {
           "type": "array",
