@@ -411,7 +411,7 @@ Selecting something in one editor highlights the same thing in the other (#18). 
   - The choice is remembered.
 - Clearing the selection clears the highlight.
 
-## Routing tracks (Free mode)
+## Routing tracks
 
 **Route (X)** draws Tracks (#20):
 - **Start:** click a pad on the active copper layer. A through-hole pad is on every layer; pick the layer in Layers or with the bottom chips.
@@ -422,8 +422,14 @@ Selecting something in one editor highlights the same thing in the other (#18). 
 - **Routing options** pop up in a strip at the top of the canvas while the Route tool is active, and hide with any other tool (remembered per browser):
   - **90° | 45° | Any:** how tracks bend, as Eagle's bend styles.
   - **Chamfer** (mm), as Eagle's mitre: every bend of 90° or sharper is cut back by that length on both sides and joined at 45°. Bends you click get it too; it shortens when a segment is too short. 0 for none.
-- **Routing mode:** **Free** is the live mode, and tracks go where you draw them. Walkaround (#22) and Shove (#29) come later.
-- **Collisions show live:**
+- **Routing mode** (the `.mode-group` at the right of the Board toolbar; the choice is remembered; Shove arrives with #29):
+  - **Walkaround** (the default, #22): the tentative track goes round other Nets' copper (pads, tracks, vias) and keeps the Outline's edge clearance. It follows their clearance contour at 45° or 90°, takes the shorter way round, and never makes a clearance violation. Nothing existing moves.
+    - With no way round, or with the pointer on another Net's copper, the track stops at the first obstacle on the straight way. A red ✕ marks where it stopped and a dashed line runs on to the pointer. A click fixes the track up to the ✕.
+    - Clicking a pad of the same Net finishes only if there's a clear way to it.
+    - With a chamfer set, the track gives obstacles a wider berth so the cut corners stay legal.
+    - The search is A* over a 45°/90° lattice anchored on the last corner (`core/walkaround.js`), every segment checked exactly with the collision engine.
+  - **Free:** tracks go where you draw them.
+- **Collisions show live** (in Free mode; Walkaround avoids them):
   - a faint band shows the clearance the track must keep;
   - segments too close to another Net's copper (pads, tracks, vias) turn red, and the copper they hit is outlined in red.
   - Clearance is the larger of the two Nets' classes. The collision engine (`core/collision.js`) is shared with DRC (#25).

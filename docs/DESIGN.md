@@ -36,7 +36,7 @@ src/renderer/
     erc.js             electrical rule check                           (M2)
     drc.js             design rule check                               (M4)
     collide.js         copper collision engine shared by router and DRC (M4)
-    router/            walkaround (M4), shove + drag (M6)
+    router/            walkaround (M4, core/walkaround.js), shove + drag (M6)
     zonefill.js        Zone fill with clipper-lib, runs in a worker     (M4)
     presets.js         Fab presets                                      (M4)
   library/             built-in Part generators (resistor, SOIC-n, header-n…)

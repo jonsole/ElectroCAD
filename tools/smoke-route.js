@@ -1,4 +1,4 @@
-// Routing journey (#20): two resistors on one Net with a third part between them; X starts a track
+// Routing journey (#20), in Free mode: two resistors on one Net with a third part between them; X starts a track
 // on a pad; the corner style and chamfer come from the toolbar; crossing the other part's pads is
 // flagged live; clicking the target pad commits (one undo step) and its Ratsnest line goes;
 // selecting a track and Del deletes it; Esc cancels a route.
@@ -30,6 +30,9 @@ const click = (x, y) => { move(x, y); const o = { ...pt(x, y), button: 0, button
 const key = (k, more = {}) => document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, ...more }));
 const unrouted = () => Object.values(ed._rats.unrouted).reduce((a, b) => a + b, 0);
 check('rats-1', unrouted() === 1, ed._rats.unrouted);
+// this journey draws in Free mode (Walkaround has its own)
+document.querySelector('[data-ws="board"] .mode-group [data-mode="free"]').click();
+check('free-mode', ed.routeMode === 'free');
 // the routing options pop up only with the Route tool
 const strip = document.querySelector('[data-ws="board"] .route-strip');
 check('strip-hidden', strip.hidden && !document.querySelector('[data-ws="board"] .toolbar .corner-seg'));

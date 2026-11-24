@@ -17,7 +17,7 @@ import { openAnnotateDialog } from './annotate-dialog.js';
 import { hitPad, footprintOutline, placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation } from '../core/footprint.js';
 import { ratsnest } from '../core/ratsnest.js';
 import { copperIndex, pointSeg2 } from '../core/collision.js';
-import { CORNERS, startRoute, step as routeStep, click as routeClickAt, back as routeBack, flipPosture, commit as routeCommit, switchLayer, layerPairs } from '../core/router.js';
+import { CORNERS, ROUTE_MODES, startRoute, step as routeStep, click as routeClickAt, back as routeBack, flipPosture, commit as routeCommit, switchLayer, layerPairs } from '../core/router.js';
 import { connection, setTrackWidth, setTrackLayer, setViaSize, placeVia } from '../core/copper.js';
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
 import { allFootprints } from '../library/footprints.js';
@@ -63,6 +63,7 @@ export class BoardEditor {
     this.netSel = new Set();    // Net names (as on the Board) selected by double-clicking a pad
     this.trackSel = new Set();  // ids of selected Tracks and Vias
     this.pair = pref.get('boardLayerPair', null); // the layers V switches between while routing (4-layer boards)
+    this.routeMode = pref.get('boardRouteMode', 'walkaround'); // 'walkaround' | 'free' (Shove: #29)
     this.corner = pref.get('boardCorner', '45');            // track bends: '90' | '45' | 'any'
     this.chamfer = mm(pref.get('boardChamfer', 0));         // Eagle-style auto chamfer of 90° bends
     this.route = null;          // the track being routed (router state), its copper index and proposal
@@ -133,6 +134,32 @@ export class BoardEditor {
     this.routeStrip = h('div', { class: 'tool-strip route-strip', role: 'toolbar', 'aria-label': 'Routing options', hidden: true },
       h('span', { class: 'tool-strip-label' }, 'Corners'), this.cornerSeg, h('span', { class: 'sep' }), chamfer, h('span', { class: 'sep pair-sep' }), this.pairBox);
     return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.del, this.btn.rotate, this.btn.flip, this.btn.lock, h('span', { class: 'sep' }), ...this.cards.buttons(), this.gridCard.button];
+  }
+
+  /** The routing mode switcher for the toolbar: Shove (#29, later), Walkaround, Free. */
+  modeGroup(later) {
+    const tips = {
+      walkaround: 'Walkaround routing mode: the track goes round other nets\' copper at their clearance, the shorter way, and stops at an obstacle with no way round. Nothing existing moves',
+      free: 'Free routing mode: tracks go where you draw them; collisions with other nets show in red',
+    };
+    this.modeBtn = {};
+    for (const [id, label] of ROUTE_MODES) {
+      this.modeBtn[id] = button({ label, title: tips[id], onClick: () => this.setRouteMode(id) });
+      this.modeBtn[id].dataset.mode = id;
+      this.modeBtn[id].setAttribute('role', 'radio');
+    }
+    const g = h('div', { class: 'mode-group', role: 'radiogroup', 'aria-label': 'Routing mode', title: 'Routing mode' }, later({ label: 'Shove', title: 'Shove routing mode' }, 29), ...ROUTE_MODES.map(([id]) => this.modeBtn[id]));
+    this.setRouteMode(this.routeMode, false);
+    return g;
+  }
+
+  setRouteMode(id, save = true) {
+    if (!ROUTE_MODES.some(([m]) => m === id)) id = 'walkaround';
+    this.routeMode = id;
+    if (save) pref.set('boardRouteMode', id);
+    for (const [m, b] of Object.entries(this.modeBtn || {})) { b.classList.toggle('active', m === id); b.setAttribute('aria-checked', String(m === id)); }
+    if (this.route) { this._routeKey = null; this._routeMove(); }
+    if (this.ws) this._hint();
   }
 
   tools(later) {
@@ -402,8 +429,8 @@ export class BoardEditor {
           : 'Outline polygon: click the next corner · A arc side · Backspace undo corner · click the first corner to close · Esc cancel'; break;
       case 'circle': t = p ? 'Circle: click a point on the edge' : 'Circle: click the centre (a round board, or a hole inside the board)'; break;
       case 'route': t = this.route
-        ? `Routing ${this.route.net} on ${this.route.layer} (${fmt(this.route.width)} mm): click to place a corner · click a ${this.route.net} pad to finish · V drops a via and goes to ${this.route.layer === this.route.pair[0] ? this.route.pair[1] : this.route.pair[0]} · double-click or Enter ends here · / flips the bend · Backspace undoes a corner · Esc cancels${this.routeView?.collisions.length ? ' · red: too close to another net' : ''}`
-        : `Route: click a pad on ${this.activeLayer} to start a track (corners: ${this.corner === 'any' ? 'any angle' : this.corner + '°'}${this.chamfer ? `, chamfer ${fmt(this.chamfer)} mm` : ''})`; break;
+        ? `Routing ${this.route.net} on ${this.route.layer} (${fmt(this.route.width)} mm): click to place a corner · click a ${this.route.net} pad to finish · V drops a via and goes to ${this.route.layer === this.route.pair[0] ? this.route.pair[1] : this.route.pair[0]} · double-click or Enter ends here · / flips the bend · Backspace undoes a corner · Esc cancels${this.routeView?.collisions.length ? ' · red: too close to another net' : ''}${this.routeView?.blocked ? ' · no clear way to the pointer: the track stops at the obstacle' : ''}`
+        : `Route (${this.routeMode === 'walkaround' ? 'Walkaround: tracks go round other nets' : 'Free: tracks go where you draw'}): click a pad on ${this.activeLayer} to start a track (corners: ${this.corner === 'any' ? 'any angle' : this.corner + '°'}${this.chamfer ? `, chamfer ${fmt(this.chamfer)} mm` : ''})`; break;
       case 'via': t = 'Via: click to place a through via (F.Cu to B.Cu); it takes the net of the track or pad it lands on · Esc back to Select'; break;
       case 'origin': t = 'Grid origin: click where the grid, rulers and coordinates should measure from (outline corners attract it) · Esc back to Select'; break;
       case 'measure': t = this.measure && !this.measure.done ? 'Measure: click the second point' : 'Measure: click two points · Esc to stop'; break;
@@ -758,22 +785,33 @@ export class BoardEditor {
     }
     const end = this._padOnLayer(w);
     if (end && end.pad.net.toLowerCase() === this.route.net.toLowerCase() && (end.pad.at[0] !== this.route.points[0][0] || end.pad.at[1] !== this.route.points[0][1] || this.route.points.length > 1)) {
-      this.route = routeClickAt(this.project, this.route, end.pad.at);
+      const v = this._proposal(end.pad.at);
+      if (v.blocked) { toast(`No clear way to that pad from here: place a corner nearer, or switch to Free mode.`, 'info', 2600); return; }
+      this.route = routeClickAt(this.project, this.route, end.pad.at, v.tail);
       this.finishRoute();
       return;
     }
     if (dbl) { this.finishRoute(); return; }
-    this.route = routeClickAt(this.project, this.route, p);
+    this.route = routeClickAt(this.project, this.route, p, this._proposal(p).tail);
     this._routeMove();
     this.refresh();
+  }
+
+  /** What the router proposes from the last fixed corner to `p` in the current mode. */
+  _proposal(p) {
+    return routeStep(this.project, this.route, p, this.routeMode, this.routeIndex);
   }
 
   /** Recompute the proposal for the pointer (live collisions with other Nets). */
   _routeMove() {
     if (!this.route) return;
-    const had = this.routeView?.collisions.length || 0;
-    this.routeView = routeStep(this.project, this.route, this.cursor || this.route.points[this.route.points.length - 1], 'free', this.routeIndex);
-    if (this.ws && !!had !== !!this.routeView.collisions.length) this._hint();
+    const at = this.cursor || this.route.points[this.route.points.length - 1];
+    const key = `${at.join(',')}|${this.routeMode}`;
+    if (this._routeKey === key && this._routeFor === this.route) return; // the pointer moved within a grid step
+    this._routeKey = key; this._routeFor = this.route;
+    const had = `${!!this.routeView?.collisions.length}${!!this.routeView?.blocked}`;
+    this.routeView = this._proposal(at);
+    if (this.ws && had !== `${!!this.routeView.collisions.length}${!!this.routeView.blocked}`) this._hint();
     this.ws?.view.invalidate();
   }
 
@@ -916,6 +954,14 @@ export class BoardEditor {
       ctx.fillStyle = C.via || '#c8c8c8'; ctx.beginPath(); ctx.arc(x, y, Math.max(2, (st.via.diameter / 2) * view.scale), 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = C.drill || '#000'; ctx.beginPath(); ctx.arc(x, y, Math.max(1, (st.via.drill / 2) * view.scale), 0, Math.PI * 2); ctx.fill();
     }
+    // Walkaround with no way round: where it stopped, and a dashed line on to the pointer
+    if (this.routeView.blocked && this.cursor) {
+      const [ex, ey] = view.toScreen(this.routeView.end), [cx, cy] = view.toScreen(this.cursor);
+      ctx.globalAlpha = 0.9; ctx.strokeStyle = bad; ctx.lineWidth = 1.5; ctx.setLineDash([3, 4]);
+      ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(cx, cy); ctx.stroke(); ctx.setLineDash([]);
+      const k = 5; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(ex - k, ey - k); ctx.lineTo(ex + k, ey + k); ctx.moveTo(ex + k, ey - k); ctx.lineTo(ex - k, ey + k); ctx.stroke();
+    }
     ctx.globalAlpha = 1; ctx.strokeStyle = bad; ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
     for (const it of collisions) {
       ctx.beginPath();
@@ -942,7 +988,9 @@ export class BoardEditor {
       if (e.key === 'Escape') { this.cancelRoute(); return true; }
       if (e.key === '/') { this.route = flipPosture(this.route); this._routeMove(); return true; }
       if (e.key.toLowerCase() === 'v') {
-        this.route = switchLayer(this.project, this.route, this.cursor || this.route.points[this.route.points.length - 1]);
+        const at = this.cursor || this.route.points[this.route.points.length - 1];
+        const v = this._proposal(at);
+        this.route = switchLayer(this.project, this.route, at, null, v.tail);
         this.activeLayer = this.route.layer;
         if (this.hidden.delete(this.activeLayer)) pref.set('boardHidden', [...this.hidden]);
         this._routeMove(); this.refresh();
