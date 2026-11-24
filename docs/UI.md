@@ -82,6 +82,22 @@ There are four workspace tabs: **Schematic · Board · Gerber · Library**. Each
 - **Top bar pill:** when an Agent is connected, an accent pill ("Agent connected") sits next to the save state. Clicking it opens the Agent activity panel.
 - **Agent activity panel:** a floating panel, styled like the fork's dialogs, listing each tool call (time, tool, summary such as "place R1 (Resistor 0805)", result) with an Undo button. Edits also show the fork's toast briefly.
 
+## AI chat
+
+- **Opening it:** an **AI** button (sparkle icon) in the top bar toggles a **floating chat window**, styled like the fork's floating panels (`--panel`, `--border`, `--shadow`, radius 10). The window can be moved by its header and resized from its corners. Its position, size and open state are remembered, and it is available in every Workspace.
+- **Header:** the provider and model (a click opens a quick model switch), an **Ask before edits** toggle, New chat, and Close.
+- **Message list:** user messages and streamed replies. Each tool call shows as a compact chip such as "⚙ place_component R1 · Resistor 0805 ✓", which expands to show inputs and results. Edits made by a reply are grouped under it with an **Undo this reply** button. With Ask before edits on, proposed edits appear as **Edit cards** with Apply / Skip and an Apply all row.
+- **Input:** a multi-line box (Enter sends, Shift+Enter adds a new line), an **Attach view** button (adds a canvas screenshot thumbnail), and a Stop button while streaming.
+- **Footer:** a muted line, "Sends a Project summary and tool results to <provider>".
+- **Settings → AI:**
+  - a provider select (Anthropic, OpenAI, Google Gemini, Local / OpenAI-compatible);
+  - an API key field with show/hide and "Test connection";
+  - the model select, filled from the provider;
+  - effort (Anthropic) or temperature (others) where the provider supports it;
+  - the base URL for Local;
+  - "Remember on this device" (browser only, with its warning).
+  When no key is set, the chat window shows a one-click "Set up AI" prompt instead of the input.
+
 ## Canvas colours
 
 The canvas background is `--bg`. Grid lines and the paper/board frame use the Laser workspace's grid colours, and selection uses `--select`. Layer colours are fixed per layer and theme-aware:

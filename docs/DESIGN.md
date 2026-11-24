@@ -14,6 +14,7 @@ A schematic-capture and PCB-layout editor for 2- and 4-layer hobbyist boards. It
 | Interchange | Native `.ecad`. KiCad: read 6+, write 9 (`.kicad_sch`, `.kicad_pcb`, `.kicad_sym`, `.kicad_mod`). Eagle XML 6+ / Fusion Electronics: read and write (`.sch`, `.brd`, `.lbr`) | KiCad 5 legacy, Eagle binary, Altium, EasyEDA |
 | 3D | Board preview with three.js (reusing DabbleCAD's viewer): board, copper, silk, box bodies | STEP models |
 | Agents (MCP) | One MCP tool layer for Parts, Schematics, Boards and Fab output; headless `electrocad-mcp` (stdio, `.ecad` files) and a live server in the desktop app (ADR-0009) | Browser bridge, autorouting tool |
+| AI chat | Floating chat window in every Workspace; bring-your-own key for Anthropic, OpenAI, Gemini or a local/OpenAI-compatible endpoint; uses the same Agent tools (ADR-0010) | Voice, image generation |
 | Platforms | Browser and Electron desktop, both from M1 | Google Drive (reuse DabbleCAD's `drive.js`) |
 
 Non-goals: simulation, autorouting, multi-user real-time editing, and board-only design with no Schematic ([ADR-0002](adr/0002-schematic-is-the-source-of-truth-for-nets.md)).
@@ -214,7 +215,25 @@ Converters live in `io/kicad/*` and `io/eagle/*`, and each one returns `{ projec
 - **Errors:** every tool validates through the same commands as the UI. A failed call changes nothing and returns a precise, glossary-worded reason.
 - **Tests:** the tool layer is pure (Project in, Project plus result out), so it is tested on the core seam. One smoke test drives the headless server end to end, from creating a Part to generating Gerbers.
 
-## 12. Milestones
+## 12. AI chat
+
+[ADR-0010](adr/0010-in-app-ai-chat-bring-your-own-key.md). `src/renderer/ai/` holds the chat UI, and `src/ai/` holds the provider-neutral chat loop and the provider adapters. Both reuse the Agent tool layer from §11, so every tool added for MCP is automatically available in the chat.
+
+- **Chat loop:** provider-neutral. It sends the system prompt, the Agent tool definitions (JSON Schema, converted per provider), the conversation, and a compact **Project summary** for the current turn. The summary covers the Workspace, the selection, a count and list of Components, the Nets, and the ERC/DRC counts. The loop runs tool calls through the tool layer and streams text and tool-call chips into the window until the model stops. Read-only tools let the model fetch more detail. **Attach view** adds a PNG of the current canvas.
+- **Providers:** each adapter uses that provider's official SDK.
+  - **Anthropic:** `@anthropic-ai/sdk`, default model `claude-opus-5-5` (model picker; the list comes from the Models API). Streaming, adaptive thinking with effort `medium` (a setting), `strict` tool schemas with `tool_choice: auto`, prompt caching on the system prompt and tools, refusal handling (check `stop_reason`, with server-side fallbacks enabled).
+  - **OpenAI:** the official `openai` SDK, with a model picker.
+  - **Google Gemini:** the official `@google/genai` SDK, with a model picker.
+  - **Local / OpenAI-compatible:** the `openai` SDK pointed at a user-supplied base URL (Ollama, LM Studio…). No key is needed for local endpoints. The settings note that tool-calling quality depends on the model.
+- **Where calls run:**
+  - **Desktop:** in the Electron main process (the renderer sends the request over IPC), so keys stay in the main process. Keys are encrypted with `safeStorage`.
+  - **Browser:** directly from the page, using each SDK's explicit browser-access option. The CSP `connect-src` lists the provider hosts and `http://localhost:*`. Arbitrary remote OpenAI-compatible URLs are desktop-only. Keys are kept in memory unless "Remember on this device" is ticked, in which case they are stored in IndexedDB with a warning.
+- **Edits:** each edit tool call runs as `history.transact('AI: …')`, which is one undo step, and every reply has "Undo this reply". With **Ask before edits** on, edit calls are held as Edit cards (Apply / Skip / Apply all); read tools still run straight away.
+- **Errors:** tool errors go back to the model as tool results so it can correct itself. Provider errors (invalid key, rate limit, network) show inline with a retry, and nothing is applied.
+- **Privacy:** the window footer names the provider and model and states that the Project summary, the tool results and any attached views are sent to them. Nothing is sent until the user sends a message.
+- **Tests:** the chat loop is tested against a scripted fake provider (a fixed sequence of tool calls and text) on the core seam. Each adapter's request/response mapping is unit-tested with recorded fixtures. One smoke test runs the chat in the desktop app with the fake provider, from placing parts to undoing the reply.
+
+## 13. Milestones
 
 | # | Milestone | Done when |
 |---|---|---|
@@ -227,6 +246,6 @@ Converters live in `io/kicad/*` and `io/eagle/*`, and each one returns `{ projec
 | M7 | Interchange | KiCad (read 6+, write 9) and Eagle XML import/export of libraries, then schematics and boards, with loss reports |
 | M8 | Polish | 3D preview (three.js, a 2D \| 3D switch on the Board toolbar), Back annotation, "Update from Library" diff, Electron packaging like DabbleCAD |
 
-## 13. Open questions
+## 14. Open questions
 
 None at present. All earlier questions were settled in the design review of 2026-11-24 (see ADR-0005 and ADR-0006).

@@ -173,15 +173,26 @@ _Avoid_: CAM files, production files
 ### Agents
 
 **Agent**:
-An external AI client, such as Claude, that reads and edits a Project through ElectroCAD's MCP server.
+An AI that reads and edits a Project through the Agent tools: either an external client connected to ElectroCAD's MCP server, or the in-app AI chat.
 _Avoid_: Bot, assistant, AI (as a noun for the client)
 
 **Agent tool**:
-One domain-level operation the MCP server offers, such as `place_component` or `connect_pins`. Each call is one validated edit, and in the desktop app one undo step.
+One domain-level operation offered to Agents, through MCP and the AI chat alike, such as `place_component` or `connect_pins`. Each call is one validated edit, and in the desktop app one undo step.
 _Avoid_: Command, endpoint, API call
 
 **Agent activity**:
 The desktop app's log of Agent tool calls made on the open Project, each of which can be undone.
+
+**AI chat**:
+The in-app conversation window where the user talks to an AI model of their choosing, which acts as an Agent on the open Project.
+_Avoid_: Assistant, copilot, bot
+
+**AI provider**:
+The service that runs the AI chat's model: Anthropic, OpenAI, Google Gemini, or a local or OpenAI-compatible endpoint. The user supplies its API key.
+_Avoid_: Vendor, backend, LLM
+
+**Edit card**:
+A proposed Agent edit shown in the AI chat when "Ask before edits" is on. The user applies or skips it.
 
 ### Interchange
 
