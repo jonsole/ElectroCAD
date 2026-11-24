@@ -49,6 +49,27 @@ ed.selection = new Set([rect.id]); ed.refresh(); key('ArrowRight');
 check('moved', sheet().drawings.find((d) => d.type === 'rect').a[0] === 11 * G);
 key('z', { ctrlKey: true });
 check('undo', sheet().drawings.find((d) => d.type === 'rect').a[0] === 10 * G);
+// resize handles: drag the box's bottom-right corner
+const drag = (x0, y0, x1, y1) => {
+  const o = (x, y, buttons) => ({ ...pt(x, y), button: 0, buttons, bubbles: true, cancelable: true, pointerId: 14 });
+  ws.view.canvas.dispatchEvent(new PointerEvent('pointermove', o(x0, y0, 0)));
+  ws.view.canvas.dispatchEvent(new PointerEvent('pointerdown', o(x0, y0, 1)));
+  ws.view.canvas.dispatchEvent(new PointerEvent('pointermove', o((x0 + x1) / 2, (y0 + y1) / 2, 1)));
+  ws.view.canvas.dispatchEvent(new PointerEvent('pointermove', o(x1, y1, 1)));
+  ws.view.canvas.dispatchEvent(new PointerEvent('pointerup', o(x1, y1, 0)));
+};
+ed.setTool('select');
+ed.selection = new Set([rect.id]); ed.refresh();
+check('handles', ed._handles().length === 8);
+drag(40, 30, 45, 35);
+const resized = sheet().drawings.find((d) => d.type === 'rect');
+check('resized', resized.b[0] === 45 * G && resized.b[1] === 35 * G && resized.a[0] === 10 * G, [resized.a, resized.b]);
+// a line's end handle
+const ln = sheet().drawings.find((d) => d.type === 'line');
+ed.selection = new Set([ln.id]); ed.refresh();
+drag(50, 20, 50, 25);
+check('line-end', sheet().drawings.find((d) => d.type === 'line').pts[1][1] === 25 * G, sheet().drawings.find((d) => d.type === 'line').pts);
+ed.selection.clear(); ed.refresh();
 // Sheet setup: A3 portrait, title block fields; the frame follows
 ed.sheetSetup();
 const modalEl = document.querySelector('.modal');

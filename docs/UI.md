@@ -127,6 +127,12 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
   - **Circle (C):** click the centre, then the edge.
   - **Arc (A):** click the start, a point on the arc, then the end.
 - **Editing:** markup selects, moves, copies, rotates (R; text turns between 0° and 90°), deletes and box-selects with everything else.
+- **Resize handles:** select one shape (not text) to show its handles. Each handle snaps to half a grid.
+  - Rectangle: square handles on the corners and sides; dragging past the opposite side flips the rectangle.
+  - Circle: four handles that set the radius.
+  - Arc: its two ends, plus a round handle in the middle. Moving an end keeps the arc's shape; the middle handle bends it.
+  - Line: one handle per point. A two-point line also has a round handle in the middle that moves it square to itself.
+  - The pointer changes over a handle. One drag is one undo step.
 - **Inspector:**
   - text: content, size, alignment, rotation, bold, italic;
   - lines and shapes: solid, dashed or dotted, arrows at either end of a line, and a light fill for rectangles and circles.
@@ -256,7 +262,10 @@ The Board tab (#15) edits the board's layer stack and its Outline. Footprints, T
   - The shape follows the cursor as a dashed preview. **Esc** cancels it, and a second Esc returns to Select.
 - **M, Measure:** click two points. A label shows the distance and dx/dy in mm.
 - **Select (V):**
-  - Click an outline shape to select it; Shift-click adds to the selection.
+  - Click an outline shape to select it; Shift-click adds to the selection. A new rectangle or polygon starts with all its pieces selected; click one to pick it out.
+  - **Resize handles** appear on a single selected shape, the same handles as schematic markup, snapping to 0.5 mm. The Outline stays closed:
+    - moving an end also moves the neighbouring end that meets it;
+    - a straight side's round middle handle moves the side square to itself. A rounded corner next to it moves with it unchanged, and the side beyond the corner stretches. Dragging a rounded rectangle's side therefore resizes it and keeps the corners round.
   - Drag to move the selection, or nudge it 0.5 mm with the arrow keys.
   - **Del** deletes it.
   - PROPERTIES shows the selected shape: width and height for a rectangle, diameter for a circle, end points for a line or arc.

@@ -61,6 +61,31 @@ document.querySelector('[data-ws="board"] .ll-row[data-layer="F.Cu"]').click();
 check('active-shown', ed.activeLayer === 'F.Cu' && !ed.hidden.has('F.Cu'));
 document.querySelector('[data-ws="board"] .ll-row[data-layer="B.SilkS"] .mini').click();
 // refusing 2 layers while inner layers are used is covered by unit tests; here 2 → 4 → keep 4
+// resize handles: drag the rounded rectangle's right side out 10 mm; corners stay round, loop closed
+const drag = (x0, y0, x1, y1) => {
+  const o = (x, y, buttons) => ({ ...pt(x, y), button: 0, buttons, bubbles: true, cancelable: true, pointerId: 13 });
+  ws.view.canvas.dispatchEvent(new PointerEvent('pointermove', o(x0, y0, 0)));
+  ws.view.canvas.dispatchEvent(new PointerEvent('pointerdown', o(x0, y0, 1)));
+  ws.view.canvas.dispatchEvent(new PointerEvent('pointermove', o((x0 + x1) / 2, (y0 + y1) / 2, 1)));
+  ws.view.canvas.dispatchEvent(new PointerEvent('pointermove', o(x1, y1, 1)));
+  ws.view.canvas.dispatchEvent(new PointerEvent('pointerup', o(x1, y1, 0)));
+};
+key('v');
+const right = board().outline.findIndex((s) => s.type === 'line' && s.pts[0][0] === 50 * MM && s.pts[1][0] === 50 * MM);
+ed.selection = new Set([right]); ed.refresh();
+check('handles', ed._handles().length === 3, ed._handles().length);
+drag(50, 20, 60, 20);
+const rr = board().outline.slice(0, 8);
+const xs = rr.flatMap((s) => (s.pts || [s.start, s.end]).map((q) => q[0]));
+check('side-resized', Math.max(...xs) === 60 * MM, Math.max(...xs));
+check('still-closed', /Outline closed · 100 × 40 mm/.test(document.querySelector('[data-ws="board"] .outline-state').textContent), document.querySelector('[data-ws="board"] .outline-state').textContent);
+// the hole's handle sets its radius
+const hole = board().outline.findIndex((s) => s.type === 'circle');
+ed.selection = new Set([hole]); ed.refresh();
+drag(11.5, 10, 13, 10);
+check('hole-radius', board().outline[hole].r === 3 * MM, board().outline[hole].r);
+key('z', { ctrlKey: true });
+check('hole-undo', board().outline[hole].r === 1.5 * MM);
 // the Board's view is kept across tabs
 const view = JSON.stringify(ws.view.view.toJSON());
 app.setWorkspace('schematic'); await new Promise((r2) => requestAnimationFrame(r2)); app.setWorkspace('board');

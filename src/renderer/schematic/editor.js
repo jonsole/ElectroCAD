@@ -9,6 +9,8 @@ import { allFootprints } from '../library/footprints.js';
 import { addDrawing, toggleNoConnect, hitNoConnect, placedUnits, unitSuggestion, nextUnplacedUnit, unitLetter, placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, addLabel, addSheet, renameSheet, moveSheet, deleteSheet, validateSheetName, hitWire, preferredAxis, routeWire, moveSelection, copySelection, pasteClip, itemsInRect, itemsBounds, cleanupWires } from '../core/schematic.js';
 import { buildNetlist } from '../core/netlist.js';
 import { runErc, filterViolations } from '../core/erc.js';
+import { shapeHandles, hitHandle, dragHandle } from '../core/handles.js';
+import { drawHandles } from '../view/handles.js';
 import { hitDrawing, drawingDefaults, paperRect, titleBlockLayout, PAPER_SIZES, TITLE_FIELDS, LINE_STYLES } from '../core/drawings.js';
 import { pinPositions, nextRef, partOf } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
@@ -567,6 +569,12 @@ export class SchematicEditor {
         return;
       }
       const tol = 4 / ws.view.view.scale;
+      const handle = !e.shiftKey && this._handleAt(world, 5 / ws.view.view.scale);
+      if (handle) {
+        this.handleDrag = { ...handle, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.project), moved: false };
+        try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+        return;
+      }
       const fieldHit = this.placement && hitField(this.project, this.placement, world, tol / 2, measureText);
       // pressing on a field and dragging moves that field by hand (it becomes pinned, #53)
       if (fieldHit && !e.shiftKey && !hitSymbol(this.project, this.sheet, world, 0)) {
@@ -607,6 +615,15 @@ export class SchematicEditor {
     });
     c.addEventListener('pointerup', (e) => {
       if (e.button !== 0) return;
+      if (this.handleDrag) {
+        const d = this.handleDrag;
+        this.handleDrag = null;
+        const pv = this.preview; this.preview = null;
+        const nd = pv && this._S(pv).drawings.find((x) => x.id === d.id);
+        if (d.moved && nd) this.app.edit(`Resize ${nd.type === 'line' ? 'line' : nd.type}`, (p) => { const ds = this._S(p).drawings; const i = ds.findIndex((x) => x.id === d.id); if (i >= 0) ds[i] = structuredClone(nd); });
+        this.refresh();
+        return;
+      }
       if (this.fieldDrag) {
         const d = this.fieldDrag;
         this.fieldDrag = null; this.preview = null;
@@ -639,6 +656,21 @@ export class SchematicEditor {
       this.cursor = snapPt(world, SCH_GRID);
       this.cursorRaw = world; // markup snaps to half a grid
       if (this.tool !== 'select') ws.view.invalidate();
+      if (this.handleDrag && (e.buttons & 1)) {
+        const d = this.handleDrag;
+        if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 3) return;
+        d.moved = true;
+        const pv = structuredClone(d.snapshot);
+        const ds = this._S(pv).drawings, i = ds.findIndex((x) => x.id === d.id);
+        ds[i] = dragHandle(ds[i], d.key, snapPt(world, SCH_GRID / 2));
+        this.preview = pv;
+        ws.view.invalidate();
+        return;
+      }
+      if (this.tool === 'select' && !e.buttons && !this.placing) {
+        const h = this._handleAt(world, 5 / ws.view.view.scale);
+        if (h) { c.style.cursor = h.cursor; this._onHandle = true; } else if (this._onHandle) { c.style.cursor = ''; this._onHandle = false; }
+      }
       if (this.fieldDrag && (e.buttons & 1)) {
         const d = this.fieldDrag;
         if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < DRAG_START_PX) return;
@@ -717,6 +749,7 @@ export class SchematicEditor {
     drawSheet(ctx, view, C, proj, sheet, { selection: this.selection, ghost, bounds: (s) => symbolBounds(proj, s), wiring, target, placement: this.placement, display: this.app.schematicDisplay(), ghostLabel,
       erc: this.ercOpen ? (this.ercShown || []).filter((x) => x.sheetId === sheet.id && x.severity !== 'info') : null, ercFocus: this.ercFocus,
       ghostDrawing: this._ghostDrawing() });
+    drawHandles(ctx, view, C, this._handles(), this.handleDrag?.key);
     if (this.marquee && (this.marquee.a[0] !== this.marquee.b[0] || this.marquee.a[1] !== this.marquee.b[1])) {
       const m = this.marquee;
       const [x0, y0] = view.toScreen(m.a), [x1, y1] = view.toScreen(m.b);
@@ -899,6 +932,23 @@ export class SchematicEditor {
     if (!v) return;
     const r = paperRect(this.sheet);
     if (!v.frame || v.frame.x1 !== r.x1 || v.frame.y1 !== r.y1) { v.frame = r; v.home = r; v.invalidate(); }
+  }
+
+  /** The one selected markup shape (not text), or null: it shows resize handles. */
+  _handleDrawing(proj = this.project) {
+    if (this.tool !== 'select' || this.placing || this.selection.size !== 1 || this.drag?.moved) return null;
+    const id = [...this.selection][0];
+    const d = (this._S(proj).drawings || []).find((x) => x.id === id);
+    return d && d.type !== 'text' ? d : null;
+  }
+
+  _handles() { const d = this._handleDrawing(this.preview || this.project); return d ? shapeHandles(d) : []; }
+
+  /** The handle under `w`, as { id, key, cursor }, or null. */
+  _handleAt(w, tol) {
+    const d = this._handleDrawing();
+    const h = d && hitHandle(d, w, tol);
+    return h ? { id: d.id, key: h.key, cursor: h.cursor } : null;
   }
 
   _drawClick(world, dbl) {

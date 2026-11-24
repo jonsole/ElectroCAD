@@ -12,6 +12,8 @@ import {
   rectOutline, circleOutline, polygonOutline, checkOutline, outlineBounds, hitOutline, moveOutline,
 } from '../core/board.js';
 import { drawBoard } from './render.js';
+import { shapeHandles, hitHandle, dragOutlineHandle } from '../core/handles.js';
+import { drawHandles } from '../view/handles.js';
 
 export const BOARD_GRID = mm(0.5);
 const snap = (v, g = BOARD_GRID) => Math.round(v / g) * g;
@@ -204,7 +206,8 @@ export class BoardEditor {
       case 'circle': t = p ? 'Circle: click a point on the edge' : 'Circle: click the centre (a round board, or a hole inside the board)'; break;
       case 'measure': t = this.measure && !this.measure.done ? 'Measure: click the second point' : 'Measure: click two points · Esc to stop'; break;
       default: t = this.board.outline.length
-        ? 'Click an outline shape to select it, drag to move · Del delete · arrows nudge 0.5 mm · O, P, C draw more outline'
+        ? (this.selection.size === 1 ? 'Drag a handle to resize (a side handle moves that side; corners stay round) · drag the shape to move · Del delete · arrows nudge 0.5 mm'
+          : 'Click an outline shape to select it, drag to move · Del delete · arrows nudge 0.5 mm · O, P, C draw more outline')
         : 'No board yet: draw the Outline with O (rectangle), P (polygon) or C (round), then use Annotate (coming in #16) to bring Components over.';
     }
     this.ws.hint.textContent = t;
@@ -275,12 +278,18 @@ export class BoardEditor {
       const w = world(e);
       if (this.tool === 'select') {
         const tol = 5 / ws.view.view.scale;
+        const handle = this._handleAt(w, tol);
+        if (handle && !e.shiftKey) {
+          this.handleDrag = { ...handle, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), moved: false };
+          try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+          return;
+        }
         const hit = this.hidden.has('Edge.Cuts') ? null : hitOutline(this.board.outline, w, tol);
         const i = hit ? this.board.outline.indexOf(hit) : -1;
         if (e.shiftKey && hit) { if (this.selection.has(i)) this.selection.delete(i); else this.selection.add(i); this.refresh(); return; }
         if (hit) {
           if (!this.selection.has(i)) this.selection = new Set([i]);
-          this.drag = { start: w, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), moved: false, delta: [0, 0] };
+          this.drag = { start: w, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), moved: false, delta: [0, 0], only: i };
           try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
         } else this.selection.clear();
         this.refresh();
@@ -291,6 +300,15 @@ export class BoardEditor {
     c.addEventListener('pointermove', (e) => {
       const w = world(e);
       this.cursor = snapPt(w);
+      if (this.handleDrag && (e.buttons & 1)) {
+        const d = this.handleDrag;
+        if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 3) return;
+        d.moved = true;
+        this.preview = dragOutlineHandle(d.snapshot, d.index, d.key, this.cursor);
+        ws.view.invalidate();
+        return;
+      }
+      if (this.tool === 'select' && !e.buttons) c.style.cursor = this._handleAt(w, 5 / ws.view.view.scale)?.cursor || '';
       if (this.drag && (e.buttons & 1)) {
         const d = this.drag;
         if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 4) return;
@@ -306,15 +324,39 @@ export class BoardEditor {
       }
     });
     const up = () => {
+      if (this.handleDrag) {
+        const d = this.handleDrag; this.handleDrag = null;
+        const result = this.preview; this.preview = null;
+        if (d.moved && result && JSON.stringify(result) !== JSON.stringify(d.snapshot)) this.edit('Resize outline', (o, p) => { p.board.outline = result; });
+        else this.refresh();
+        return;
+      }
       if (!this.drag) return;
       const d = this.drag; this.drag = null; this.preview = null;
       if (d.moved && (d.delta[0] || d.delta[1])) this.nudge(...d.delta);
-      else this.refresh();
+      else { if (!d.moved) this.selection = new Set([d.only]); this.refresh(); } // a click picks one shape out of a group
     };
     c.addEventListener('pointerup', up);
     c.addEventListener('pointercancel', up);
     c.addEventListener('pointerleave', () => { if (this.tool !== 'select') { this.cursor = null; ws.view.invalidate(); } });
     this.refresh();
+  }
+
+  /** The handles shown: those of the one selected outline shape (on the preview while dragging). */
+  _handles() {
+    if (this.tool !== 'select' || this.selection.size !== 1 || this.hidden.has('Edge.Cuts') || this.drag?.moved) return [];
+    const i = [...this.selection][0];
+    const s = (this.preview || this.board.outline)[i];
+    return s ? shapeHandles(s) : [];
+  }
+
+  /** The handle under `w`, as { index, key, cursor }, or null. */
+  _handleAt(w, tol) {
+    if (this.tool !== 'select' || this.selection.size !== 1 || this.hidden.has('Edge.Cuts')) return null;
+    const index = [...this.selection][0];
+    const s = this.board.outline[index];
+    const h = s && hitHandle(s, w, tol);
+    return h ? { index, key: h.key, cursor: h.cursor } : null;
   }
 
   /** A click of a drawing tool at grid point `p`. */
@@ -378,6 +420,7 @@ export class BoardEditor {
   draw(ctx, view, C) {
     const board = this.preview ? { ...this.board, outline: this.preview } : this.board;
     drawBoard(ctx, view, C, board, { hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure });
+    drawHandles(ctx, view, C, this._handles(), this.handleDrag?.key);
   }
 
   // ---------------------------------------------------------------- keys
