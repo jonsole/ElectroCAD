@@ -2,6 +2,7 @@ import { App } from './app.js';
 import * as project from './core/project.js';
 import * as units from './core/units.js';
 import * as netlist from './core/netlist.js';
+import * as labels from './core/labels.js';
 import * as schematic from './core/schematic.js';
 
 // The app has its own menus; keep the browser's right-click menu off the canvas and
@@ -14,7 +15,7 @@ document.addEventListener('contextmenu', (e) => {
 
 const app = new App();
 window.electrocad = app; // used by the smoke tests
-window.electrocadLib = { project, units, netlist, schematic };
+window.electrocadLib = { project, units, netlist, schematic, labels };
 app.init().catch((err) => {
   console.error(err);
   const boot = document.getElementById('boot');

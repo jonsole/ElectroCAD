@@ -183,6 +183,7 @@ export class SchematicInspector {
     const rename = (v) => {
       const bad = validateLabelName(v);
       if (bad) return bad;
+      if (l.style === 'power') this.ed.nextName.power = v.trim();
       return this._edit(`Rename ${l.net} to ${v.trim()}`, (p) => { this._find(p, l.id).net = v.trim(); });
     };
     const name = this._text('Net name', l.net, rename);

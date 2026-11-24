@@ -46,29 +46,49 @@ click(pin(a.sym, '1'));
 check('ground', netOf('R1', '1')?.name === 'GND');
 key('Escape');
 check('back-to-select', ed.tool === 'select');
+// P: a Power symbol goes down at once with the last power net (+5V the first time), no name box
+const c = put(40, 52);
+key('p');
+click(pin(c.sym, '2'));
+check('power-placed-at-once', !document.querySelector('.field-edit.label-edit') && netOf('R2', '2')?.name === '+5V', netOf('R2', '2'));
+key('Escape');
+// double-click its name to choose another power net; the next one uses it
+ws.view.draw();
+const pl = app.project.schematic.sheets[0].labels.find((l) => l.net === '+5V');
+const bb = window.electrocadLib.labels.labelBounds(pl);
+{ const r = ws.view.canvas.getBoundingClientRect(); const [x, y] = ws.view.view.toScreen([(bb.x0 + bb.x1) / 2, bb.y0 + (bb.y1 - bb.y0) * 0.2]);
+  ws.view.canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: r.left + x, clientY: r.top + y, bubbles: true, cancelable: true })); }
+const pbox = document.querySelector('.field-edit.label-edit');
+check('power-dblclick-opens', !!pbox && pbox.value === '+5V' && !!document.getElementById(pbox.getAttribute('list'))?.querySelector('option[value="+3V3"]'));
+if (pbox) { pbox.value = '+3V3'; pbox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); }
+check('power-renamed', netOf('R2', '2')?.name === '+3V3');
+key('p');
+click(pin(c.sym, '1'));
+check('power-uses-last', netOf('R2', '1')?.name === '+3V3', netOf('R2', '1'));
+key('Escape');
 
 // a second Sheet from the bottom bar's +
 document.querySelector('.chip-add').click();
 check('sheet-added', app.project.schematic.sheets.length === 2 && ed.sheet === app.project.schematic.sheets[1]);
 check('chips', document.querySelectorAll('.bottom-bar .text-chip:not(.chip-add)').length === 2);
 const b = put(40, 40);
-check('placed-on-sheet-2', app.project.schematic.sheets[1].symbols.length === 1 && app.project.schematic.sheets[0].symbols.length === 1);
+check('placed-on-sheet-2', app.project.schematic.sheets[1].symbols.length === 1 && app.project.schematic.sheets[0].symbols.length === 2);
 key('l');
 click(pin(b.sym, '2'));
 const box3 = document.querySelector('.field-edit.label-edit');
 box3.value = 'EN';
 box3.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-check('local-stays-separate', netOf('R1', '2').pins.length === 1 && netOf('R2', '2').pins.length === 1);
+check('local-stays-separate', netOf('R1', '2').pins.length === 1 && netOf('R3', '2').pins.length === 1);
 // the inspector makes it Global: now one EN Net across both Sheets
 key('Escape');
 ed.selection = new Set([app.project.schematic.sheets[1].labels[0].id]); ed.refresh();
 const scope = document.querySelector('.inspector select[aria-label="Label scope"]');
 scope.value = 'global'; scope.dispatchEvent(new Event('change'));
 app.edit('global on sheet 1', (p) => { p.schematic.sheets[0].labels.find((l) => l.net === 'EN').scope = 'global'; });
-check('global-joins', netOf('R1', '2').pins.map((x) => x.ref).join() === 'R1,R2', netOf('R1', '2'));
+check('global-joins', netOf('R1', '2').pins.map((x) => x.ref).join() === 'R1,R3', netOf('R1', '2'));
 // GND on Sheet 2 joins GND on Sheet 1
 app.edit('gnd 2', (p) => window.electrocadLib.schematic.addLabel(p, p.schematic.sheets[1], { at: pin(b.sym, '1'), net: 'GND', style: 'gnd' }));
-check('power-joins', netOf('R2', '1').pins.map((x) => x.ref).join() === 'R1,R2');
+check('power-joins', netOf('R3', '1').pins.map((x) => x.ref).join() === 'R1,R3');
 // switch Sheets with the chips
 document.querySelector('.bottom-bar .text-chip[data-sheet]').click();
 check('switched', ed.sheet === app.project.schematic.sheets[0]);

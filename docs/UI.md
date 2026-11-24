@@ -92,8 +92,8 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 
 ## Labels, Power symbols and Sheets
 
-- **Net label (L)**, **Global label (Ctrl+L)**, **Power symbol (P)** and **Ground (G)** are tools in the left palette. A ghost follows the cursor; R turns it. Clicking a Pin, a Wire (end or middle) or a grid point opens a name box there; Enter places, Esc cancels. Ground goes down at once as GND. A name with spaces is refused in the box, like a bad Reference.
-- The name box offers the net names already in the Project (Power symbols also offer +3V3, +5V, VCC…). After a Net label the next one offers the name with its number bumped (D0 → D1).
+- **Net label (L)**, **Global label (Ctrl+L)**, **Power symbol (P)** and **Ground (G)** are tools in the left palette. A ghost follows the cursor; R turns it. Clicking a Pin, a Wire (end or middle) or a grid point opens a name box there; Enter places, Esc cancels. Ground goes down at once as GND, and a Power symbol goes down at once with the last power net used (+5V the first time). Double-click a power symbol's name to pick another net from the list (+3V3, +5V, VCC… and the Project's own); the next Power symbol then uses that net. A name with spaces is refused in the box, like a bad Reference.
+- The name box offers the net names already in the Project. After a Net label the next one offers the name with its number bumped (D0 → D1).
 - Text stays readable: Net and Global labels turned 180° or 270° read left-to-right or bottom-to-top, sitting on the other side of their point. Power symbols turn freely with upright text.
 - Labels select, move, copy, rotate and delete with everything else. A label sitting on a Wire that moves goes with it. Double-click a label to rename it. The inspector edits the name, whether it joins on this sheet only or every sheet, and its rotation.
 - Net names: Power symbol beats Global label beats Net label beats the generated `Net-(R1-Pad2)`. Local labels named alike on two Sheets are two Nets, shown as `Sheet 1/EN` and `Sheet 2/EN`. Two different names on one Net are kept for ERC (#11).

@@ -49,7 +49,7 @@ export class SchematicEditor {
     this.parts = MINI_LIBRARY;
     this.sheetId = null;  // the Sheet being edited
     this.labelRot = 0;    // rotation of the label tool's ghost
-    this.nextName = { label: 'NET1', power: '+5V' }; // what the label tools offer next
+    this.nextName = { label: 'NET1', power: null }; // what the label tools offer next
     this.sheetsOpen = false;
   }
 
@@ -224,6 +224,8 @@ export class SchematicEditor {
       const t = LABEL_TOOLS[this.tool];
       text = this.tool === 'ground'
         ? 'Ground: click a Pin or Wire to add GND · R rotate · Esc back to Select'
+        : this.tool === 'power'
+        ? `Power: click a Pin or Wire to add ${this._powerName()} · double-click a power symbol's name to pick another net · R rotate · Esc back to Select`
         : `${t.what}: click a Pin, a Wire or a grid point, then type the net name and press Enter · R rotate · Esc back to Select`;
     }
     else if (this.placing) text = `Placing ${this.placing.part.name}: ${this.placing.drag ? 'release on the sheet to place' : 'click to place, keep clicking for more'} · R rotate · X mirror · Esc ${this.placing.drag ? 'cancel' : 'stop'}`;
@@ -343,7 +345,7 @@ export class SchematicEditor {
     }
     const t = LABEL_TOOLS[this.tool];
     const ghostLabel = t && this.cursor && !this.labelEdit
-      ? { id: 'ghost', at: this.cursor, rot: this.labelRot, style: t.style, scope: t.scope, net: this.tool === 'ground' ? 'GND' : this.tool === 'power' ? this.nextName.power : this.nextName.label }
+      ? { id: 'ghost', at: this.cursor, rot: this.labelRot, style: t.style, scope: t.scope, net: this.tool === 'ground' ? 'GND' : this.tool === 'power' ? this._powerName() : this.nextName.label }
       : null;
     const proj = this.preview || this.project;
     const sheet = this._S(proj);
@@ -602,13 +604,22 @@ export class SchematicEditor {
     if (this.labelEdit) { this.labelEdit.commit(); return; }
     const t = LABEL_TOOLS[this.tool];
     const spec = { at, rot: this.labelRot, style: t.style, scope: t.scope };
-    if (this.tool === 'ground') {
-      const l = this.app.edit('Place GND', (p) => addLabel(p, this._S(p), { ...spec, net: 'GND' }));
+    // Ground and Power symbols go down at once: GND, or the last power net used (double-click to change it)
+    if (this.tool === 'ground' || this.tool === 'power') {
+      const net = this.tool === 'ground' ? 'GND' : this._powerName();
+      const l = this.app.edit(`Place ${net}`, (p) => addLabel(p, this._S(p), { ...spec, net }));
       this.selection = new Set([l.id]);
       this.refresh();
       return;
     }
-    this.editLabel({ spec: { ...spec, net: this.tool === 'power' ? this.nextName.power : this.nextName.label } });
+    this.editLabel({ spec: { ...spec, net: this.nextName.label } });
+  }
+
+  /** The power net the Power tool places: the last one used or chosen, else the Project's latest, else +5V. */
+  _powerName() {
+    if (this.nextName.power) return this.nextName.power;
+    const all = this.project.schematic.sheets.flatMap((s) => (s.labels || []).filter((l) => l.style === 'power'));
+    return all.length ? all[all.length - 1].net : '+5V';
   }
 
   /**
@@ -647,6 +658,7 @@ export class SchematicEditor {
       if (bad) { input.classList.add('bad'); tip.classList.remove('note'); tip.textContent = bad; input.focus(); return false; }
       if (label) {
         this.app.edit(`Rename ${original} to ${name}`, (p) => { const x = (this._S(p).labels || []).find((y) => y.id === label.id); if (x) x.net = name; });
+        if (label.style === 'power') this.nextName.power = name; // the next Power symbol uses it
       } else {
         const placed = this.app.edit(`Place ${name}`, (p) => addLabel(p, this._S(p), { ...spec, net: name }));
         this.selection = new Set([placed.id]);
