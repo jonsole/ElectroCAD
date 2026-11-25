@@ -381,7 +381,7 @@ export const ECAD_SCHEMA = {
             },
             "generated": {
               "type": "boolean",
-              "description": "A courtyard an importer made because the library had none (#67): DRC reports its overlaps as warnings."
+              "description": "A courtyard an importer made because the library had none (#67; older Eagle imports): DRC reports its overlaps as warnings."
             },
             "layer": {
               "type": "string"

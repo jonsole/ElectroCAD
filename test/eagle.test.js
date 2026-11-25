@@ -364,50 +364,40 @@ test('plain Eagle labels come over as text on the wire, xref labels as flags, bo
   assert.ok(ls.every((l) => !l.showRefs || (l.scope === 'global' && look(l) === 'flag')));
 });
 
-test('courtyards (#67): a package\'s keepout outline wins; otherwise one round pads and fab only, marked generated', () => {
+test('courtyards (#67): a package\'s keepout outline is its courtyard; without one it has none', () => {
   const withKeepout = parseXml('<package name="K"><smd name="1" x="-1" y="0" dx="1" dy="1" layer="1"/><smd name="2" x="1" y="0" dx="1" dy="1" layer="1"/><wire x1="-2" y1="-1" x2="2" y2="-1" width="0" layer="39"/><wire x1="2" y1="-1" x2="2" y2="1" width="0" layer="39"/><wire x1="2" y1="1" x2="-2" y2="1" width="0" layer="39"/><text x="-5" y="5" size="1" layer="25">&gt;NAME</text></package>');
   const a = packageToFootprint(withKeepout, { report: new Report() }).graphics.filter((g) => /CrtYd/.test(g.layer || ''));
   assert.equal(a.length, 1);
   assert.deepEqual([a[0].a, a[0].b], [[-mm(2), -mm(1)], [mm(2), mm(1)]], 'the keepout box (pads inside it)');
   assert.ok(!a[0].generated);
-  // no keepout: pads and fab drawing, 0.25 mm out; silk and its text (far off) don't count
+  // no keepout: no courtyard, whatever the fab or silk draw
   const plain = parseXml('<package name="P"><smd name="1" x="-1" y="0" dx="1" dy="1" layer="1"/><smd name="2" x="1" y="0" dx="1" dy="1" layer="1"/><wire x1="-8" y1="3" x2="8" y2="3" width="0.2" layer="21"/><wire x1="-1.8" y1="0" x2="1.8" y2="0" width="0.1" layer="51"/></package>');
-  const b = packageToFootprint(plain, { report: new Report() }).graphics.find((g) => /CrtYd/.test(g.layer || ''));
-  assert.equal(b.generated, true);
-  assert.deepEqual([b.a, b.b], [[-mm(2.05), -mm(0.75)], [mm(2.05), mm(0.75)]]);
+  assert.ok(!packageToFootprint(plain, { report: new Report() }).graphics.some((g) => /CrtYd/.test(g.layer || '')));
+  const tp = parseXml('<package name="TP"><pad name="1" x="0" y="0" drill="0.8" diameter="1.3"/><circle x="0" y="0" radius="1" width="0.1" layer="51"/></package>');
+  assert.ok(!packageToFootprint(tp, { report: new Report() }).graphics.some((g) => /CrtYd/.test(g.layer || '')));
 });
 
-test('courtyards: a single round pad (a test point) gets a round one, as does a round keepout', async () => {
+test('courtyards: a round keepout stays round', async () => {
   const { courtyardBounds } = await import('../src/renderer/core/footprint.js');
-  const tp = parseXml('<package name="TP"><pad name="1" x="0" y="0" drill="0.8" diameter="1.3"/><circle x="0" y="0" radius="1" width="0.1" layer="51"/></package>');
-  const fp = packageToFootprint(tp, { report: new Report() });
-  const c = fp.graphics.find((g) => /CrtYd/.test(g.layer || ''));
-  assert.equal(c.type, 'circle');
-  assert.equal(c.generated, true);
-  assert.deepEqual(c.c, [0, 0]);
-  assert.equal(c.r, mm(1.25), 'round the fab circle, 0.25 mm out');
-  assert.deepEqual(courtyardBounds(fp), { a: [-mm(1.25), -mm(1.25)], b: [mm(1.25), mm(1.25)] });
-  // a pad alone
-  const bare = packageToFootprint(parseXml('<package name="V"><pad name="1" x="1" y="0" drill="0.4" diameter="0.8"/></package>'), { report: new Report() });
-  const d = bare.graphics.find((g) => /CrtYd/.test(g.layer || ''));
-  assert.deepEqual([d.type, d.c, d.r], ['circle', [mm(1), 0], mm(0.65)]);
-  // a keepout circle is used as it is
   const k = packageToFootprint(parseXml('<package name="K"><smd name="1" x="0" y="0" dx="1" dy="1" layer="1"/><circle x="0" y="0" radius="2" width="0" layer="39"/></package>'), { report: new Report() });
   const e = k.graphics.find((g) => /CrtYd/.test(g.layer || ''));
   assert.deepEqual([e.type, e.r, !!e.generated], ['circle', mm(2), false]);
+  assert.deepEqual(courtyardBounds(k), { a: [-mm(2), -mm(2)], b: [mm(2), mm(2)] });
 });
 
-test('courtyards (#67): overlaps of generated courtyards are warnings, of drawn ones errors', async () => {
+test('courtyards (#67): overlaps of generated courtyards (from older imports) are warnings, of drawn ones errors', async () => {
   const { runDrc } = await import('../src/renderer/core/drc.js');
   const { project } = importEagle({ sch: SCH, brd: BRD, name: 'reg' });
   const b = project.board;
+  const fps = [...Object.values(project.parts).flatMap((part) => Object.values(part.footprints || {})), ...Object.values(project.footprints).map((f) => f.footprint)];
+  const yard = (generated) => { for (const fp of fps) { fp.graphics = fp.graphics.filter((g) => !/CrtYd/.test(g.layer || '')); fp.graphics.push({ type: 'rect', layer: 'F.CrtYd', a: [-mm(2), -mm(2)], b: [mm(2), mm(2)], ...(generated ? { generated: true } : {}) }); } };
   // put two footprints on top of each other
   b.footprints[1].at = [...b.footprints[0].at]; b.footprints[1].side = b.footprints[0].side;
+  yard(true);
   const v = runDrc(project).filter((x) => x.rule === 'courtyard');
   assert.ok(v.length >= 1);
   assert.ok(v.every((x) => x.severity === 'warning' && /made by the import/.test(x.message)), JSON.stringify(v.map((x) => [x.severity, x.message])));
-  // a drawn courtyard: an error
-  for (const part of Object.values(project.parts)) for (const fp of Object.values(part.footprints || {})) for (const g of fp.graphics) delete g.generated;
-  for (const f of Object.values(project.footprints)) for (const g of f.footprint.graphics) delete g.generated;
-  assert.ok(runDrc(project).filter((x) => x.rule === 'courtyard').every((x) => x.severity === 'error'));
+  yard(false);
+  const e = runDrc(project).filter((x) => x.rule === 'courtyard');
+  assert.ok(e.length >= 1 && e.every((x) => x.severity === 'error'));
 });

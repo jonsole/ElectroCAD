@@ -117,10 +117,9 @@ export function packageToFootprint(pkg, { report = new Report(), rules = DEFAULT
   }
   const graphics = shapes(pkg, (L) => (PACKAGE_LAYER[L] ?? null),
     (t, L) => (t === '>NAME' || t === '>name' ? '${REF}' : t === '>VALUE' || t === '>value' ? '${VALUE}' : L === 25 || L === 27 ? null : t), report, { anchored: true });
-  // the courtyard (#67): the package's own keepout outline (tKeepout/bKeepout, layers 39/40) round
-  // its pads when it has one; else one made round the pads and the fab (body) drawing, 0.25 mm out,
-  // marked generated (silk text and logos reach far, so they don't count): DRC reports the overlaps
-  // of generated courtyards as warnings
+  // the courtyard (#67): the package's own keepout outline (tKeepout/bKeepout, layers 39/40), Eagle's
+  // equivalent, round its pads; a keepout that is just a circle stays round. A package without one
+  // gets none (Eagle doesn't check it either)
   const extent = (list) => {
     const xs = [], ys = [];
     for (const p of pads) { xs.push(p.at[0] - p.size[0] / 2, p.at[0] + p.size[0] / 2); ys.push(p.at[1] - p.size[1] / 2, p.at[1] + p.size[1] / 2); }
@@ -129,33 +128,15 @@ export function packageToFootprint(pkg, { report = new Report(), rules = DEFAULT
       const q = g.pts || (g.type === 'rect' ? [g.a, g.b] : g.type === 'circle' ? [[g.c[0] - g.r, g.c[1] - g.r], [g.c[0] + g.r, g.c[1] + g.r]] : g.type === 'arc' ? [g.start, g.mid, g.end] : []);
       for (const [x, y] of q) { xs.push(x); ys.push(y); }
     }
-    return xs.length ? { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) } : null;
+    return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
   };
-  // A single round pad (a test point, a via-like pad) gets a round courtyard, as does a keepout
-  // that is just a circle
   const keepout = shapes(pkg, (L) => (L === 39 || L === 40 ? undefined : null), () => null);
-  const own = keepout.length ? extent(keepout) : null;
   if (keepout.length === 1 && keepout[0].type === 'circle') {
     const k = keepout[0];
     graphics.push({ type: 'circle', layer: 'F.CrtYd', c: k.c, r: k.r + (k.width || 0) / 2 });
-  } else if (own) graphics.push({ type: 'rect', layer: 'F.CrtYd', a: [own.x0, own.y0], b: [own.x1, own.y1] });
-  else {
-    const fab = graphics.filter((g) => /Fab$/.test(g.layer || ''));
-    const m = 250_000;
-    const round = pads.length === 1 && pads[0].shape === 'circle' ? pads[0] : null;
-    if (round) {
-      // as far out as the pad or the fab drawing reaches from the pad's centre
-      const [cx, cy] = round.at;
-      let r = round.size[0] / 2;
-      for (const g of fab) {
-        if (g.type === 'circle') r = Math.max(r, Math.hypot(g.c[0] - cx, g.c[1] - cy) + g.r);
-        else if (g.type !== 'text') for (const [x, y] of g.pts || (g.type === 'rect' ? [g.a, g.b, [g.a[0], g.b[1]], [g.b[0], g.a[1]]] : g.type === 'arc' ? [g.start, g.mid, g.end] : [])) r = Math.max(r, Math.hypot(x - cx, y - cy));
-      }
-      graphics.push({ type: 'circle', layer: 'F.CrtYd', c: [cx, cy], r: Math.round(r + m), generated: true });
-    } else {
-      const b = extent(fab);
-      if (b) graphics.push({ type: 'rect', layer: 'F.CrtYd', a: [b.x0 - m, b.y0 - m], b: [b.x1 + m, b.y1 + m], generated: true });
-    }
+  } else if (keepout.length) {
+    const own = extent(keepout);
+    graphics.push({ type: 'rect', layer: 'F.CrtYd', a: [own.x0, own.y0], b: [own.x1, own.y1] });
   }
   void holes;
   return { name: pkg.attr('name'), pads, graphics };
