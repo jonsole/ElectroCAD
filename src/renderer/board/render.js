@@ -84,18 +84,24 @@ export function drawBoard(ctx, view, C, board, opts = {}) {
     // the Footprints' text (Reference, Value, pad numbers and Nets) goes on top of the copper: drawn
     // after the Tracks and Vias here, or left in opts.labels for the caller to draw last
     const labels = opts.labels || [];
-    drawZones(ctx, view, C, board, hidden, opts.zones);
-    drawFootprints(ctx, view, C, view2, board, hidden, opts.padsOnly, opts.padKeys, labels);
-    if (!opts.only || opts.trackIds) {
-      drawTracks(ctx, view, C, board, hidden, opts.only ? opts.trackIds : null);
-      drawVias(ctx, view, C, board, hidden, opts.only ? opts.trackIds : null);
+    // the footprints' graphics, then the copper a layer at a time, bottom to top, as it's stacked:
+    // each layer's zones, pads, tracks and copper drawings, so a lower layer never covers a higher
+    // one's pads; through-hole pads and vias (every layer) over all of it
+    const pads = [];
+    drawFootprints(ctx, view, C, view2, board, hidden, opts.padsOnly, opts.padKeys, labels, pads);
+    const tracks = !opts.only || opts.trackIds, trackIds = opts.only ? opts.trackIds : null;
+    const drawings = !opts.only || opts.drawingIds, drawingIds = opts.only ? opts.drawingIds : null;
+    for (const layer of COPPER_ORDER) {
+      if (hidden.has(layer)) continue;
+      drawZones(ctx, view, C, board, hidden, opts.zones, layer);
+      for (const p of pads) if (p.cu === layer && !p.tht) p.draw();
+      if (tracks) drawTracks(ctx, view, C, board, hidden, trackIds, [layer]);
+      if (drawings) drawBoardDrawings(ctx, view, C, board, hidden, { ids: drawingIds, copper: true, layer });
     }
-    // the Board's own drawings (#66): copper ones with the copper, the rest over it with the text
-    if (!opts.only || opts.drawingIds) {
-      const ids = opts.only ? opts.drawingIds : null;
-      drawBoardDrawings(ctx, view, C, board, hidden, { ids, copper: true });
-      labels.push(() => drawBoardDrawings(ctx, view, C, board, hidden, { ids, copper: false }));
-    }
+    for (const p of pads) if (p.tht) p.draw();
+    if (tracks) drawVias(ctx, view, C, board, hidden, trackIds);
+    // the Board's own drawings (#66) off the copper go over it, with the text
+    if (drawings) labels.push(() => drawBoardDrawings(ctx, view, C, board, hidden, { ids: drawingIds, copper: false }));
     if (!opts.labels) drawLabels(labels);
     // the Ratsnest: a thin line for each unrouted connection
     if (opts.rats?.length) {
@@ -144,8 +150,10 @@ export function drawBoard(ctx, view, C, board, opts = {}) {
  * and `z.outlineOnly` (ids drawn as outlines: being refilled, or touched by a drag or route).
  */
 const LAYER_ORDER = { 'B.Cu': 0, 'In2.Cu': 1, 'In1.Cu': 2, 'F.Cu': 3 };
-export function drawZones(ctx, view, C, board, hidden, z = {}) {
-  const zones = (board.zones || []).filter((zn) => !hidden.has(zn.layer)).sort((a, b) => (LAYER_ORDER[a.layer] ?? 0) - (LAYER_ORDER[b.layer] ?? 0) || a.priority - b.priority);
+/** The copper layers bottom to top, the order they're drawn in. */
+export const COPPER_ORDER = ['B.Cu', 'In2.Cu', 'In1.Cu', 'F.Cu'];
+export function drawZones(ctx, view, C, board, hidden, z = {}, layer = null) {
+  const zones = (board.zones || []).filter((zn) => !hidden.has(zn.layer) && (!layer || zn.layer === layer)).sort((a, b) => (LAYER_ORDER[a.layer] ?? 0) - (LAYER_ORDER[b.layer] ?? 0) || a.priority - b.priority);
   if (!zones.length) return;
   ctx.save();
   for (const zn of zones) {
@@ -172,10 +180,10 @@ export function drawZones(ctx, view, C, board, hidden, z = {}) {
  * in the board's font, mirrored on the back). `copper`: true for those on copper layers, false for
  * the rest; `ids`: only these (highlighting); `color`: one colour for all (the selection).
  */
-export function drawBoardDrawings(ctx, view, C, board, hidden, { ids = null, copper = null, color = null, list = null } = {}) {
+export function drawBoardDrawings(ctx, view, C, board, hidden, { ids = null, copper = null, color = null, list = null, layer = null } = {}) {
   const font = board.textFont || 'stroke';
   const back = (l) => (/^B\./.test(l) ? 0 : /^In/.test(l) ? 1 : 2);
-  const ds = (list || board.drawings || []).filter((d) => !hidden.has(d.layer) && (!ids || ids.has(d.id)) && (copper === null || /\.Cu$/.test(d.layer) === copper))
+  const ds = (list || board.drawings || []).filter((d) => !hidden.has(d.layer) && (!ids || ids.has(d.id)) && (copper === null || /\.Cu$/.test(d.layer) === copper) && (!layer || d.layer === layer))
     .sort((a, b) => back(a.layer) - back(b.layer));
   if (!ds.length) return;
   ctx.save();
@@ -207,7 +215,7 @@ export function drawLabels(labels) { for (const f of labels || []) f(); }
  * `padsOnly`: Footprint ids drawn as just the pads in `padKeys` ("componentId:pad"), for highlighting a Net.
  * Text is pushed onto `labels` (functions) to be drawn after the copper.
  */
-function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, padKeys = null, labels = []) {
+function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, padKeys = null, labels = [], padsOut = null) {
   const nets = padNets(board);
   const ann = board.annotation?.components || {};
   const fps = [...board.footprints].sort((a, b) => (a.side === b.side ? 0 : a.side === 'B' ? -1 : 1));
@@ -238,14 +246,18 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
       if (!cu) continue;
       const [cx, cy] = view.toScreen(pad.at);
       const w = pad.size[0] * view.scale, hgt = pad.size[1] * view.scale;
-      ctx.save();
-      ctx.translate(cx, cy); ctx.rotate((-pad.rot * Math.PI) / 180);
-      ctx.fillStyle = tht ? (C.padThroughHole || C[cu]) : C[cu] || '#c33';
-      ctx.beginPath();
-      padPath(ctx, pad, w, hgt);
-      ctx.fill();
-      if (pad.drill) { ctx.fillStyle = C.drill || '#000'; ctx.beginPath(); ctx.arc(0, 0, (pad.drill * view.scale) / 2, 0, TAU); ctx.fill(); }
-      ctx.restore();
+      // drawn with its copper layer (drawBoard), or now
+      const draw = () => {
+        ctx.save();
+        ctx.translate(cx, cy); ctx.rotate((-pad.rot * Math.PI) / 180);
+        ctx.fillStyle = tht ? (C.padThroughHole || C[cu]) : C[cu] || '#c33';
+        ctx.beginPath();
+        padPath(ctx, pad, w, hgt);
+        ctx.fill();
+        if (pad.drill) { ctx.fillStyle = C.drill || '#000'; ctx.beginPath(); ctx.arc(0, 0, (pad.drill * view.scale) / 2, 0, TAU); ctx.fill(); }
+        ctx.restore();
+      };
+      if (padsOut) padsOut.push({ cu, tht, draw }); else draw();
       // number and Net, when the pad is big enough to read (over the copper)
       const small = Math.min(w, hgt);
       if (small >= 14) labels.push(() => {
@@ -389,8 +401,7 @@ export function drawPad(ctx, view, C, pad, cu) {
 }
 
 /** Tracks, bottom layers first, in their layer's colour with round ends. `ids`: only these (highlighting). */
-export function drawTracks(ctx, view, C, board, hidden = new Set(), ids = null) {
-  const order = ['B.Cu', 'In2.Cu', 'In1.Cu', 'F.Cu'];
+export function drawTracks(ctx, view, C, board, hidden = new Set(), ids = null, order = COPPER_ORDER) {
   ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   for (const layer of order) {
     if (hidden.has(layer)) continue;
