@@ -491,7 +491,7 @@ export class BoardEditor {
     const ref = this.project.components[bf.componentId]?.ref || '';
     const out = [h('div', { class: 'prop-title' }, 'Reference and Value text')];
     for (const key of FIELD_KEYS) {
-      const p = fieldPlacement(fp, bf, key);
+      const p = fieldPlacement(fp, bf, key, fieldStrings(this.project, bf)[key], this.board.textFont || 'stroke');
       const set = (label, patch) => this.app.edit(`${ref} ${FIELD_NAME[key].toLowerCase()} ${label}`, (pr) => setFieldOverride(pr, bf.id, key, patch));
       const show = h('input', { type: 'checkbox', checked: !p.hidden, 'aria-label': `Show ${FIELD_NAME[key]}` });
       show.addEventListener('change', () => set(show.checked ? 'shown' : 'hidden', { hidden: !show.checked }));
@@ -855,7 +855,7 @@ export class BoardEditor {
         const bf = this.board.footprints.find((f) => f.id === d.bfId);
         d.at = fpInverse(bf)(to);
         const fp = footprintOf(this.project, this.project.components[bf.componentId]);
-        const { overridden, own, ...cur } = fieldPlacement(fp, bf, d.key);
+        const { overridden, own, ...cur } = fieldPlacement(fp, bf, d.key, fieldStrings(this.project, bf)[d.key], this.board.textFont || 'stroke');
         this.previewFps = this.board.footprints.map((f) => (f.id === d.bfId ? { ...f, texts: { ...(f.texts || {}), [d.key]: { ...cur, at: d.at } } } : f));
         ws.view.invalidate();
         return;

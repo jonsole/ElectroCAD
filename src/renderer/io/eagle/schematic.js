@@ -13,6 +13,8 @@ import { buildNetlist } from '../../core/netlist.js';
 import { PAPER_SIZES } from '../../core/drawings.js';
 import { rot90 as r90geom, unplace } from '../../core/geom.js';
 import { textCentre } from '../../core/boardDrawings.js';
+import { strokeWidthOf } from '../../core/strokefont.js';
+import { pinnedFieldAt } from '../../core/fields.js';
 import { nm, pt, rotOf, rot90, pinBase, Report, placedRot, eagleTextAngle } from './common.js';
 import { readLibrary, devicesetToPart, isSupply, isPinless, fpIdOf } from './library.js';
 
@@ -344,6 +346,14 @@ function placeInventedLabels(project, parts, invented) {
         const b = symbolBounds(project, y);
         if (b) boxes.push(b);
         for (const q of pinPositions(project, y)) pins.push(q.at);
+        // the names and values Eagle moved (#65): pinned where it has them, so keep clear of them too
+        const comp = project.components[y.componentId];
+        for (const [key, str] of [['reference', comp?.ref || ''], ['value', comp?.value || '']]) {
+          const at = pinnedFieldAt(y, key);
+          if (!at || !str) continue;
+          const hw = strokeWidthOf(str, 1_778_000, 'vector') / 2, hh = 900_000;
+          boxes.push({ x0: at[0] - hw, y0: at[1] - hh, x1: at[0] + hw, y1: at[1] + hh });
+        }
       }
       blockersOf.set(sheet, { boxes, pins, labels: sheet.labels.map((l) => labelBounds(l)) });
     }

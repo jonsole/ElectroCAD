@@ -14,7 +14,7 @@ import { padShape } from './collision.js';
 import { arcCircle } from './geom.js';
 import { fabSettings } from './presets.js';
 import { drawingGeometry } from './boardDrawings.js';
-import { placedFieldTexts, fieldOfText } from './fpTexts.js';
+import { placedFieldTexts, fieldOfText, footprintTextPlacement } from './fpTexts.js';
 import { strokeText, strokePen } from './strokefont.js';
 
 const CL = ClipperLib;
@@ -221,7 +221,10 @@ function gerberLayer(project, { layer, fn, polarity }, { fills, date, version })
         else if (gr.type === 'arc') g.stroke(w, arcPts(T(gr.start), T(gr.mid), T(gr.end)), null);
         else if (gr.type === 'text') {
           const str = String(gr.text).replace(/\$\{REF\}/g, ref).replace(/\$\{VALUE\}/g, value);
-          for (const pl of strokeText(str, { at: T(gr.at), size: gr.size, mirror, font })) g.stroke(strokePen(gr.size, font), pl, null);
+          if (gr.rot != null || gr.align) { // turned or anchored (#84)
+            const w = footprintTextPlacement(gr, str, T, { fpRot: bf.rot || 0, side: bf.side, font });
+            for (const st of drawingGeometry({ type: 'text', text: str, at: w.at, size: w.size, rot: w.rot, layer }, font).strokes) g.stroke(st.width, st.pts, null);
+          } else for (const pl of strokeText(str, { at: T(gr.at), size: gr.size, mirror, font })) g.stroke(strokePen(gr.size, font), pl, null);
         }
       }
       // a Footprint without its own Reference text gets it above its courtyard, as on screen

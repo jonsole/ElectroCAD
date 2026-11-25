@@ -108,3 +108,46 @@ test('Eagle: smashed NAME / VALUE become the footprints\' own text, display="off
   assert.ok(sym.fieldPins?.reference, 'the moved NAME is a pinned field');
   assert.ok(report.some((x) => /smashed/.test(x)), report.join('\n'));
 });
+
+test('footprint text with an angle and an anchor (#84): turns with the footprint, kept readable, placed by its real string', async () => {
+  const { footprintTextPlacement } = await import('../src/renderer/core/fpTexts.js');
+  const { strokeWidthOf, FONTS } = await import('../src/renderer/core/strokefont.js');
+  const size = mm(0.8128), font = 'vector', w = strokeWidthOf('19', size, font), cap = size * FONTS.vector.cap;
+  const gr = { type: 'text', at: [0, 0], text: '19', size, rot: 270, align: 'bottom-left', layer: 'F.SilkS' };
+  const I = (q) => q;
+  // R270 in the package, footprint upright: Eagle draws it the other way up (90°), the same box
+  let p = footprintTextPlacement(gr, '19', I, { fpRot: 0, side: 'F', font });
+  assert.equal(p.rot, 90);
+  // the box of R270 text anchored bottom-left at the origin: x from 0 to cap, y (down) from 0 to w
+  assert.ok(Math.abs(p.at[0] - cap / 2) <= 2 && Math.abs(p.at[1] - w / 2) <= 2, JSON.stringify(p.at));
+  // the footprint turned 90: the text turns with it, to 0 (readable as it is)
+  p = footprintTextPlacement(gr, '19', I, { fpRot: 90, side: 'F', font });
+  assert.equal(p.rot, 0);
+  // spun text is never turned the other way up
+  assert.equal(footprintTextPlacement({ ...gr, spin: true }, '19', I, { fpRot: 0, side: 'F', font }).rot, 270);
+  // the anchor uses the real string: a longer Reference moves the centre
+  const a = footprintTextPlacement({ ...gr, rot: 0, text: '${REF}' }, 'R1', I, { font }).at, b = footprintTextPlacement({ ...gr, rot: 0, text: '${REF}' }, 'R100', I, { font }).at;
+  assert.ok(b[0] > a[0]);
+  // text with no angle and no anchor is drawn upright on its centre, as before
+  assert.deepEqual(footprintTextPlacement({ type: 'text', at: [5, 6], text: 'X', size }, 'X', I), { at: [5, 6], rot: 0, size });
+});
+
+test('the silk Gerber draws a turned footprint text turned (#84)', () => {
+  const { p, bf } = board();
+  const fp = p.footprints[Object.keys(p.footprints)[0]].footprint;
+  fp.graphics.push({ type: 'text', layer: 'F.SilkS', at: [0, mm(3)], text: 'LONGLABEL', size: mm(1), rot: 90, align: 'center' });
+  // the strokes in a region (Gerber Y is up: ours is down)
+  const strokes = (keep) => {
+    const t = fabFiles(p, { date: 'd', version: 'v' }).find((f) => f.name.endsWith('.GTO')).text;
+    const pts = [...t.matchAll(/X(-?\d+)Y(-?\d+)D0[12]/g)].map((m) => [+m[1], -m[2]]).filter(keep);
+    const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+    return { n: pts.length, w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+  };
+  // footprint at (20, 15) upright: the text's centre is 3 mm below it, turned 90°: taller than wide
+  const up = strokes(([x, y]) => y > mm(16.5));
+  assert.ok(up.n && up.h > up.w * 3, `turned: taller than wide ${JSON.stringify(up)}`);
+  // the footprint turned 90°: the text (90° + 90° = 180°, kept readable as 0°) lies across, 3 mm to its right
+  bf.rot = 90;
+  const across = strokes(([x]) => x > mm(21.8));
+  assert.ok(across.n && across.w > across.h * 3, `across: wider than tall ${JSON.stringify(across)}`);
+});

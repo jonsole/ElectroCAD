@@ -346,10 +346,13 @@ export const ECAD_SCHEMA = {
           "additionalProperties": false,
           "properties": {
             "type": { "const": "text" },
-            "at": { "$ref": "#/$defs/point", "description": "The centre of the text; it is drawn upright, whatever the Symbol's rotation." },
+            "at": { "$ref": "#/$defs/point", "description": "The centre of the text (its anchor when align is set); without rot it is drawn upright, whatever the Symbol's or Footprint's rotation." },
             "text": { "type": "string", "minLength": 1 },
             "size": { "$ref": "#/$defs/nm", "description": "Text height." },
-            "layer": { "type": "string" }
+            "layer": { "type": "string" },
+            "rot": { "type": "number", "description": "Footprint text (#84): degrees anticlockwise relative to the Footprint; it turns with it and is kept readable." },
+            "align": { "enum": ["bottom-left", "bottom-center", "bottom-right", "center-left", "center", "center-right", "top-left", "top-center", "top-right"], "description": "Footprint text (#84): `at` is this point of the text (Eagle's anchors)." },
+            "spin": { "type": "boolean", "description": "Footprint text (#84): never turned the other way up." }
           }
         },
         {

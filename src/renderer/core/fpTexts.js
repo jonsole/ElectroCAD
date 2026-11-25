@@ -8,6 +8,7 @@
 // The board view, the silk Gerbers and hit testing all go through placedFieldTexts. DOM-free.
 import { fpTransform, flipLayer } from './footprint.js';
 import { footprintOf } from './project.js';
+import { textCentre } from './boardDrawings.js';
 
 export const FIELD_KEYS = ['ref', 'value'];
 const TOKEN = { ref: '${REF}', value: '${VALUE}' };
@@ -33,13 +34,43 @@ export const worldRot = (bf, rot) => norm(bf.side === 'B' ? (bf.rot || 0) - rot 
 export const localRot = (bf, rot) => norm(bf.side === 'B' ? (bf.rot || 0) - rot : rot - (bf.rot || 0));
 
 /**
+ * Where a Footprint text lands on the board (#84): { at (its centre), rot (degrees, as board text
+ * has it), size }. Text with an angle (`rot`, relative to the Footprint) turns with the Footprint and
+ * is kept readable, as Eagle keeps it: turned past 90° (up to 270°) it's drawn the other way up
+ * (the same box, so its centre doesn't move), unless it's `spin`. `align` (Eagle's alignments)
+ * makes `at` the text's anchor rather than its centre, placed with the real string and font. Text
+ * without an angle stays upright, centred on `at`, as before.
+ * `fpRot` / `side`: the placed Footprint's (0 / 'F' in the Footprint editor).
+ */
+export function footprintTextPlacement(gr, str, T, { fpRot = 0, side = 'F', font = 'stroke' } = {}) {
+  const at = T(gr.at);
+  if (gr.rot == null && !gr.align) return { at, rot: 0, size: gr.size };
+  const back = side === 'B';
+  let rot = gr.rot == null ? 0 : norm(back ? fpRot - gr.rot : fpRot + gr.rot);
+  let align = gr.align || 'center';
+  const flip = !gr.spin && (back ? rot >= 90 && rot < 270 : rot > 90 && rot <= 270);
+  if (flip) {
+    rot = norm(rot - 180);
+    const o = { bottom: 'top', top: 'bottom', left: 'right', right: 'left', center: 'center' };
+    align = align === 'center' ? 'center' : align.split('-').map((x) => o[x]).join('-');
+  }
+  const c = gr.align ? textCentre(String(str || ' '), { at, size: gr.size, rot, mirror: back, align, font }) : at;
+  return { at: c, rot, size: gr.size };
+}
+
+/**
  * Where the Footprint itself puts a field, in its own frame: its first text showing the field
  * (drawn upright, so its angle cancels the Footprint's), else the automatic one: the Reference on
  * the silk above the courtyard (1 mm), the Value on the fab layer below it (0.7 mm).
  */
-export function fieldDefault(fp, key, bf = null) {
+export function fieldDefault(fp, key, bf = null, str = '', font = 'stroke') {
   const own = (fp?.graphics || []).find((g) => fieldOfText(g) === key);
   const up = bf ? localRot(bf, 0) : 0;
+  if (own && bf && (own.rot != null || own.align)) {
+    // a turned or anchored text (#84): where it's drawn, back in the Footprint's frame
+    const w = footprintTextPlacement(own, str, fpTransform(bf), { fpRot: bf.rot || 0, side: bf.side, font });
+    return { at: fpInverse(bf)(w.at), rot: localRot(bf, w.rot), size: own.size, layer: own.layer || 'F.SilkS', own: true };
+  }
   if (own) return { at: own.at, rot: up, size: own.size, layer: own.layer || 'F.SilkS', own: true };
   const crt = (fp?.graphics || []).find((g) => /CrtYd$/.test(g.layer || '') && g.type === 'rect');
   if (key === 'ref') return { at: [0, (crt ? Math.min(crt.a[1], crt.b[1]) : -1_000_000) - 800_000], rot: up, size: 1_000_000, layer: 'F.SilkS', own: false };
@@ -47,8 +78,8 @@ export function fieldDefault(fp, key, bf = null) {
 }
 
 /** A field's placement in the Footprint's frame: the override over the default. */
-export function fieldPlacement(fp, bf, key) {
-  const d = fieldDefault(fp, key, bf), o = bf.texts?.[key];
+export function fieldPlacement(fp, bf, key, str = '', font = 'stroke') {
+  const d = fieldDefault(fp, key, bf, str, font), o = bf.texts?.[key];
   return o ? { ...d, ...o, overridden: true } : { ...d, overridden: false };
 }
 
@@ -64,8 +95,8 @@ export function placedFieldTexts(project, bf, { ref, value, all = false } = {}) 
   const out = [];
   for (const key of FIELD_KEYS) {
     if (!all && !bf.texts?.[key]) continue;
-    const p = fieldPlacement(fp, bf, key);
     const str = key === 'ref' ? ref : value;
+    const p = fieldPlacement(fp, bf, key, str, project.board.textFont || 'stroke');
     out.push({ key, id: `${bf.id}:${key}`, type: 'text', text: String(str ?? ''), at: T(p.at), size: p.size, rot: worldRot(bf, p.rot), layer: flipLayer(p.layer, bf.side), hidden: !!p.hidden, overridden: p.overridden, own: p.own });
   }
   return out;
@@ -86,7 +117,7 @@ export function setFieldOverride(project, bfId, key, patch) {
     return;
   }
   const fp = footprintOf(project, project.components[bf.componentId]);
-  const cur = bf.texts?.[key] || (({ own, ...d }) => d)(fieldDefault(fp, key, bf));
+  const cur = bf.texts?.[key] || (({ own, ...d }) => d)(fieldDefault(fp, key, bf, fieldStrings(project, bf)[key], project.board.textFont || 'stroke'));
   const next = { ...cur, ...patch };
   if (!next.hidden) delete next.hidden;
   bf.texts = { ...(bf.texts || {}), [key]: next };

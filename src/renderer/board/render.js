@@ -3,7 +3,7 @@
 // with their tickets. Screen space is the world scaled (+Y down on both), so angles match.
 import { vectorLayout } from '../core/strokefont.js';
 import { drawingGeometry } from '../core/boardDrawings.js';
-import { placedFieldTexts, fieldOfText } from '../core/fpTexts.js';
+import { placedFieldTexts, fieldOfText, footprintTextPlacement } from '../core/fpTexts.js';
 import { arcCircle } from '../core/geom.js';
 import { outlineLoops, checkOutline } from '../core/board.js';
 import { mm } from '../core/units.js';
@@ -223,7 +223,7 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
     // silk, courtyard and fab graphics (and its own ${REF} / ${VALUE} text)
     // Reference / Value moved, resized or hidden on this placement (#65): drawn from the override
     const moved = new Set(Object.keys(bf.texts || {}));
-    const own = partial ? { ref: true, value: true } : drawFootprintGraphics(ctx, view, C, fp, T, { side: bf.side, visible, ref, value, labels, font: board.textFont, skip: moved });
+    const own = partial ? { ref: true, value: true } : drawFootprintGraphics(ctx, view, C, fp, T, { side: bf.side, visible, ref, value, labels, font: board.textFont, skip: moved, fpRot: bf.rot || 0 });
     if (!partial && moved.size) {
       const list = placedFieldTexts(project, bf, { ref, value }).filter((d) => !d.hidden && d.text);
       if (list.length) labels.push(() => drawBoardDrawings(ctx, view, C, board, hidden, { list }));
@@ -317,7 +317,7 @@ function shortNet(net, ctx, maxPx) {
  * `${VALUE}` in text are filled in with `ref` / `value`. Returns { ref, value }: whether it drew
  * its own Reference / Value text. Shared by the Board and the Footprint editor.
  */
-export function drawFootprintGraphics(ctx, view, C, fp, T, { side = 'F', visible = () => true, ref = 'REF**', value = 'VALUE', only = null, labels = null, font = 'stroke', skip = null } = {}) {
+export function drawFootprintGraphics(ctx, view, C, fp, T, { side = 'F', visible = () => true, ref = 'REF**', value = 'VALUE', only = null, labels = null, font = 'stroke', skip = null, fpRot = 0 } = {}) {
   const S = (p) => view.toScreen(T(p));
   const own = { ref: false, value: false };
   const lw = (layer) => Math.max(1, mm(/SilkS/.test(layer) ? 0.12 : 0.1) * view.scale);
@@ -345,8 +345,12 @@ export function drawFootprintGraphics(ctx, view, C, fp, T, { side = 'F', visible
       if (px >= 4) {
         const str = String(g.text).replace(/\$\{REF\}/g, ref).replace(/\$\{VALUE\}/g, value);
         const [x, y] = S(g.at);
+        // turned or anchored text (#84) goes through the same placement as the Gerber
+        const turned = g.rot != null || g.align;
         const draw = () => {
-          silkText(ctx, str, x, y, px, side === 'B', col, font);
+          if (!turned) { silkText(ctx, str, x, y, px, side === 'B', col, font); return; }
+          const w = footprintTextPlacement(g, str, T, { fpRot, side, font: font || 'stroke' });
+          drawBoardDrawings(ctx, view, C, { textFont: font }, new Set(), { list: [{ id: 'fpt', type: 'text', text: str, at: w.at, size: w.size, rot: w.rot, layer }], color: col });
         };
         if (labels) labels.push(draw); else draw(); // with `labels`, over the copper later
       }

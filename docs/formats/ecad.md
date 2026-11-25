@@ -94,6 +94,8 @@ Every shape may have `fill` (`none`, `background` = the theme's symbol fill, `ou
 
 **Footprint:** `name`, `pads`, and optional `graphics` (Shapes with a `layer`). A **Pad** has `number`, `at`, `shape` (`rect`, `circle`, `oval`, `roundrect`), `size` (`[w, h]`), `layers` (e.g. `["F.Cu", "F.Paste", "F.Mask"]`) and, for through-hole, `drill`.
 
+Footprint text (#84) can carry `rot` (degrees, relative to the Footprint; it turns with it and is kept readable), `align` (Eagle's anchors: `at` is that point of the text, placed with the real string) and `spin` (never turned the other way up). Text without `rot` is drawn upright, centred on `at`.
+
 ## Component
 
 | Key | Type | Meaning |

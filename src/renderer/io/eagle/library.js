@@ -6,7 +6,8 @@
 // Pins are numbered by the pads they connect to (Eagle names pins; ElectroCAD numbers them), so
 // the Board's pads and the Schematic's pins line up. A pin connected to several pads (GND on a
 // regulator's tab and pin) becomes stacked pins at one tip, one per pad.
-import { nm, pt, rotOf, arcMid, pinBase, restring, PACKAGE_LAYER, Report } from './common.js';
+import { textCentre } from '../../core/boardDrawings.js';
+import { placedRot, nm, pt, rotOf, arcMid, pinBase, restring, PACKAGE_LAYER, Report } from './common.js';
 
 const PIN_LENGTH = { point: 0, short: 2_540_000, middle: 5_080_000, long: 7_620_000 };
 const PIN_TYPE = { nc: 'no_connect', in: 'input', out: 'output', io: 'bidirectional', oc: 'open_collector', hiz: 'tri_state', pas: 'passive', pwr: 'power_in', sup: 'power_out' };
@@ -27,7 +28,7 @@ function wireShape(w, layer) {
 }
 
 /** Eagle shapes (wire, circle, rectangle, polygon, text) -> ElectroCAD graphics; `layerOf(eagleLayer)` -> layer or null (skip). */
-function shapes(el, layerOf, text = (t) => t, report = new Report()) {
+function shapes(el, layerOf, text = (t) => t, report = new Report(), { anchored = false } = {}) {
   const out = [];
   for (const c of el.children) {
     const L = layerOf(Number(c.attr('layer')));
@@ -58,12 +59,12 @@ function shapes(el, layerOf, text = (t) => t, report = new Report()) {
       const t = text(c.text.trim(), Number(c.attr('layer')));
       if (!t) continue;
       const size = nm(c.attr('size', 1.778));
-      // Eagle anchors text at its bottom left; ElectroCAD at its centre
-      const at = pt(c.attr('x'), c.attr('y'));
-      const w = size * 0.75 * t.length;
-      const { rot } = rotOf(c.attr('rot'));
-      const off = rot === 90 ? [-size / 2, -w / 2] : rot === 180 ? [-w / 2, size / 2] : rot === 270 ? [size / 2, w / 2] : [w / 2, -size / 2];
-      out.push(withLayer({ type: 'text', at: [Math.round(at[0] + off[0]), Math.round(at[1] + off[1])], text: t, size }));
+      // Eagle's anchor, alignment and angle as they are (#84): the text is placed with its real
+      // string and the board's font when drawn, turns with the element and is kept readable
+      const { rot, mirror, spin } = rotOf(c.attr('rot'));
+      if (anchored) out.push(withLayer({ type: 'text', at: pt(c.attr('x'), c.attr('y')), text: t, size, rot: placedRot(rot, mirror), align: c.attr('align', 'bottom-left'), ...(spin ? { spin: true } : {}) }));
+      // a Symbol's text is drawn upright about its centre: where Eagle's anchored, turned text has it
+      else out.push(withLayer({ type: 'text', at: textCentre(t, { at: pt(c.attr('x'), c.attr('y')), size, rot: placedRot(rot, mirror), mirror, align: c.attr('align', 'bottom-left'), font: 'vector' }), text: t, size }));
     }
   }
   return out;
@@ -115,7 +116,7 @@ export function packageToFootprint(pkg, { report = new Report(), rules = DEFAULT
     }
   }
   const graphics = shapes(pkg, (L) => (PACKAGE_LAYER[L] ?? null),
-    (t, L) => (t === '>NAME' || t === '>name' ? '${REF}' : t === '>VALUE' || t === '>value' ? '${VALUE}' : L === 25 || L === 27 ? null : t), report);
+    (t, L) => (t === '>NAME' || t === '>name' ? '${REF}' : t === '>VALUE' || t === '>value' ? '${VALUE}' : L === 25 || L === 27 ? null : t), report, { anchored: true });
   // a courtyard round the pads and the silk and fab shapes, 0.25 mm out
   const xs = [], ys = [];
   for (const p of pads) { xs.push(p.at[0] - p.size[0] / 2, p.at[0] + p.size[0] / 2); ys.push(p.at[1] - p.size[1] / 2, p.at[1] + p.size[1] / 2); }
