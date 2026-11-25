@@ -7,7 +7,7 @@
 //   4. same-Net pads join solid, or through thermal reliefs: a gap round the pad crossed by up to
 //      four spokes along the pad's axes (a spoke that would break clearance or end in nothing is
 //      left out);
-//   5. islands that touch none of the Zone's own Net's copper are removed.
+//   5. islands that touch none of the Zone's own Net's copper are removed (unless keepIslands).
 // Everything here is plain data in, plain data out, so the same code runs in the Web Worker
 // (board/zoneWorker.js) and, synchronously, in the tests. DOM-free.
 import ClipperLib from 'clipper-lib';
@@ -49,6 +49,18 @@ function offset(paths, d, open = false) {
   const out = new CL.Paths();
   co.Execute(out, d);
   return out;
+}
+
+/**
+ * A closed outline grown by d (round corners): its outermost ring as points. For outlines drawn
+ * with a pen, such as Eagle's polygons, whose copper reaches half the pen's width past the vertices.
+ */
+export function growOutline(pts, d) {
+  if (!d || pts.length < 3) return pts;
+  const out = offset([pts.map(([x, y]) => ({ X: Math.round(x), Y: Math.round(y) }))], d);
+  if (!out.length) return pts;
+  const area = (r) => Math.abs(r.reduce((a, q, i) => { const n = r[(i + 1) % r.length]; return a + q.X * n.Y - n.X * q.Y; }, 0));
+  return out.reduce((a, b) => (area(b) > area(a) ? b : a)).map((q) => [q.X, q.Y]);
 }
 
 function clip(type, subj, clipPaths, fill = CL.PolyFillType.pftNonZero) {
@@ -253,7 +265,7 @@ export function fillZone(input, z, higher = new Map()) {
   const kept = [];
   let islands = 0;
   for (const piece of pieces) {
-    if (anchors && !inter([piece[0]], anchors).length) { islands++; continue; }
+    if (anchors && !z.keepIslands && !inter([piece[0]], anchors).length) { islands++; continue; }
     kept.push(piece.map(unP));
   }
   return { polys: kept, thermals, islands };

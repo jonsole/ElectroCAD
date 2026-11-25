@@ -266,3 +266,27 @@ test('net labels: a mirrored label reads the other way (MR180 as R0, MR0 as R180
   const l = r.project.schematic.sheets[0].labels.find((x) => x.net === 'VOUT' && x.style === 'label');
   assert.equal(l.rot, 0);
 });
+
+test('polygons: thermal gap from slThermalIsolate, outline grown by half the pen, isolate, thermals and orphans (#60)', () => {
+  // the fixture's bottom GND polygon: width 0.254, isolate 0.3, vertices at 1..49 x 1..39 mm
+  const z = importEagle({ sch: SCH, brd: BRD, name: 'reg' }).project.board.zones[0];
+  assert.equal(z.clearance, 300_000);
+  assert.equal(z.connect, 'thermal');
+  assert.equal(z.thermal.spoke, 254_000);
+  assert.equal(z.thermal.gap, 254_000, 'no slThermalIsolate in the fixture: Eagle\'s default 10 mil');
+  assert.equal(z.keepIslands, undefined);
+  // copper reaches 0.127 mm past the vertices
+  const xs = z.outline.map((q) => q[0]), ys = z.outline.map((q) => q[1]);
+  assert.ok(Math.abs(Math.min(...xs) - (1e6 - 127_000)) <= 1 && Math.abs(Math.max(...xs) - (49e6 + 127_000)) <= 1, `${Math.min(...xs)} ${Math.max(...xs)}`);
+  assert.ok(Math.abs(Math.min(...ys) - (-39e6 - 127_000)) <= 1 && Math.abs(Math.max(...ys) - (-1e6 + 127_000)) <= 1);
+  // the board's own rule, solid connection and kept islands
+  const brd = BRD.replace('<param name="mdWireWire"', '<param name="slThermalIsolate" value="7mil"/><param name="mdWireWire"')
+    .replace('<polygon width="0.254" layer="16" isolate="0.3" rank="1" thermals="yes">', '<polygon width="0.4" layer="16" rank="1" thermals="no" orphans="yes">');
+  assert.notEqual(brd, BRD);
+  const y = importEagle({ sch: SCH, brd, name: 'reg' }).project.board.zones[0];
+  assert.equal(y.thermal.gap, 177_800);
+  assert.equal(y.connect, 'solid');
+  assert.equal(y.clearance, 0, 'no isolate: the board\'s clearance rules apply');
+  assert.equal(y.keepIslands, true);
+  assert.equal(y.thermal.spoke, 400_000);
+});

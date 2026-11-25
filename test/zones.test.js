@@ -107,6 +107,19 @@ test('priority: the higher-priority zone wins where they overlap, the other keep
   assert.ok(inFill(sameNet.get(hi.id), [mm(15), mm(5)]) && inFill(sameNet.get(lo.id), [mm(15), mm(5)]));
 });
 
+test('keepIslands keeps the pieces with none of the zone\'s own copper', () => {
+  const p = setup();
+  const z = newZone('F.Cu', 'GND', rect(0, 0, mm(20), mm(10)), { connect: 'solid' });
+  z.keepIslands = true;
+  p.board.zones.push(z);
+  p.board.tracks.push({ id: 'w', a: [mm(10), mm(-1)], b: [mm(10), mm(11)], width: mm(0.5), layer: 'F.Cu', net: 'SIG' });
+  const input = zoneInput(p);
+  input.pads.push(pad('A:1', [mm(3), mm(5)], 'GND'));
+  const f = fillZones(input).get(z.id);
+  assert.equal(f.polys.length, 2);
+  assert.equal(f.islands, 0);
+});
+
 test('islands with none of the zone\'s own copper are removed', () => {
   const p = setup();
   const z = newZone('F.Cu', 'GND', rect(0, 0, mm(20), mm(10)), { connect: 'solid' });

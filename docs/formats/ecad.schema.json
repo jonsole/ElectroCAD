@@ -1613,6 +1613,10 @@
           ],
           "description": "How same-Net pads join the fill: thermal reliefs (gap and spokes) or solid. Thermal when absent."
         },
+        "keepIslands": {
+          "type": "boolean",
+          "description": "Keep fill pieces that touch none of the Zone's own Net's copper (Eagle's orphans=\"yes\"). Default false: they are removed."
+        },
         "thermal": {
           "type": "object",
           "required": [
