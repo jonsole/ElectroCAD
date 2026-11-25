@@ -51,7 +51,7 @@ const t0 = performance.now();
 await ed.whenZonesFilled();
 const f = ed.zoneFiller.fills.get(z.id);
 check('filled', f && f.polys.length >= 1, f);
-check('worker', !!ed.zoneFiller.w, 'filled on the main thread');
+check('worker', ed.zoneFiller.workers.size > 0 && !ed.zoneFiller.noWorkers, 'filled on the main thread'); // one worker per layer (#73)
 check('thermals', f.thermals.length === 2 && f.thermals.every((t) => t.spokes >= 2), f.thermals);
 console.log('[smoke] zone fill ms', Math.round(performance.now() - t0));
 // clearance to the SIG track (checked with the collision engine's distance)

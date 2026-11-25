@@ -646,7 +646,7 @@ Using the card:
   - with same-Net pads joined;
   - with islands that touch none of the Zone's own Net's copper removed. A Zone with no Net keeps every piece.
 - **Live refill:**
-  - After every change, only the Zones whose area it touched refill, in a Web Worker (`board/zoneWorker.js`, scheduled by `board/zoneFiller.js`), so the editor never waits.
+  - After every change, only the Zones whose area it touched refill, in Web Workers (`board/zoneWorker.js`, scheduled by `board/zoneFiller.js`), so the editor never waits. Each copper layer fills in a worker of its own, so the layers fill in parallel (#73); `node tools/bench-zones.js` times fills on real boards.
   - A Zone waiting for its new fill shows as a dashed outline; a result that a newer change has superseded is thrown away.
   - While a drag or a route is in progress, the Zones it touches draw as outlines; the fill comes back after the drop.
   - `BoardEditor.whenZonesFilled()` resolves once every fill is up to date, for DRC and export.

@@ -185,8 +185,41 @@ export const fillOrder = (zones) => [...zones].sort((a, b) => b.priority - a.pri
 /**
  * Fill one Zone. `higher`: the fills (as returned here) of Zones above it, by id.
  * Returns { polys: [[outer, ...holes]] (point lists), thermals: [{ key, spokes }], islands }.
+ *
+ * The work is done with the Zone's centre moved to the origin (#73): the JavaScript Clipper does
+ * its arithmetic in doubles while every coordinate is within ±47.45 mm, and falls back to slow
+ * big integers past that. The shift is a whole number of nm, so nothing is rounded by it.
  */
 export function fillZone(input, z, higher = new Map()) {
+  if (!z.outline || z.outline.length < 3) return { polys: [], thermals: [], islands: 0 };
+  const b = zoneBox(z);
+  const d = [-Math.round((b.x0 + b.x1) / 2), -Math.round((b.y0 + b.y1) / 2)];
+  if (!d[0] && !d[1]) return fillZoneHere(input, z, higher);
+  const f = fillZoneHere(shiftInput(input, d), shiftZone(z, d), new Map([...higher].map(([id, h]) => [id, shiftFill(h, d)])));
+  return shiftFill(f, [-d[0], -d[1]]);
+}
+
+const sh = (p, [dx, dy]) => [p[0] + dx, p[1] + dy];
+const shiftZone = (z, d) => ({ ...z, outline: z.outline.map((p) => sh(p, d)) });
+const shiftFill = (f, d) => ({ ...f, polys: f.polys.map((poly) => poly.map((ring) => ring.map((p) => sh(p, d)))) });
+function shiftShape(g, d) {
+  const o = { ...g };
+  for (const k of ['a', 'b', 'c', 'start', 'mid', 'end', 'at']) if (g[k]) o[k] = sh(g[k], d);
+  if (g.pts) o.pts = g.pts.map((p) => sh(p, d));
+  return o;
+}
+function shiftInput(input, d) {
+  return {
+    ...input,
+    outline: input.outline.map((g) => shiftShape(g, d)),
+    zones: input.zones.map((z) => shiftZone(z, d)),
+    tracks: input.tracks.map((t) => ({ ...t, a: sh(t.a, d), b: sh(t.b, d) })),
+    vias: input.vias.map((v) => ({ ...v, at: sh(v.at, d) })),
+    pads: input.pads.map((q) => ({ ...q, at: sh(q.at, d) })),
+  };
+}
+
+function fillZoneHere(input, z, higher) {
   const empty = { polys: [], thermals: [], islands: 0 };
   if (!z.outline || z.outline.length < 3) return empty;
   let region = union([P(z.outline)]);
@@ -231,12 +264,14 @@ export function fillZone(input, z, higher = new Map()) {
     const gap = z.thermal?.gap ?? ZONE_DEFAULTS.thermal.gap, spoke = z.thermal?.spoke ?? ZONE_DEFAULTS.thermal.spoke;
     const reliefs = union(own.flatMap((pad) => shapePaths(padShape(pad), gap)));
     fill = diff(allowed, reliefs);
-    const spokes = [];
+    // each pad's four candidate spokes: the bridge across the gap must be clear, and the tip must
+    // land on the fill. The fill is cut down to all the bridges (tips) at once first (#73), so each
+    // test intersects a small piece rather than the whole fill
+    const cand = [];
     for (const pad of own) {
       const t = ((pad.rot || 0) * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
       const R = ([x, y]) => [pad.at[0] + x * c + y * s, pad.at[1] - x * s + y * c];
       const w = spoke / 2;
-      let n = 0;
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const half = (dx ? pad.size[0] : pad.size[1]) / 2;
         const sgn = dx || dy;
@@ -244,15 +279,20 @@ export function fillZone(input, z, higher = new Map()) {
           const lo = Math.min(a0 * sgn, a1 * sgn), hi = Math.max(a0 * sgn, a1 * sgn);
           return dx ? P([[lo, -w], [hi, -w], [hi, w], [lo, w]].map(R)) : P([[-w, lo], [w, lo], [w, hi], [-w, hi]].map(R));
         };
-        const bridge = [span(half, half + gap)];            // across the gap: must be clear
-        const tip = [span(half + gap, half + gap + spoke)];  // into the fill: must land on it
-        if (area(inter(bridge, allowed)) < 0.98 * area(bridge)) continue;
-        if (area(inter(tip, fill)) < 0.5 * area(tip)) continue;
-        spokes.push(span(0, half + gap + spoke / 2));
-        n++;
+        cand.push({ pad, bridge: [span(half, half + gap)], tip: [span(half + gap, half + gap + spoke)], spoke: span(0, half + gap + spoke / 2) });
       }
-      thermals.push({ key: pad.key, spokes: n });
     }
+    const nearBridges = cand.length ? inter(allowed, union(cand.flatMap((x) => x.bridge))) : [];
+    const nearTips = cand.length ? inter(fill, union(cand.flatMap((x) => x.tip))) : [];
+    const spokes = [];
+    const count = new Map(own.map((pad) => [pad, 0]));
+    for (const x of cand) {
+      if (area(inter(x.bridge, nearBridges)) < 0.98 * area(x.bridge)) continue;
+      if (area(inter(x.tip, nearTips)) < 0.5 * area(x.tip)) continue;
+      spokes.push(x.spoke);
+      count.set(x.pad, count.get(x.pad) + 1);
+    }
+    for (const pad of own) thermals.push({ key: pad.key, spokes: count.get(pad) });
     fill = minWidthOnly(fill, z.minWidth);
     if (spokes.length) fill = union(fill, inter(spokes, allowed));
   }
@@ -281,10 +321,19 @@ export function fillZone(input, z, higher = new Map()) {
     for (const v of input.vias) if (boxesMeet(box, itemBox(v)) && !foreign(v.net)) a.push(...shapePaths({ type: 'capsule', a: v.at, b: v.at, r: v.diameter / 2 }, 1_000));
     anchors = union(a);
   }
+  // a piece only needs testing against the anchor rings whose box meets its own (#73); a hole's box
+  // is inside its outline's, so no hole is taken without its outline
+  const ringBox = (r) => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const q of r) { if (q.X < x0) x0 = q.X; if (q.X > x1) x1 = q.X; if (q.Y < y0) y0 = q.Y; if (q.Y > y1) y1 = q.Y; } return { x0, y0, x1, y1 }; };
+  const anchorBoxes = anchors ? anchors.map(ringBox) : [];
+  const touchesAnchor = (outer) => {
+    const b = ringBox(outer);
+    const near = anchors.filter((_, i) => boxesMeet(b, anchorBoxes[i]));
+    return near.length > 0 && inter([outer], near).length > 0;
+  };
   const kept = [];
   let islands = 0;
   for (const piece of pieces) {
-    if (anchors && !z.keepIslands && !inter([piece[0]], anchors).length) { islands++; continue; }
+    if (anchors && !z.keepIslands && !touchesAnchor(piece[0])) { islands++; continue; }
     kept.push(piece.map(unP));
   }
   return { polys: kept, thermals, islands };

@@ -208,3 +208,27 @@ test('refill: only changed zones are sent, superseded results are thrown away, w
   f.update(p);
   assert.ok(!f.fills.has(a.id));
 });
+
+test('refill (#73): each layer goes to its own worker, with that layer\'s copper, and the fills are the same as all at once', async () => {
+  const p = setup();
+  const f1 = newZone('F.Cu', 'GND', rect(0, 0, mm(20), mm(20)));
+  const f2 = newZone('F.Cu', 'VCC', rect(mm(5), mm(5), mm(15), mm(15)), { priority: 1 });
+  const b1 = newZone('B.Cu', 'GND', rect(0, 0, mm(20), mm(20)));
+  p.board.zones.push(f1, f2, b1);
+  p.board.tracks.push({ id: 'tf', a: [mm(2), mm(2)], b: [mm(18), mm(2)], width: mm(0.25), layer: 'F.Cu', net: 'SIG' });
+  p.board.tracks.push({ id: 'tb', a: [mm(2), mm(18)], b: [mm(18), mm(18)], width: mm(0.25), layer: 'B.Cu', net: 'SIG' });
+  p.board.vias.push({ id: 'v', at: [mm(10), mm(3)], diameter: mm(0.6), drill: mm(0.3), net: 'SIG' });
+  const sent = [];
+  // a stand-in Worker that answers on a timer, as the real one does
+  const fake = () => { const w = { postMessage(m) { sent.push(m); setTimeout(() => w.onmessage({ data: { seq: m.seq, fills: [...fillZones(m.input, m.ids, new Map(m.known))] } }), 0); } }; return w; };
+  const f = new ZoneFiller(() => {}, { worker: fake });
+  f.update(p);
+  await f.whenFilled();
+  assert.equal(sent.length, 2, 'one message per layer');
+  const front = sent.find((m) => m.ids.includes(f1.id)), back = sent.find((m) => m.ids.includes(b1.id));
+  assert.deepEqual(front.ids.sort(), [f1.id, f2.id].sort());
+  assert.ok(front.input.tracks.every((t) => t.layer === 'F.Cu') && back.input.tracks.every((t) => t.layer === 'B.Cu'));
+  assert.equal(f.workers.size, 2);
+  const all = fillZones(zoneInput(p));
+  for (const id of [f1.id, f2.id, b1.id]) assert.deepEqual(f.fills.get(id), all.get(id));
+});

@@ -4,6 +4,8 @@
 // the rest keep their fills. Results come back tagged with the request's number, and a result
 // that a newer request has superseded is thrown away. whenFilled() resolves once nothing is
 // pending, for DRC and export. Without Worker support (tests, odd hosts) the fill runs on a timer.
+// A Zone depends only on Zones on its own layer, so each layer's Zones go to a worker of their own
+// and the layers fill in parallel (#73).
 import { zoneInput, zoneSignatures, fillZones } from '../core/zones.js';
 
 export class ZoneFiller {
@@ -19,19 +21,30 @@ export class ZoneFiller {
     this.pending = new Map();   // zone id -> { seq, sig }
     this.seq = 0;
     this.waiters = [];
-    this.w = undefined;
+    this.workers = new Map(); // layer -> Worker
+    this.noWorkers = false;   // a worker couldn't be made or failed: fill on the main thread
   }
 
-  _worker() {
-    if (this.w !== undefined) return this.w;
+  _worker(layer) {
+    if (this.noWorkers) return null;
+    if (this.workers.has(layer)) return this.workers.get(layer);
+    let w = null;
     try {
-      this.w = this.makeWorker();
-      if (this.w) {
-        this.w.onmessage = (e) => this._done(e.data);
-        this.w.onerror = (e) => { console.warn('Zone fill worker failed; filling on the main thread.', e?.message || e); try { this.w.terminate(); } catch { /* gone */ } this.w = null; this._resend(); };
+      w = this.makeWorker();
+      if (w) {
+        w.onmessage = (e) => this._done(e.data);
+        w.onerror = (e) => { console.warn('Zone fill worker failed; filling on the main thread.', e?.message || e); this._dropWorkers(); this._resend(); };
       }
-    } catch (e) { console.warn('No Zone fill worker; filling on the main thread.', e?.message || e); this.w = null; }
-    return this.w;
+    } catch (e) { console.warn('No Zone fill worker; filling on the main thread.', e?.message || e); w = null; }
+    if (!w) { this.noWorkers = true; return null; }
+    this.workers.set(layer, w);
+    return w;
+  }
+
+  _dropWorkers() {
+    for (const w of this.workers.values()) { try { w.terminate(); } catch { /* gone */ } }
+    this.workers.clear();
+    this.noWorkers = true;
   }
 
   /** Refill the Zones of `project` that changed since their last fill. Returns the ids sent. */
@@ -52,17 +65,35 @@ export class ZoneFiller {
     return ids;
   }
 
+  /** Send a request as one message per layer (each with that layer's Zones, fills and copper). */
   _send(msg) {
-    const w = this._worker();
-    if (w) { w.postMessage(msg); return; }
-    setTimeout(() => this._done({ seq: msg.seq, fills: [...fillZones(msg.input, msg.ids, new Map(msg.known))] }), 0);
+    const layerOf = new Map(msg.input.zones.map((z) => [z.id, z.layer]));
+    const layers = [...new Set(msg.ids.map((id) => layerOf.get(id)))];
+    for (const layer of layers) {
+      const part = {
+        seq: msg.seq,
+        // only the copper that layer's fill looks at: its Tracks and pads (and holes), and the Vias
+        // (every Zone still goes: the clearance margin is the largest any Zone asks for)
+        input: { ...msg.input, tracks: msg.input.tracks.filter((t) => t.layer === layer), pads: msg.input.pads.filter((q) => !q.layers.length || q.layers.includes(layer)) },
+        ids: msg.ids.filter((id) => layerOf.get(id) === layer),
+        known: msg.known.filter(([id]) => layerOf.get(id) === layer),
+      };
+      const w = this._worker(layer);
+      if (w) { w.postMessage(part); continue; }
+      setTimeout(() => this._done({ seq: part.seq, fills: [...fillZones(part.input, part.ids, new Map(part.known))] }), 0);
+    }
   }
 
   /** The worker died: fill the latest request here instead. */
   _resend() { if (this.last && this.pending.size) this._send(this.last); }
 
-  _done({ seq, fills, error }) {
-    if (error) { console.warn('Zone fill failed:', error); for (const [id, p] of [...this.pending]) if (p.seq === seq) this.pending.delete(id); this._settle(); return; }
+  _done({ seq, fills, error, ids }) {
+    if (error) {
+      console.warn('Zone fill failed:', error);
+      const failed = new Set(ids || []);
+      for (const [id, p] of [...this.pending]) if (p.seq === seq && (!ids || failed.has(id))) this.pending.delete(id);
+      this._settle(); return;
+    }
     let any = false;
     for (const [id, f] of fills || []) {
       const p = this.pending.get(id);
