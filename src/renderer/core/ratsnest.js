@@ -7,7 +7,7 @@
 // islands. Recomputed on every change, so it follows a drag live. Zone fills, when given, are
 // copper too: each filled region joins what it reaches on its layer (a Pad through its thermal
 // spokes or solidly, a Via, a Track end), so a plane connects everything dropped onto it.
-import { placedPads, padNets } from './footprint.js';
+import { placedPads, padNets, padOnLayer } from './footprint.js';
 
 const low = (s) => s.toLowerCase();
 
@@ -103,7 +103,7 @@ function touch(x, y) {
   if (x.kind === 'fill' || y.kind === 'fill') {
     const [f, o] = x.kind === 'fill' ? [x, y] : [y, x];
     if (o.kind === 'fill') return false; // two fills of a Net join only through copper
-    if (o.kind === 'pad') return onLayer(o.pad, f.layer) && padProbes(o.pad).some((q) => inRegion(q, f.region));
+    if (o.kind === 'pad') return onLayer(o.pad, f.layer) && padProbes(padOnLayer(o.pad, f.layer)).some((q) => inRegion(q, f.region)); // the pad as it is on that layer (#82)
     if (o.kind === 'via') return viaProbes(o.item).some((q) => inRegion(q, f.region)); // Vias go through every layer
     return o.item.layer === f.layer && o.pts.some((q) => inRegion(q, f.region));
   }

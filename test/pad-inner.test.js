@@ -69,3 +69,16 @@ test('a zone\'s minimum width takes away copper narrower than it', () => {
   z.minWidth = mm(0.254);
   assert.ok(!between(fillZones(zoneInput(p)).get('z')), 'with 0.254 mm it is gone');
 });
+
+test('a through-hole pad of the zone\'s own net gets its thermal spokes on an inner plane (not mistaken for a hole)', () => {
+  const p = board();
+  // pad 1 on net PWR (the Board's record of the Schematic)
+  const net = 'PWR';
+  p.board.annotation.nets = { ...(p.board.annotation.nets || {}), [net]: [`${p.board.footprints[0].componentId}:1`] };
+  // a zone clearance large enough that a mistaken "hole" round the drill would cover the spokes' way out
+  const z = { ...newZone('In1.Cu', net, [[mm(1), mm(1)], [mm(19), mm(1)], [mm(19), mm(19)], [mm(1), mm(19)]]), id: 'z', clearance: mm(0.4) };
+  p.board.zones.push(z);
+  const fill = fillZones(zoneInput(p)).get('z');
+  const th = fill.thermals.filter((t) => t.spokes > 0);
+  assert.ok(th.length === 1 && th[0].spokes >= 2, `spokes: ${JSON.stringify(fill.thermals)}`);
+});

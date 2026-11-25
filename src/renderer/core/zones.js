@@ -212,7 +212,9 @@ export function fillZone(input, z, higher = new Map()) {
   const own = [];
   // non-plated holes (a pad with a drill and no copper here): the fill keeps the clearance from the hole
   for (const pad of input.pads) {
-    if (!(pad.drill > 0) || onLayer(pad) || !boxesMeet(box, itemBox(pad))) continue;
+    // (a pad with copper on other layers isn't one: since #82 a through-hole pad comes as an outer
+    // and an inner entry, and the outer one must not count as a hole on the inner layers)
+    if (!(pad.drill > 0) || pad.layers.length || !boxesMeet(box, itemBox(pad))) continue;
     keepOut.push(...shapePaths({ type: 'capsule', a: pad.at, b: pad.at, r: pad.drill / 2 }, clearanceOf(input, z, '') + MARGIN));
   }
   for (const pad of input.pads) {
