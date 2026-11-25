@@ -6,7 +6,7 @@
 //   layer  as on a front-side Footprint (F.SilkS, F.Fab…); a back-side one draws it on B.*
 //   hidden true: not drawn (Eagle's display="off")
 // The board view, the silk Gerbers and hit testing all go through placedFieldTexts. DOM-free.
-import { fpTransform, flipLayer, courtyardBounds } from './footprint.js';
+import { fpTransform, flipLayer, courtyardBounds, bfFootprint, bfRef, bfValue } from './footprint.js';
 import { footprintOf } from './project.js';
 import { textCentre } from './boardDrawings.js';
 
@@ -90,7 +90,7 @@ export function fieldPlacement(fp, bf, key, str = '', font = 'stroke') {
  * own graphics (or the automatic texts) as before, and are left out unless `all`.
  */
 export function placedFieldTexts(project, bf, { ref, value, all = false } = {}) {
-  const fp = footprintOf(project, project.components[bf.componentId]);
+  const fp = bfFootprint(project, bf);
   const T = fpTransform(bf);
   const out = [];
   for (const key of FIELD_KEYS) {
@@ -104,8 +104,7 @@ export function placedFieldTexts(project, bf, { ref, value, all = false } = {}) 
 
 /** The Reference and Value strings a placed Footprint shows (what the Board was last told). */
 export function fieldStrings(project, bf) {
-  const a = project.board.annotation?.components?.[bf.componentId], c = project.components[bf.componentId];
-  return { ref: a?.ref ?? c?.ref ?? '', value: a?.value ?? c?.value ?? '' };
+  return { ref: bfRef(project, bf), value: bfValue(project, bf) };
 }
 
 /** Set (merge into) a field's override; `null` removes it (Reset to Footprint). */
@@ -116,7 +115,7 @@ export function setFieldOverride(project, bfId, key, patch) {
     if (bf.texts) { delete bf.texts[key]; if (!Object.keys(bf.texts).length) delete bf.texts; }
     return;
   }
-  const fp = footprintOf(project, project.components[bf.componentId]);
+  const fp = bfFootprint(project, bf);
   const cur = bf.texts?.[key] || (({ own, ...d }) => d)(fieldDefault(fp, key, bf, fieldStrings(project, bf)[key], project.board.textFont || 'stroke'));
   const next = { ...cur, ...patch };
   if (!next.hidden) delete next.hidden;

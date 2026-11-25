@@ -92,13 +92,15 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
   // ---- each element's Component and its Footprint
   const compByRef = new Map(Object.values(project.components).map((c) => [c.ref, c]));
   const fpOfElement = new Map();
+  const boardOnlyEls = [];
   for (const el of elements) {
     const lib = libs.get(el.attr('library'));
     const pkg = lib?.packages.get(el.attr('package'));
     if (!pkg) { report.add(`Element ${el.attr('name')}: its package ${el.attr('package')} is not in the file`); continue; }
     const comp = compByRef.get(el.attr('name'));
-    if (!comp) { report.add(`${el.attr('name')} is on the Board but not on the Schematic; it was left off`); continue; }
     const fp = packageToFootprint(pkg, { report, rules: rules.restring, shapes: rules.padShapes });
+    // no part on the Schematic (a drill legend, a mounting hole…): a board-only Footprint (#74)
+    if (!comp) { boardOnlyEls.push({ el, fp }); continue; }
     fpOfElement.set(el.attr('name'), fp);
     // the Board's package is the one that counts (the Schematic's library copy may be older). It
     // replaces the Part's own Footprint, so the Part's Pin map (pin 1 -> pad "TMS") still applies.
@@ -120,6 +122,16 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
     bf.locked = el.attr('locked') === 'yes';
     smashed += smashedTexts(el, bf, footprintOf(project, comp));
   }
+  const boardOnlyOf = new Map(); // element name -> board-only Footprint
+  for (const { el, fp } of boardOnlyEls) {
+    const { rot, mirror } = rotOf(el.attr('rot'));
+    const bf = { id: uid('f'), ref: el.attr('name'), ...(el.attr('value') ? { value: el.attr('value') } : {}), fpKey: addFootprint(project, `eagle:${el.attr('library')}`, fp),
+      at: pt(el.attr('x'), el.attr('y')), rot: Math.round(placedRot(rot, mirror) * 100) / 100, side: mirror ? 'B' : 'F', locked: el.attr('locked') === 'yes' };
+    b.footprints.push(bf);
+    boardOnlyOf.set(el.attr('name'), bf);
+    smashed += smashedTexts(el, bf, fp);
+  }
+  if (boardOnlyEls.length) report.add(`Elements with no part on the Schematic came over as board-only footprints: ${boardOnlyEls.map(({ el }) => el.attr('name')).join(', ')}`);
   if (smashed) report.add('Moved (smashed) NAME and VALUE texts placed as each footprint\'s own Reference and Value', smashed);
 
   // ---- the Outline (layer 20) and what else is drawn on the board
@@ -155,14 +167,20 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
   const netOfSignal = new Map();
   const mismatched = [], details = [];
   for (const s of signals) {
-    const pads = s.all('contactref').map((c) => `${compRefToId.get(c.attr('element'))}:${c.attr('pad')}`);
+    // a board-only Footprint's pads (#74) take the signal's net; the rest are checked against the Schematic
+    const refs = s.all('contactref').filter((c) => !boardOnlyOf.has(c.attr('element')));
+    const pads = refs.map((c) => `${compRefToId.get(c.attr('element'))}:${c.attr('pad')}`);
     const counts = new Map();
     for (const k of pads) { const n = nets.get(k); if (n) counts.set(n, (counts.get(n) || 0) + 1); }
-    const net = [...counts].sort((x, y) => y[1] - x[1])[0]?.[0] || (pads.length ? '' : s.attr('name'));
+    const net = [...counts].sort((x, y) => y[1] - x[1])[0]?.[0] || (pads.length ? '' : eagleOverbar(s.attr('name')));
     netOfSignal.set(s.attr('name'), net);
+    for (const c of s.all('contactref')) {
+      const bo = boardOnlyOf.get(c.attr('element'));
+      if (bo && net) bo.padNets = { ...(bo.padNets || {}), [c.attr('pad')]: net };
+    }
     if (counts.size > 1 || (net && pads.some((k) => nets.get(k) !== net))) {
       mismatched.push(s.attr('name'));
-      const odd = s.all('contactref').filter((c) => nets.get(`${compRefToId.get(c.attr('element'))}:${c.attr('pad')}`) !== net)
+      const odd = refs.filter((c) => nets.get(`${compRefToId.get(c.attr('element'))}:${c.attr('pad')}`) !== net)
         .map((c) => `${c.attr('element')}.${c.attr('pad')} (${nets.get(`${compRefToId.get(c.attr('element'))}:${c.attr('pad')}`) || (compRefToId.get(c.attr('element')) ? 'no net' : 'not on the Schematic')})`);
       details.push(`Signal ${s.attr('name')} (${net || 'no net'} here): ${odd.slice(0, 12).join(', ')}${odd.length > 12 ? `, and ${odd.length - 12} more` : ''} differ`);
     }

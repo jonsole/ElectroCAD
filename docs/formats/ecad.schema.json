@@ -1884,20 +1884,43 @@
       "type": "object",
       "required": [
         "id",
-        "componentId",
         "at",
         "rot",
         "side",
         "locked"
       ],
       "additionalProperties": false,
-      "description": "Where a Component sits on the Board. Its Footprint comes from the Component (ADR-0008), not copied here.",
+      "description": "Where a Component sits on the Board. Its Footprint comes from the Component (ADR-0008), not copied here. A board-only Footprint (#74: a mounting hole, fiducial, logo…) has no componentId but its own ref and fpKey.",
       "properties": {
         "id": {
           "$ref": "#/$defs/id"
         },
         "componentId": {
           "type": "string"
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Board-only (#74): its Reference designator, unique in the Project."
+        },
+        "value": {
+          "type": "string",
+          "description": "Board-only (#74): its value."
+        },
+        "fpKey": {
+          "type": "string",
+          "description": "Board-only (#74): its footprint, a key in footprints."
+        },
+        "padNets": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Board-only (#74): the Net of each pad, by pad number."
+        },
+        "bom": {
+          "type": "boolean",
+          "description": "Board-only (#74): listed in the BOM (absent: not)."
         },
         "at": {
           "$ref": "#/$defs/point"

@@ -12,7 +12,7 @@
 // (board/zoneWorker.js) and, synchronously, in the tests. DOM-free.
 import { copperDrawingTracks } from './boardDrawings.js';
 import ClipperLib from 'clipper-lib';
-import { placedPads, padNets, padByLayers } from './footprint.js';
+import { placedPads, padNets, padByLayers, bfKey } from './footprint.js';
 import { copperLayerNames, outlineLoops } from './board.js';
 import { arcCircle } from './geom.js';
 import { padShape, netRules, clearanceBetween, maxClearance as boardMaxClearance } from './collision.js';
@@ -135,7 +135,7 @@ export function zoneInput(project, board = project.board, extraTracks = []) {
     for (const pad of placedPads(view, bf, nets)) {
       const layers = pad.layers.includes('*.Cu') ? copper : pad.layers.filter((l) => copper.includes(l));
       // inner layers see a through-hole pad's inner shape (#82)
-      for (const { pad: q, layers: ls } of padByLayers(pad, layers)) pads.push({ key: `${bf.componentId}:${pad.number}`, at: q.at, size: q.size, shape: q.shape, rot: q.rot || 0, net: q.net || '', layers: ls, drill: q.drill || 0 });
+      for (const { pad: q, layers: ls } of padByLayers(pad, layers)) pads.push({ key: `${bfKey(bf)}:${pad.number}`, at: q.at, size: q.size, shape: q.shape, rot: q.rot || 0, net: q.net || '', layers: ls, drill: q.drill || 0 });
     }
   }
   return {

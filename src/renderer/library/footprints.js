@@ -132,6 +132,28 @@ export function qfn(n, body, pitch) {
   return footprint(`QFN-${n}-1EP_${body}x${body}mm_P${pitch}mm_EP${ep}x${ep}mm`, pads);
 }
 
+// ---------------------------------------------------------------- board-only parts (#74)
+
+/** A round courtyard `extra` mm outside radius `rad` (nm). */
+const roundYard = (rad, extra = 0.25) => ({ type: 'circle', layer: 'F.CrtYd', c: [0, 0], r: rad + r(extra) });
+
+/**
+ * A mounting hole for screw `m` (M2, M2.5, M3, M4), KiCad's names: plain (non-plated, no copper)
+ * or `_Pad` (plated, with a copper ring for a ground connection), e.g. MountingHole_3.2mm_M3_Pad.
+ */
+export function mountingHole(m, plated = false) {
+  const { d, ring } = { M2: { d: 2.2, ring: 4 }, 'M2.5': { d: 2.7, ring: 5 }, M3: { d: 3.2, ring: 6 }, M4: { d: 4.3, ring: 8 } }[m];
+  const pad = plated
+    ? { number: '1', at: [0, 0], shape: 'circle', size: [r(ring), r(ring)], drill: r(d), layers: THT }
+    : { number: '', at: [0, 0], shape: 'circle', size: [r(d), r(d)], drill: r(d), layers: ['*.Mask'] };
+  return { name: `MountingHole_${d}mm_${m}${plated ? '_Pad' : ''}`, pads: [pad], graphics: [roundYard(r(plated ? ring : d) / 2)] };
+}
+
+/** A fiducial: a round copper dot `dot` mm across, its mask opening grown by the board's mask margin. */
+export function fiducial(dot = 1) {
+  return { name: `Fiducial_${dot}mm`, pads: [{ number: '1', at: [0, 0], shape: 'circle', size: [r(dot), r(dot)], layers: ['F.Cu', 'F.Mask'] }], graphics: [roundYard(r(dot) / 2 + r(0.5))] };
+}
+
 /** Every generated Footprint, for "Other…" (any Footprint, identity Pin map). */
 export function allFootprints() {
   const out = [];
@@ -142,5 +164,7 @@ export function allFootprints() {
   for (const n of [8, 14, 16]) out.push(soic(n), dip(n));
   out.push(sot23(), sot23_5(), sot223());
   for (const [n, b, p] of [[16, 3, 0.5], [20, 4, 0.5], [24, 4, 0.5], [32, 5, 0.5]]) out.push(qfn(n, b, p));
+  for (const m of ['M2', 'M2.5', 'M3', 'M4']) out.push(mountingHole(m), mountingHole(m, true));
+  out.push(fiducial(1), fiducial(1.5));
   return out;
 }

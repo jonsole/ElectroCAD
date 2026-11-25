@@ -52,7 +52,7 @@ export function changeList(project) {
   const old = board.annotation || { components: {}, nets: {} };
   const target = annotationOf(project);
   const changes = [];
-  const onBoard = new Set(board.footprints.map((f) => f.componentId));
+  const onBoard = new Set(board.footprints.filter((f) => f.componentId).map((f) => f.componentId)); // board-only ones (#74) aren't the Schematic's
   const refOf = (id) => target.components[id]?.ref || old.components[id]?.ref || project.components[id]?.ref || '?';
   const padName = (k) => { const i = k.lastIndexOf(':'); return `${refOf(k.slice(0, i))}.${k.slice(i + 1)}`; };
   const byRef = (a, b) => compareRefs(a.ref || a.to || '', b.ref || b.to || '');
@@ -112,7 +112,7 @@ export const isEmpty = (list) => !list.changes.length && !list.recordChanged;
 export function applyChanges(project, list) {
   const board = project.board;
   const removed = new Set(list.changes.filter((c) => c.kind === 'remove').map((c) => c.componentId));
-  board.footprints = board.footprints.filter((f) => !removed.has(f.componentId));
+  board.footprints = board.footprints.filter((f) => !f.componentId || !removed.has(f.componentId));
   const renames = new Map(list.changes.filter((c) => c.kind === 'net-rename').map((c) => [low(c.from), c.to]));
   if (renames.size) {
     for (const x of [...board.tracks, ...board.vias, ...board.zones]) if (renames.has(low(x.net))) x.net = renames.get(low(x.net));

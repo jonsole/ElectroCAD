@@ -9,7 +9,7 @@ import { placedFieldTexts, fieldOfText, footprintTextPlacement } from '../core/f
 import { arcCircle } from '../core/geom.js';
 import { outlineLoops, checkOutline } from '../core/board.js';
 import { mm } from '../core/units.js';
-import { placedPads, padNets, fpTransform, flipLayer, courtyardBounds } from '../core/footprint.js';
+import { placedPads, padNets, fpTransform, flipLayer, courtyardBounds, bfFootprint, bfRef, bfValue, bfKey } from '../core/footprint.js';
 import { footprintOf } from '../core/project.js';
 import { drawOriginMark } from '../view/handles.js';
 
@@ -218,18 +218,15 @@ export function drawLabels(labels) { for (const f of labels || []) f(); }
  */
 function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, padKeys = null, labels = [], padsOut = null) {
   const nets = padNets(board);
-  const ann = board.annotation?.components || {};
   const fps = [...board.footprints].sort((a, b) => (a.side === b.side ? 0 : a.side === 'B' ? -1 : 1));
   const visible = (layer) => !hidden.has(layer);
   for (const bf of fps) {
-    const comp = project.components[bf.componentId];
-    const fp = footprintOf(project, comp);
+    const fp = bfFootprint(project, bf);
     if (!fp) continue;
     const T = fpTransform(bf);
     const S = (p) => view.toScreen(T(p));
     const partial = padsOnly?.has(bf.id);
-    const ref = ann[bf.componentId]?.ref ?? comp?.ref ?? '';
-    const value = ann[bf.componentId]?.value ?? comp?.value ?? '';
+    const ref = bfRef(project, bf, board), value = bfValue(project, bf, board);
     // silk, courtyard and fab graphics (and its own ${REF} / ${VALUE} text)
     // Reference / Value moved, resized or hidden on this placement (#65): drawn from the override
     const moved = new Set(Object.keys(bf.texts || {}));
@@ -240,7 +237,7 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
     }
     // pads
     for (const pad of placedPads(project, bf, nets)) {
-      if (partial && !padKeys?.has(`${bf.componentId}:${pad.number}`)) continue;
+      if (partial && !padKeys?.has(`${bfKey(bf)}:${pad.number}`)) continue;
       const tht = pad.layers.includes('*.Cu');
       const cu = tht ? (visible('F.Cu') || visible('B.Cu') ? (bf.side === 'B' && !visible('F.Cu') ? 'B.Cu' : 'F.Cu') : null)
         : pad.layers.find((l) => /\.Cu$/.test(l) && visible(l));

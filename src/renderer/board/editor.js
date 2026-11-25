@@ -19,13 +19,14 @@ import { netClassOf } from '../core/netclasses.js';
 import { runDrc, drcCounts, DRC_RULES, mergeDrc } from '../core/drc.js';
 import { markApproved, unapproved, approve, unapprove, pruneApprovals } from '../core/drcApprovals.js';
 import { boardItems, changedAreas } from '../core/drcLive.js';
-import { hitPad, footprintOutline, insidePolygon, placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation } from '../core/footprint.js';
+import { hitPad, footprintOutline, insidePolygon, placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation, bfFootprint, bfKey, bfRef } from '../core/footprint.js';
 import { ratsnest } from '../core/ratsnest.js';
 import { copperIndex, pointSeg2 } from '../core/collision.js';
 import { CORNERS, ROUTE_MODES, startRoute, step as routeStep, click as routeClickAt, back as routeBack, flipPosture, commit as routeCommit, switchLayer, layerPairs } from '../core/router.js';
 import { connection, setTrackWidth, setTrackLayer, setViaSize, placeVia } from '../core/copper.js';
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
 import { allFootprints } from '../library/footprints.js';
+import { addBoardOnly, setBoardOnly, deleteBoardOnly } from '../core/boardOnly.js';
 import { STARTER_LIBRARY } from '../library/starter.js';
 import { shapeHandles, hitHandle, dragHandle, dragOutlineHandle, snapPoint, handlePoints } from '../core/handles.js';
 import { newZone, zoneInput, inPolygon, moveZones } from '../core/zones.js';
@@ -48,6 +49,7 @@ export const BOARD_TOOLS = {
   select: { icon: 'select', title: 'Select (V)', key: 'v' },
   route: { icon: 'route', title: 'Route (X): click a pad to start a track on the active copper layer, click to place corners, click a pad of the same net to finish · V drops a via and changes layer · / flips the bend · Backspace undoes a corner · Esc cancels', key: 'x' },
   via: { icon: 'via', title: 'Via: click to place a through via; it takes the net of the track or pad it lands on' },
+  footprint: { icon: 'pad', title: 'Place footprint: a footprint with no part on the Schematic, such as a mounting hole, fiducial or logo. Pick it, then click where it goes; Reference, pad nets and In BOM in Properties' },
   zone: { icon: 'zone', title: 'Zone (Z): click the corners of a copper pour on the active copper layer; click the first corner, double-click or Enter to close. Net, priority, clearance and thermal reliefs in Properties', key: 'z' },
   outline: { icon: 'outline', title: 'Outline rectangle (B): click two corners. Round the corners with Corner radius in Properties', key: 'b' },
   polygon: { icon: 'lpolygon', title: 'Outline polygon (P): click corners; A makes the next side an arc; click the first point to close', key: 'p' },
@@ -206,7 +208,7 @@ export class BoardEditor {
     for (const [id, t] of Object.entries(BOARD_TOOLS)) this.toolBtn[id] = button({ icon: t.icon, title: t.title, onClick: () => this.setTool(id) });
     const T = this.toolBtn;
     return [T.select, T.route, later({ icon: 'dragTrack', title: 'Drag track (D)' }, 31),
-      T.via, T.zone, null,
+      T.via, T.zone, T.footprint, null,
       T.outline, T.polygon, T.circle, null, T.text, T.gline, T.grect, T.gcircle, null, T.measure, T.origin];
   }
 
@@ -428,6 +430,7 @@ export class BoardEditor {
    * live, ADR-0008), then position, rotation, side and lock. Each change is one undo step.
    */
   footprintProps(bf) {
+    if (!bf.componentId) return this.boardOnlyProps(bf);
     const comp = this.project.components[bf.componentId];
     if (!comp) return [h('p', { class: 'side-note' }, 'This Footprint\'s part is no longer on the Schematic: Update from Schematic (F8) removes it.')];
     const stop = (el) => { el.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter' && el.tagName === 'INPUT') el.blur(); }); return el; };
@@ -488,10 +491,64 @@ export class BoardEditor {
     ].filter(Boolean);
   }
 
+  /**
+   * PROPERTIES for a board-only Footprint (#74): its Reference and Value, footprint, each pad's net,
+   * In BOM, then position, rotation, side and lock, and its text.
+   */
+  boardOnlyProps(bf) {
+    const stop = (el) => { el.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter' && el.tagName === 'INPUT') el.blur(); }); return el; };
+    const row = (label, el, unit = '') => h('label', { class: 'le-row' }, h('span', {}, label), el, h('em', {}, unit));
+    const err = h('div', { class: 'insp-error' });
+    const set = (label, patch) => { try { this.app.edit(label, (p) => setBoardOnly(p, bf.id, patch)); err.textContent = ''; } catch (e) { err.textContent = e.message; } };
+    const text = (label, value, onSet) => {
+      const i = stop(h('input', { class: 'input', type: 'text', value: value ?? '', 'aria-label': label, spellcheck: false }));
+      i.addEventListener('change', () => onSet(i.value));
+      return row(label, i);
+    };
+    const num = (label, value, onSet, unit = 'mm', step = '0.1') => {
+      const i = stop(h('input', { class: 'input', type: 'number', step, value: String(value), 'aria-label': label, disabled: bf.locked }));
+      i.addEventListener('change', () => { const v = parseFloat(i.value); if (Number.isFinite(v)) onSet(v); });
+      return row(label, i, unit);
+    };
+    const fp = bfFootprint(this.project, bf);
+    const nets = [...new Set([...Object.keys(this.board.annotation?.nets || {}), ...this.board.footprints.flatMap((f) => Object.values(f.padNets || {}))])].sort();
+    const list = h('datalist', { id: `nets-${bf.id}` }, ...nets.map((n) => h('option', { value: n })));
+    const pads = [...new Set((fp?.pads || []).filter((q) => q.layers.some((l) => /Cu$/.test(l))).map((q) => q.number))];
+    const padRow = (num) => {
+      const i = stop(h('input', { class: 'input', type: 'text', value: bf.padNets?.[num] || '', placeholder: 'no net', list: list.id, 'aria-label': `Pad ${num || '(unnamed)'} net`, spellcheck: false }));
+      i.addEventListener('change', () => set(`${bf.ref} pad ${num} net`, { padNet: [num, i.value] }));
+      return row(`Pad ${num || '–'}`, i);
+    };
+    const side = stop(h('select', { class: 'select', 'aria-label': 'Side', disabled: bf.locked }, h('option', { value: 'F' }, 'Front (top)'), h('option', { value: 'B' }, 'Back (bottom)')));
+    side.value = bf.side;
+    side.addEventListener('change', () => { if (side.value !== bf.side) this.app.edit(`Flip ${bf.ref}`, (p) => flipFootprints(p, [bf.id])); });
+    const lock = h('input', { type: 'checkbox', checked: !!bf.locked, 'aria-label': 'Locked' });
+    lock.addEventListener('change', () => this.app.edit(`${lock.checked ? 'Lock' : 'Unlock'} ${bf.ref}`, (p) => setLocked(p, [bf.id], lock.checked)));
+    const bom = h('input', { type: 'checkbox', checked: !!bf.bom, 'aria-label': 'In BOM' });
+    bom.addEventListener('change', () => set(`${bf.ref} ${bom.checked ? 'in' : 'out of'} the BOM`, { bom: bom.checked }));
+    const o = this.board.origin;
+    return [
+      h('div', { class: 'prop-title' }, `${bf.ref} · ${fp?.name || 'Footprint'}`),
+      h('p', { class: 'side-note' }, 'On the Board only: no part on the Schematic. Update from Schematic leaves it alone.'),
+      text('Reference', bf.ref, (v) => set(`Rename ${bf.ref}`, { ref: v })),
+      text('Value', bf.value || '', (v) => set(`${bf.ref} value`, { value: v })),
+      err,
+      ...(pads.length ? [h('div', { class: 'prop-title' }, 'Pad nets'), list, ...pads.map(padRow)] : []),
+      h('label', { class: 'check-row' }, bom, 'In BOM (off for mounting holes, fiducials and logos)'),
+      num('X', +((bf.at[0] - o[0]) / 1e6).toFixed(4), (v) => this.app.edit(`Move ${bf.ref}`, (p) => { const f = p.board.footprints.find((x) => x.id === bf.id); if (!f.locked) f.at = [Math.round(v * 1e6) + o[0], f.at[1]]; })),
+      num('Y', +((bf.at[1] - o[1]) / 1e6).toFixed(4), (v) => this.app.edit(`Move ${bf.ref}`, (p) => { const f = p.board.footprints.find((x) => x.id === bf.id); if (!f.locked) f.at = [f.at[0], Math.round(v * 1e6) + o[1]]; })),
+      num('Rotation', bf.rot, (v) => this.app.edit(`Rotate ${bf.ref}`, (p) => setFootprintRotation(p, bf.id, v)), '°', '0.01'),
+      row('Side', side),
+      h('label', { class: 'check-row' }, lock, 'Locked (can\'t be moved, turned or flipped)'),
+      h('div', { class: 'layer-actions' }, button({ label: 'Delete', icon: 'trash', cls: 'btn-ghost', title: 'Delete it (Del)', onClick: () => this.deleteSelection() })),
+      ...this.fieldTextProps(bf),
+    ].filter(Boolean);
+  }
+
   /** PROPERTIES rows for a Footprint's Reference and Value text on the board (#65): show, size, layer, angle, reset. */
   fieldTextProps(bf) {
-    const fp = footprintOf(this.project, this.project.components[bf.componentId]);
-    const ref = this.project.components[bf.componentId]?.ref || '';
+    const fp = bfFootprint(this.project, bf);
+    const ref = bfRef(this.project, bf);
     const out = [h('div', { class: 'prop-title' }, 'Reference and Value text')];
     for (const key of FIELD_KEYS) {
       const p = fieldPlacement(fp, bf, key, fieldStrings(this.project, bf)[key], this.board.textFont || 'stroke');
@@ -633,7 +690,37 @@ export class BoardEditor {
     if (['outline', 'polygon', 'circle'].includes(t)) this.activeLayer = 'Edge.Cuts'; // the Outline lives on Edge.Cuts
     if (['text', 'gline', 'grect', 'gcircle'].includes(t) && this.hidden.delete(this.drawLayer)) pref.set('boardHidden', [...this.hidden]); // see what you draw
     if (this.ws) this.ws.view.canvas.style.cursor = t === 'select' ? '' : 'crosshair';
+    if (t !== 'footprint') this.placingFp = null;
+    else if (!this.placingFp) setTimeout(() => this.chooseBoardFootprint(), 0);
     this.refresh();
+  }
+
+  /** The Place footprint tool's picker (#74): search the footprint libraries; the choice is placed on the next click. */
+  chooseBoardFootprint() {
+    document.querySelectorAll('.fp-search-pop').forEach((x) => x.remove());
+    const input = h('input', { class: 'input', type: 'search', placeholder: 'Search footprints, e.g. MountingHole or Fiducial', 'aria-label': 'Search footprints', spellcheck: false });
+    const list = h('div', { class: 'fp-search-list', role: 'listbox' });
+    const pop = h('div', { class: 'fp-search-pop menu board-fp-pick' }, input, list);
+    const close = () => { pop.remove(); document.removeEventListener('pointerdown', outside, true); if (!this.placingFp && this.tool === 'footprint') this.setTool('select'); };
+    const outside = (e) => { if (!pop.contains(e.target)) close(); };
+    const lib = [...this.app.libraries.flatMap((l) => Object.values(l.footprints || {}).map((f) => ({ f, library: l.name }))), ...(this._allFp ||= allFootprints()).map((f) => ({ f, library: 'builtin' }))];
+    const render = () => {
+      const words = input.value.toLowerCase().split(/\s+/).filter(Boolean);
+      const found = lib.filter(({ f }) => words.every((w) => f.name.toLowerCase().includes(w))).slice(0, 80);
+      list.replaceChildren(...found.map(({ f, library }) => {
+        const b = h('button', { class: 'menu-item', type: 'button', role: 'option' }, h('span', { class: 'menu-label' }, f.name), library !== 'builtin' ? h('span', { class: 'menu-key' }, library) : '');
+        b.addEventListener('click', () => { this.placingFp = { library, footprint: f }; close(); this.refresh(); });
+        return b;
+      }), found.length ? '' : h('div', { class: 'side-empty' }, 'No footprints match.'));
+    };
+    input.addEventListener('input', render);
+    input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') close(); if (e.key === 'Enter') list.querySelector('.menu-item')?.click(); });
+    document.body.append(pop);
+    const r = (this.toolBtn?.footprint || document.body).getBoundingClientRect();
+    Object.assign(pop.style, { left: `${Math.max(8, r.right + 8)}px`, top: `${Math.max(8, Math.min(r.top, window.innerHeight - 360))}px` });
+    render();
+    input.focus();
+    setTimeout(() => document.addEventListener('pointerdown', outside, true));
   }
 
   setActiveLayer(name) {
@@ -685,7 +772,14 @@ export class BoardEditor {
       this.app.edit(del.size === 1 ? 'Delete track' : `Delete ${del.size} tracks and vias`, (p) => { p.board.tracks = p.board.tracks.filter((t) => !del.has(t.id)); p.board.vias = p.board.vias.filter((v) => !del.has(v.id)); pruneApprovals(p); });
       return;
     }
-    if (this.fpSel.size && !this.selection.size) { toast('Footprints come from the Schematic: delete the part there, then Update from Schematic (F8).', 'info', 3500); return; }
+    // board-only Footprints (#74) are deleted here; the Schematic's come and go with it
+    const only = this.board.footprints.filter((f) => this.fpSel.has(f.id) && !f.componentId).map((f) => f.id);
+    if (only.length) {
+      this.app.edit(only.length === 1 ? `Delete ${bfRef(this.project, this.board.footprints.find((f) => f.id === only[0]))}` : `Delete ${only.length} footprints`, (p) => { deleteBoardOnly(p, only); pruneApprovals(p); });
+      for (const id of only) this.fpSel.delete(id);
+      if (!this.fpSel.size) { this.refresh(); return; }
+    }
+    if (this.fpSel.size && !this.selection.size) { toast('Footprints of Schematic parts come from the Schematic: delete the part there, then Update from Schematic (F8).', 'info', 3500); return; }
     if (!this.selection.size) return;
     const del = new Set(this.selection);
     this.selection.clear();
@@ -700,7 +794,7 @@ export class BoardEditor {
 
   _lockedNote(ids) {
     const locked = this.board.footprints.filter((f) => ids.includes(f.id) && f.locked);
-    if (locked.length) toast(`${locked.map((f) => this.project.components[f.componentId]?.ref || '?').join(', ')} ${locked.length === 1 ? 'is' : 'are'} locked and stayed put.`, 'info', 2500);
+    if (locked.length) toast(`${locked.map((f) => bfRef(this.project, f) || '?').join(', ')} ${locked.length === 1 ? 'is' : 'are'} locked and stayed put.`, 'info', 2500);
   }
 
   rotateSel(deg) {
@@ -759,6 +853,18 @@ export class BoardEditor {
       this.setAlt(e.altKey);
       if (this.tool === 'origin') { this.placeOrigin(w); return; }
       if (this.tool === 'route') { this.routeClick(w, e.detail >= 2); return; }
+      if (this.tool === 'footprint') {
+        if (!this.placingFp) { this.chooseBoardFootprint(); return; }
+        const at = this.snapAt(w), { library, footprint } = this.placingFp;
+        let bf = null;
+        this.app.edit(`Place ${footprint.name}`, (p) => { bf = addBoardOnly(p, library, footprint, at); });
+        this.placingFp = null;
+        this.setTool('select');
+        this.fpSel = new Set([bf.id]);
+        this.openProperties?.();
+        this.refresh();
+        return;
+      }
       if (this.tool === 'via') {
         const at = this.snapAt(w);
         let v = null;
@@ -857,7 +963,7 @@ export class BoardEditor {
         const to = this.snapPt([d.from[0] + w[0] - d.start[0], d.from[1] + w[1] - d.start[1]]);
         const bf = this.board.footprints.find((f) => f.id === d.bfId);
         d.at = fpInverse(bf)(to);
-        const fp = footprintOf(this.project, this.project.components[bf.componentId]);
+        const fp = bfFootprint(this.project, bf);
         const { overridden, own, ...cur } = fieldPlacement(fp, bf, d.key, fieldStrings(this.project, bf)[d.key], this.board.textFont || 'stroke');
         this.previewFps = this.board.footprints.map((f) => (f.id === d.bfId ? { ...f, texts: { ...(f.texts || {}), [d.key]: { ...cur, at: d.at } } } : f));
         ws.view.invalidate();
@@ -917,7 +1023,7 @@ export class BoardEditor {
       if (this.fieldDrag) {
         const d = this.fieldDrag; this.fieldDrag = null; this.previewFps = null;
         if (d.moved && d.at) {
-          const ref = this.project.components[this.board.footprints.find((f) => f.id === d.bfId)?.componentId]?.ref || '';
+          const fbf = this.board.footprints.find((f) => f.id === d.bfId), ref = fbf ? bfRef(this.project, fbf) : '';
           this.app.edit(`Move ${ref} ${FIELD_NAME[d.key].toLowerCase()}`, (p) => setFieldOverride(p, d.bfId, d.key, { at: d.at }));
         } else { if (d.locked && !d.moved) { /* a click: just the selection */ } this.refresh(); }
         if (d.locked) toast('Locked: unlock the footprint to move its text.', 'info', 2000);
@@ -1133,7 +1239,7 @@ export class BoardEditor {
    * zoomed to.
    */
   showOnSchematic(net = null) {
-    const comps = net ? [] : [...new Set(this.board.footprints.filter((f) => this.fpSel.has(f.id)).map((f) => f.componentId))];
+    const comps = net ? [] : [...new Set(this.board.footprints.filter((f) => this.fpSel.has(f.id) && f.componentId).map((f) => f.componentId))];
     const sed = this.app.workspace('schematic')?.editor;
     if (!sed) return;
     const what = { components: comps, nets: net ? [net] : [] };
@@ -1241,7 +1347,7 @@ export class BoardEditor {
       ...(board.drawings || []).filter((d) => trackIds.has(d.id)).map((d) => drawingBox(d, board.textFont || 'stroke')),
       ...(board.vias || []).filter((v) => trackIds.has(v.id)).map((v) => ({ x0: v.at[0] - v.diameter / 2, y0: v.at[1] - v.diameter / 2, x1: v.at[0] + v.diameter / 2, y1: v.at[1] + v.diameter / 2 })),
       ...sub.footprints.filter((f) => !partial.has(f.id)).map((f) => { const q = footprintOutline(proj, f); const xs = q.map((p) => p[0]), ys = q.map((p) => p[1]); return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }; }),
-      ...sub.footprints.filter((f) => partial.has(f.id)).flatMap((f) => placedPads(proj, f, nets).filter((p) => padKeys.has(`${f.componentId}:${p.number}`)).map((p) => { const r = Math.max(...p.size) / 2; return { x0: p.at[0] - r, y0: p.at[1] - r, x1: p.at[0] + r, y1: p.at[1] + r }; })),
+      ...sub.footprints.filter((f) => partial.has(f.id)).flatMap((f) => placedPads(proj, f, nets).filter((p) => padKeys.has(`${bfKey(f)}:${p.number}`)).map((p) => { const r = Math.max(...p.size) / 2; return { x0: p.at[0] - r, y0: p.at[1] - r, x1: p.at[0] + r, y1: p.at[1] + r }; })),
     ].filter(Boolean).map((b) => screenBox(view, b));
     const style = this.app.highlightStyle() === 'fade' && noFade ? 'glow' : this.app.highlightStyle();
     highlight(ctx, C2, style, (c, Cx) => drawBoard(c, view, Cx, sub, { project: this.project, hidden: this.hidden, only: true, padsOnly: partial, padKeys, trackIds, drawingIds: trackIds }), boxes);
@@ -1267,7 +1373,7 @@ export class BoardEditor {
     const nets = padNets(this.board), pts = [];
     for (const f of this.board.footprints) {
       if (t.footprints.has(f.id)) pts.push(...footprintOutline(this.project, f));
-      else for (const p of placedPads(this.project, f, nets)) if (t.pads.has(`${f.componentId}:${p.number}`)) pts.push(p.at);
+      else for (const p of placedPads(this.project, f, nets)) if (t.pads.has(`${bfKey(f)}:${p.number}`)) pts.push(p.at);
     }
     if (!pts.length) return;
     const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
@@ -1450,7 +1556,7 @@ export class BoardEditor {
     }
     if (fps.length) {
       const one = fps.length === 1 ? fps[0] : null;
-      const ref = (f) => this.board.annotation?.components?.[f.componentId]?.ref || this.project.components[f.componentId]?.ref || '?';
+      const ref = (f) => bfRef(this.project, f) || '?';
       const locked = fps.every((f) => f.locked);
       const props = this.cards?.card('props');
       s.show(`fp|${fps.map((f) => `${f.id}:${f.rot}:${f.side}:${!!f.locked}`).join(';')}|${this.rotStep}|${shapes.length}|${!!props?.isOpen}`, () => [

@@ -78,7 +78,8 @@ export const copperLayers = (copper) => (copper === 4 ? ['F.Cu', 'In1.Cu', 'In2.
 /** Next free Reference designator for a prefix, e.g. 'R' -> 'R3'. */
 export function nextRef(project, prefix) {
   let n = 1;
-  const used = new Set(Object.values(project.components).map((c) => c.ref));
+  // board-only Footprints' References are taken too (#74)
+  const used = new Set([...Object.values(project.components).map((c) => c.ref), ...(project.board?.footprints || []).filter((f) => !f.componentId).map((f) => f.ref)]);
   while (used.has(prefix + n)) n++;
   return prefix + n;
 }
@@ -190,7 +191,7 @@ export function pruneOrphans(project) {
   for (const id of Object.keys(project.components)) if (!placed.has(id)) delete project.components[id];
   const used = new Set(Object.values(project.components).map((c) => c.partId));
   for (const id of Object.keys(project.parts)) if (!used.has(id)) delete project.parts[id];
-  const usedFp = new Set(Object.values(project.components).map((c) => c.footprint?.fpKey).filter(Boolean));
+  const usedFp = new Set([...Object.values(project.components).map((c) => c.footprint?.fpKey), ...(project.board?.footprints || []).map((f) => f.fpKey)].filter(Boolean));
   for (const k of Object.keys(project.footprints || {})) if (!usedFp.has(k)) delete project.footprints[k];
 }
 
@@ -291,6 +292,15 @@ export function projectProblems(p) {
   }
   const placed = new Set(p.schematic.sheets.flatMap((s) => s.symbols.map((y) => y.componentId)));
   for (const c of Object.values(p.components)) if (!placed.has(c.id)) out.push(`component ${c.ref} isn't placed on any sheet`);
+  // board Footprints: a Component's, or board-only (#74) with its own Reference and footprint
+  const refsTaken = new Set(Object.values(p.components).map((c) => c.ref.toLowerCase()));
+  (p.board?.footprints || []).forEach((f, i) => {
+    if (f.componentId) return;
+    const what = `board footprint ${f.ref || i + 1}`;
+    if (!f.ref || !f.fpKey) out.push(`${what} has no part on the Schematic and no Reference or footprint of its own`);
+    else if (!p.footprints?.[f.fpKey]) out.push(`${what} uses footprint ${f.fpKey}, which isn't in the file`);
+    if (f.ref && refsTaken.has(f.ref.toLowerCase())) out.push(`two parts are called ${f.ref}`); else if (f.ref) refsTaken.add(f.ref.toLowerCase());
+  });
   return out;
 }
 

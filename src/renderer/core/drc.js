@@ -11,7 +11,7 @@
 // overlap; wire: an unrouted connection [a, b]; label: a short note to draw (sizes).
 import ClipperLib from 'clipper-lib';
 import { copperIndex, shapeDistance, shapeBox, clearanceBetween, netRules, pointSeg2, pairKind, pairKey, maxClearance } from './collision.js';
-import { fpTransform, flipLayer, placedPads, padNets } from './footprint.js';
+import { fpTransform, flipLayer, placedPads, padNets, bfFootprint, bfRef } from './footprint.js';
 import { footprintOf } from './project.js';
 import { checkOutline } from './board.js';
 import { outlineSegments } from './walkaround.js';
@@ -102,7 +102,7 @@ function inRings(p, rings) {
 
 function namer(project) {
   const board = project.board;
-  const ref = (bf) => board.annotation?.components?.[bf.componentId]?.ref || project.components[bf.componentId]?.ref || '?';
+  const ref = (bf) => bfRef(project, bf) || '?';
   const net = (n) => (n ? n : 'no net');
   return (it) => {
     if (it.kind === 'pad') return `${ref(it.footprint)} pad ${it.item.number} (${net(it.net)})`;
@@ -257,7 +257,7 @@ export function runDrc(project, fills = new Map(), { areas = null, rats = null }
   // courtyards of Footprints on the same side that overlap
   const yards = [];
   for (const bf of board.footprints || []) {
-    const fp = footprintOf(project, project.components[bf.componentId]);
+    const fp = bfFootprint(project, bf);
     if (!fp) continue;
     const T = fpTransform(bf);
     const paths = [];
@@ -285,7 +285,7 @@ export function runDrc(project, fills = new Map(), { areas = null, rats = null }
     if (overlap <= 1e6) continue; // more than touching (1 µm²·10⁶)
     const ob = shapeBox({ type: 'poly', pts: sol.flat().map((q) => [q.X, q.Y]) });
     const at = [Math.round((ob.x0 + ob.x1) / 2), Math.round((ob.y0 + ob.y1) / 2)];
-    const ref = (bf) => board.annotation?.components?.[bf.componentId]?.ref || project.components[bf.componentId]?.ref || '?';
+    const ref = (bf) => bfRef(project, bf) || '?';
     const ring = (p) => p.map((q) => [q.X, q.Y]);
     // a courtyard the import made up (no drawn one, #67) is only a guess: its overlaps are warnings
     const guess = a.generated || b.generated;

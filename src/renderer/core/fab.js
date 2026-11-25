@@ -8,7 +8,7 @@
 //   fabFiles(project, { fills, date, version }) -> [{ name, kind: 'gerber' | 'drill', layer, text }]
 import ClipperLib from 'clipper-lib';
 import { copperLayerNames } from './board.js';
-import { placedPads, padNets, fpTransform, flipLayer, padOnLayer, courtyardBounds } from './footprint.js';
+import { placedPads, padNets, fpTransform, flipLayer, padOnLayer, courtyardBounds, bfFootprint, bfRef, bfValue } from './footprint.js';
 import { footprintOf } from './project.js';
 import { padShape, isOctagon } from './collision.js';
 import { arcCircle } from './geom.js';
@@ -204,11 +204,10 @@ function gerberLayer(project, { layer, fn, polarity }, { fills, date, version })
   } else if (/SilkS$/.test(layer)) {
     const mirror = layer.startsWith('B.'), font = board.textFont || 'stroke';
     for (const bf of board.footprints) {
-      const fp = footprintOf(project, project.components[bf.componentId]);
+      const fp = bfFootprint(project, bf);
       if (!fp) continue;
       const T = fpTransform(bf);
-      const ref = board.annotation?.components?.[bf.componentId]?.ref ?? project.components[bf.componentId]?.ref ?? '';
-      const value = board.annotation?.components?.[bf.componentId]?.value ?? project.components[bf.componentId]?.value ?? '';
+      const ref = bfRef(project, bf, board), value = bfValue(project, bf, board);
       let ownRef = false;
       const moved = new Set(Object.keys(bf.texts || {})); // fields this placement moved, resized or hid (#65)
       for (const gr of fp.graphics || []) {

@@ -3,7 +3,7 @@
 // signature and a box; an edit's areas are the old and new boxes of the items it changed. Changes
 // that reach the whole board (rules, Net classes, the stack, the Outline, the Board's record of the
 // Schematic) ask for a full run instead. DOM-free.
-import { footprintOutline, placedPads, padNets } from './footprint.js';
+import { footprintOutline, placedPads, padNets, bfFootprint } from './footprint.js';
 import { footprintOf } from './project.js';
 import { drawingBox } from './boardDrawings.js';
 import { copperLayerNames } from './board.js';
@@ -28,7 +28,7 @@ export function boardItems(project, board = project.board) {
     const comp = project.components[bf.componentId];
     const pads = placedPads(view, bf, nets);
     const pts = [...footprintOutline(view, bf), ...pads.flatMap((p) => { const r = Math.hypot(...p.size) / 2; return [[p.at[0] - r, p.at[1] - r], [p.at[0] + r, p.at[1] + r]]; })];
-    items.set(`f:${bf.id}`, { sig: JSON.stringify([bf.at, bf.rot, bf.side, comp?.footprint, footprintOf(project, comp)?.name]), box: box(pts) });
+    items.set(`f:${bf.id}`, { sig: JSON.stringify([bf.at, bf.rot, bf.side, comp?.footprint, bfFootprint(project, bf)?.name, bf.fpKey, bf.padNets]), box: box(pts) });
   }
   for (const z of board.zones || []) items.set(`z:${z.id}`, { sig: JSON.stringify(z), box: box(z.outline) });
   const copper = new Set(copperLayerNames(board.stack.copper));

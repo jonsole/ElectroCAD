@@ -41,7 +41,32 @@ export const flipLayer = (layer, side) => (side === 'B' ? layer.replace(/^F\./, 
 export function padNets(board) {
   const out = new Map();
   for (const [net, pads] of Object.entries(board.annotation?.nets || {})) for (const k of pads) out.set(k, net);
+  // board-only Footprints (#74) carry their pads' nets themselves
+  for (const bf of board.footprints || []) if (!bf.componentId) for (const [num, net] of Object.entries(bf.padNets || {})) if (net) out.set(`${bf.id}:${num}`, net);
   return out;
+}
+
+// ---------------------------------------------------------------- board-only Footprints (#74)
+
+/** Is `bf` a board-only Footprint (a mounting hole, fiducial, logo…: no Schematic Component)? */
+export const isBoardOnly = (bf) => !bf.componentId;
+/** What a placed Footprint's pads are keyed by ("key:pad"): its Component's id, or its own. */
+export const bfKey = (bf) => bf.componentId || bf.id;
+/** A placed Footprint's footprint: its Component's, or (board-only) its own from the table. */
+export function bfFootprint(project, bf) {
+  if (!bf) return null;
+  if (bf.componentId) return footprintOf(project, project.components[bf.componentId]);
+  return project.footprints?.[bf.fpKey]?.footprint || null;
+}
+/** Its Reference designator: the Board's record of the Schematic, or its own (board-only). */
+export function bfRef(project, bf, board = project.board) {
+  if (!bf.componentId) return bf.ref || '';
+  return board.annotation?.components?.[bf.componentId]?.ref ?? project.components[bf.componentId]?.ref ?? '';
+}
+/** Its Value, the same way. */
+export function bfValue(project, bf, board = project.board) {
+  if (!bf.componentId) return bf.value || '';
+  return board.annotation?.components?.[bf.componentId]?.value ?? project.components[bf.componentId]?.value ?? '';
 }
 
 /**
@@ -49,13 +74,13 @@ export function padNets(board) {
  * rot, net }. `rot` is the pad's total rotation; `layers` are flipped for the back.
  */
 export function placedPads(project, bf, nets = padNets(project.board)) {
-  const fp = footprintOf(project, project.components[bf.componentId]);
+  const fp = bfFootprint(project, bf);
   if (!fp) return [];
   const T = fpTransform(bf);
   return fp.pads.map((p) => ({
     number: p.number, at: T(p.at), size: p.size, shape: p.shape, drill: p.drill || 0, ...(p.innerSize ? { innerSize: p.innerSize } : {}), ...(p.chamfer != null ? { chamfer: p.chamfer } : {}), ...(p.corners ? { corners: p.corners } : {}),
     layers: (p.layers || []).map((l) => flipLayer(l, bf.side)), rot: ((bf.rot || 0) + (p.rot || 0)) % 360,
-    net: nets.get(`${bf.componentId}:${p.number}`) || '',
+    net: nets.get(`${bfKey(bf)}:${p.number}`) || '',
   }));
 }
 
@@ -127,7 +152,7 @@ export function setLocked(project, ids, locked) {
 
 /** A placed Footprint's courtyard (or pad extent) as a polygon of four board points. */
 export function footprintOutline(project, bf) {
-  const fp = footprintOf(project, project.components[bf.componentId]);
+  const fp = bfFootprint(project, bf);
   const b = footprintBox(fp), T = fpTransform(bf);
   return [[b.x0, b.y0], [b.x1, b.y0], [b.x1, b.y1], [b.x0, b.y1]].map(T);
 }

@@ -3,7 +3,7 @@
 // key: the rule, the items it's about and each item's current geometry and net. So an edit
 // elsewhere keeps it, while moving, resizing or re-netting one of its items lapses it (the
 // problem shows again). Approvals whose items are gone are pruned. DOM-free.
-import { placedPads, padNets } from './footprint.js';
+import { placedPads, padNets, bfFootprint } from './footprint.js';
 import { footprintOf } from './project.js';
 
 /** How each kind of item looks to an approval: its geometry and net, or null when it's gone. */
@@ -15,7 +15,7 @@ function itemSigs(project, board = project.board) {
   for (const d of board.drawings || []) byId.set(d.id, () => ['d', d]);
   const fps = new Map((board.footprints || []).map((bf) => [bf.id, bf]));
   let nets = null;
-  const fpSig = (bf) => [bf.at, bf.rot || 0, bf.side || 'F', footprintOf(project, project.components[bf.componentId])?.name || ''];
+  const fpSig = (bf) => [bf.at, bf.rot || 0, bf.side || 'F', bfFootprint(project, bf)?.name || ''];
   return (id) => {
     if (byId.has(id)) return byId.get(id)();
     if (fps.has(id)) return ['f', ...fpSig(fps.get(id))];
