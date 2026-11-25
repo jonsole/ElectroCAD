@@ -6,7 +6,7 @@ import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { later } from '../workspaces/workspace.js';
 import { STARTER_LIBRARY, CATEGORIES, searchParts, groupParts } from '../library/starter.js';
 import { allFootprints } from '../library/footprints.js';
-import { addDrawing, toggleNoConnect, hitNoConnect, placedUnits, unitSuggestion, nextUnplacedUnit, unitLetter, placeSymbol, rotateSymbols, mirrorSymbols, setSymbolsLocked, deleteItems, symbolBounds, hitSymbol, addWire, addLabel, addSheet, renameSheet, moveSheet, deleteSheet, validateSheetName, hitWire, preferredAxis, routeWire, moveSelection, copySelection, pasteClip, itemsInRect, itemsBounds, cleanupWires } from '../core/schematic.js';
+import { addDrawing, toggleNoConnect, hitNoConnect, placedUnits, unitSuggestion, nextUnplacedUnit, unitLetter, placeSymbol, rotateSymbols, mirrorSymbols, setSymbolsLocked, deleteItems, symbolBounds, hitSymbol, addWire, addBus, addLabel, addSheet, renameSheet, moveSheet, deleteSheet, validateSheetName, hitWire, preferredAxis, routeWire, moveSelection, copySelection, pasteClip, itemsInRect, itemsBounds, cleanupWires } from '../core/schematic.js';
 import { buildNetlist } from '../core/netlist.js';
 import { runErc, filterViolations } from '../core/erc.js';
 import { shapeHandles, hitHandle, dragHandle, snapPoint } from '../core/handles.js';
@@ -22,6 +22,7 @@ import { probeFromSchematic, schematicTargets, sheetForProbe } from '../core/pro
 import { hitDrawing, drawingDefaults, paperRect, titleBlockLayout, PAPER_SIZES, TITLE_FIELDS, LINE_STYLES } from '../core/drawings.js';
 import { pinPositions, nextRef, partOf } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
+import { hitBus, busAt } from '../core/bus.js';
 import { SCH_GRID, mm } from '../core/units.js';
 
 import { drawSheet, symbolThumbnail, measureText, drawFootprintPreview } from './render.js';
@@ -276,7 +277,7 @@ export class SchematicEditor {
     const f = this.placement && hitField(this.project, this.placement, world, tol / 2, measureText);
     const sym = hitSymbol(this.project, this.sheet, world, 3 / scale);
     const fsym = f && this.sheet.symbols.find((y) => y.id === f.symbolId);
-    const thin = [hitDrawing(this.sheet, world, tol, measureText), hitWire(this.sheet, world, tol)].filter(Boolean);
+    const thin = [hitDrawing(this.sheet, world, tol, measureText), hitWire(this.sheet, world, tol), hitBus(this.sheet, world, tol * 1.5)].filter(Boolean);
     const atPin = sym && pinPositions(this.project, sym).some(({ at }) => Math.hypot(at[0] - world[0], at[1] - world[1]) <= tol * 1.5);
     const order = [hitNoConnect(this.sheet, world, SCH_GRID / 2), hitLabel(this.sheet, world, tol / 2, measureText, this._refsOf()),
       ...(sym && !atPin ? [...thin, sym, fsym] : [sym, fsym, ...thin])];
@@ -532,13 +533,14 @@ export class SchematicEditor {
     this.toolBtn = {
       select: button({ icon: 'select', title: 'Select (V)', onClick: () => this.setTool('select') }),
       wire: button({ icon: 'wire', title: 'Wire (W)', onClick: () => this.setTool('wire') }),
+      bus: button({ icon: 'bus', title: 'Bus (Shift+W): a thick line that groups nets by name, e.g. D[0..7]; draw wires (bus entries) from it to the pins', onClick: () => this.setTool('bus') }),
       netLabel: button({ icon: 'netLabel', title: 'Net label (L): joins Pins with the same name on this sheet', onClick: () => this.setTool('netLabel') }),
       globalLabel: button({ icon: 'globalLabel', title: 'Global label (Ctrl+L): joins Pins with the same name on every sheet', onClick: () => this.setTool('globalLabel') }),
       power: button({ icon: 'power', title: 'Power symbol (P): +5V, +3V3, VCC… joins on every sheet', onClick: () => this.setTool('power') }),
       ground: button({ icon: 'ground', title: 'Ground (G)', onClick: () => this.setTool('ground') }),
       noConnect: button({ icon: 'noConnect', title: 'No-connect (Q): mark a Pin that is left open on purpose; click again to remove', onClick: () => this.setTool('noConnect') }),
     };
-    return [this.toolBtn.select, this.toolBtn.wire,
+    return [this.toolBtn.select, this.toolBtn.wire, this.toolBtn.bus,
       this.toolBtn.netLabel, this.toolBtn.globalLabel, this.toolBtn.power, this.toolBtn.ground,
       this.toolBtn.noConnect, null,
       ...Object.entries(DRAW_TOOLS).map(([id, t]) => (this.toolBtn[id] = button({ icon: t.icon, title: t.title, onClick: () => this.setTool(id) }))),
@@ -593,7 +595,10 @@ export class SchematicEditor {
     if (!this.ws) return;
     let text = IDLE_HINT;
     if (this.fieldWarnings && this.fieldWarnings.length) text = `⚠ ${this.fieldWarnings.length === 1 ? this.fieldWarnings[0] : `${this.fieldWarnings.length} parts' fields overlap (${this.fieldWarnings.slice(0, 3).join('; ')}${this.fieldWarnings.length > 3 ? '…' : ''})`} — move parts apart or pick another Field style. ` + IDLE_HINT.replace('Nothing selected. ', '');
-    if (this.tool === 'wire') text = this.wiring
+    if (this.tool === 'bus') text = this.wiring
+      ? 'Drawing a bus: click to add a corner · click a Bus (or double-click) to finish · / switch corner direction · Backspace undo corner · Esc finish. Name it in its Properties'
+      : 'Bus: click a point or an existing Bus to start · Esc back to Select';
+    else if (this.tool === 'wire') text = this.wiring
       ? 'Drawing a wire: click to add a corner · click a Pin or Wire (or double-click) to finish · / switch corner direction · Backspace undo corner · Esc finish'
       : 'Wire: click a Pin or a point on the grid to start · Esc back to Select';
     else if (this.tool === 'origin') text = 'Grid origin: click where the grid, rulers and coordinates should measure from (it snaps onto Pins, Wire ends and handles) · Esc back to Select';
@@ -642,7 +647,7 @@ export class SchematicEditor {
       this.setAlt(e.altKey);
       if (this.placing && !this.placing.drag) { this._update(world); this.commitPlace(); return; }
       if (this.tool === 'origin') { this.placeOrigin(world); return; }
-      if (this.tool === 'wire') { this._wireClick(world, e.detail >= 2); return; }
+      if (this.tool === 'wire' || this.tool === 'bus') { this._wireClick(world, e.detail >= 2); return; }
       if (LABEL_TOOLS[this.tool]) { e.preventDefault(); this._labelClick(this.snapAt(world)); return; } // keep focus in the name box
       if (DRAW_TOOLS[this.tool]) { if (this.tool === 'text') e.preventDefault(); this._drawClick(world, e.detail >= 2); return; }
       if (this.tool === 'noConnect') {
@@ -763,7 +768,7 @@ export class SchematicEditor {
       this.setAlt(e.altKey);
       this.snapMark = null;
       // wires, labels and no-connects snap onto Pins and Wire ends; everything else to the grid
-      this.cursor = this.tool === 'wire' || LABEL_TOOLS[this.tool] || this.tool === 'noConnect' || this.tool === 'origin' ? this.snapAt(world) : this.snapG(world);
+      this.cursor = this.tool === 'wire' || this.tool === 'bus' || LABEL_TOOLS[this.tool] || this.tool === 'noConnect' || this.tool === 'origin' ? this.snapAt(world) : this.snapG(world);
       this.cursorRaw = world; // markup snaps to half a grid
       if (this.tool !== 'select') ws.view.invalidate();
       if (this.handleDrag && (e.buttons & 1)) {
@@ -855,9 +860,9 @@ export class SchematicEditor {
   draw(ctx, view, C) {
     const ghost = this.placing && this.placing.at ? { part: this.placing.part, unit: this.placing.unit || 0, ref: this._placingName(this.placing), at: this.placing.at, rot: this.placing.rot, mirror: this.placing.mirror } : null;
     let wiring = null, target = null;
-    if (this.tool === 'wire' && this.cursor) {
+    if ((this.tool === 'wire' || this.tool === 'bus') && this.cursor) {
       target = this._endTarget(this.cursor) ? this.cursor : null;
-      if (this.wiring) wiring = [...this.wiring.points, ...this._route(this.wiring.points[this.wiring.points.length - 1], this.cursor)];
+      if (this.wiring) { wiring = [...this.wiring.points, ...this._route(this.wiring.points[this.wiring.points.length - 1], this.cursor)]; wiring.bus = this.tool === 'bus'; }
     }
     const t = LABEL_TOOLS[this.tool];
     const ghostLabel = t && this.cursor && !this.labelEdit
@@ -1089,6 +1094,7 @@ export class SchematicEditor {
 
   /** Is `p` somewhere a Wire should end: a Pin tip or a point on an existing Wire? */
   _endTarget(p) {
+    if (this.tool === 'bus') return (this.sheet.busses || []).some((b) => onSegment(p, b.a, b.b)) ? 'bus' : null;
     for (const sym of this.sheet.symbols) for (const { at } of pinPositions(this.project, sym)) if (eq(at, p)) return 'pin';
     for (const w of this.sheet.wires) if (onSegment(p, w.a, w.b)) return 'wire';
     return null;
@@ -1115,6 +1121,14 @@ export class SchematicEditor {
     this.wiring = null;
     if (!w || w.points.length < 2) { this.refresh(); return; }
     const pts = w.points;
+    if (this.tool === 'bus') {
+      let ids = [];
+      this.app.edit('Draw bus', (p) => { ids = addBus(p, this._S(p), pts).map((b) => b.id); });
+      // a new Bus with no name: select it and open its Properties to name it
+      if (ids.length && !this.sheet.busses.find((b) => b.id === ids[0])?.name) { this.tool = 'select'; this.selection = new Set(ids); this.openProperties(); }
+      this.refresh();
+      return;
+    }
     this.app.edit('Draw wire', (p) => { addWire(p, this._S(p), pts); cleanupWires(p, this._S(p)); });
     this.refresh();
   }
@@ -1528,7 +1542,7 @@ export class SchematicEditor {
   _selectedSymbolIds() { return this.sheet.symbols.filter((y) => this.selection.has(y.id)).map((y) => y.id); }
 
   /** Every selectable item on the current Sheet. */
-  _allIds() { return [...this.sheet.symbols.map((y) => y.id), ...this.sheet.wires.map((w) => w.id), ...(this.sheet.labels || []).map((l) => l.id), ...(this.sheet.noConnects || []).map((n) => n.id), ...(this.sheet.drawings || []).map((d) => d.id)]; }
+  _allIds() { return [...this.sheet.symbols.map((y) => y.id), ...this.sheet.wires.map((w) => w.id), ...(this.sheet.busses || []).map((b) => b.id), ...(this.sheet.labels || []).map((l) => l.id), ...(this.sheet.noConnects || []).map((n) => n.id), ...(this.sheet.drawings || []).map((d) => d.id)]; }
 
   _selSig() { return `${this.sheet.id}|${[...this.selection].sort().join()}`; }
 
@@ -1566,13 +1580,13 @@ export class SchematicEditor {
     if (this.tool !== 'select' || !this.selection.size) { s.hide(); return; }
     const sh = this.sheet, sel = this.selection;
     const n = (xs) => xs.filter((x) => sel.has(x.id)).length;
-    const syms = n(sh.symbols), wires = n(sh.wires), labels = n(sh.labels || []), drawings = n(sh.drawings || []), ncs = n(sh.noConnects || []);
-    const parts = [[syms, 'part'], [wires, 'wire'], [labels, 'label'], [drawings, 'drawing'], [ncs, 'no-connect']].filter(([k]) => k).map(([k, w]) => `${k} ${w}${k === 1 ? '' : 's'}`);
+    const syms = n(sh.symbols), wires = n(sh.wires), busses = n(sh.busses || []), labels = n(sh.labels || []), drawings = n(sh.drawings || []), ncs = n(sh.noConnects || []);
+    const parts = [[syms, 'part'], [wires, 'wire'], [busses, 'bus'], [labels, 'label'], [drawings, 'drawing'], [ncs, 'no-connect']].filter(([k]) => k).map(([k, w]) => `${k} ${w}${k === 1 ? '' : w === 'bus' ? 'ses' : 's'}`);
     let title = parts.join(', ');
     if (syms === 1 && sel.size === 1) { const y = sh.symbols.find((q) => sel.has(q.id)); title = this.project.components[y.componentId]?.ref || title; }
     // everything selected is a locked part: what would move it is greyed out
     const allLocked = syms > 0 && syms === sel.size && this._selSyms().every((y) => y.locked);
-    s.show(`sel|${[...sel].sort().join()}|${this.propsOpen}|${this._selSyms().map((y) => !!y.locked).join()}`, () => [stripLabel(title, syms ? 'parts' : wires ? 'wire' : labels ? 'netLabel' : 'select'), stripSep(),
+    s.show(`sel|${[...sel].sort().join()}|${this.propsOpen}|${this._selSyms().map((y) => !!y.locked).join()}`, () => [stripLabel(title, syms ? 'parts' : wires ? 'wire' : busses ? 'bus' : labels ? 'netLabel' : 'select'), stripSep(),
       syms || labels || drawings ? stripButton({ icon: 'rotate', title: allLocked ? 'Locked: unlock to rotate' : 'Rotate 90° (R)', disabled: allLocked, onClick: () => this.rotate() }) : null,
       syms ? stripButton({ icon: 'mirror', title: allLocked ? 'Locked: unlock to mirror' : 'Mirror (X)', disabled: allLocked, onClick: () => this.mirror() }) : null,
       syms ? stripButton({ icon: 'ltext', label: 'Fields', title: 'Field style for the selected parts', onClick: (e) => this.fieldsMenu(e.currentTarget) }) : null,
@@ -1750,6 +1764,15 @@ export class SchematicEditor {
     if (this.labelEdit) { this.labelEdit.commit(); return; }
     const t = LABEL_TOOLS[this.tool];
     const spec = { at, rot: this.labelRot, style: t.style, scope: t.scope, ...(this.labelShapes[this.tool] ? { shape: this.labelShapes[this.tool] } : {}) };
+    // a label on a Bus (#64) shows the Bus's name: it goes down at once and names no Net
+    const bus = (this.tool === 'netLabel' || this.tool === 'globalLabel') && busAt(this.sheet, at);
+    if (bus) {
+      if (!bus.name) { toast('Name the bus first (select it → Properties), then label it.'); return; }
+      const l = this.app.edit('Label bus', (p) => { const x = addLabel(p, this._S(p), { ...spec, net: bus.name }); x.bus = true; return x; });
+      this.selection = new Set([l.id]);
+      this.refresh();
+      return;
+    }
     // Ground and Power symbols go down at once: GND, or the last power net used (double-click to change it)
     if (this.tool === 'ground' || this.tool === 'power') {
       const net = this.tool === 'ground' ? 'GND' : this._powerName();
@@ -2008,7 +2031,7 @@ export class SchematicEditor {
   /** Workspace keys (the app routes plain keys here when this workspace is active). */
   onKey(e) {
     const k = e.key.toLowerCase();
-    if (this.tool === 'wire') {
+    if (this.tool === 'wire' || this.tool === 'bus') {
       if (e.key === 'Escape') { if (this.wiring) this.finishWire(); else this.setTool('select'); return true; }
       if (e.key === '/' && this.wiring) {
         // flip the corner that's showing now, for the rest of this wire
@@ -2024,6 +2047,7 @@ export class SchematicEditor {
     const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
     if (arrows[e.key] && this.selection.size && this.tool === 'select') { const [dx, dy] = arrows[e.key]; const n = e.shiftKey ? 10 : 1; this.nudge(dx * n, dy * n); return true; }
     if (LABEL_TOOLS[this.tool] && e.key === 'Escape') { this.setTool('select'); return true; }
+    if (k === 'w' && e.shiftKey) { this.setTool('bus'); return true; }
     if (k === 'w') { this.setTool('wire'); return true; }
     if (k === 'l') { this.setTool('netLabel'); return true; }
     if (k === 'p') { this.setTool('power'); return true; }

@@ -49,7 +49,7 @@ const CLASSIC_STYLE = {
 const defaultFieldStyles = () => ({ default: 'classic', styles: { classic: structuredClone(CLASSIC_STYLE) } });
 
 export function newSheet(name) {
-  return { id: uid('s'), name, symbols: [], wires: [], labels: [], noConnects: [], drawings: [], paper: { size: 'A4', orientation: 'landscape' }, grid: { main: mil(50), alt: mil(25) }, origin: [0, 0] };
+  return { id: uid('s'), name, symbols: [], wires: [], busses: [], labels: [], noConnects: [], drawings: [], paper: { size: 'A4', orientation: 'landscape' }, grid: { main: mil(50), alt: mil(25) }, origin: [0, 0] };
 }
 
 export function newBoard(copper = 2) {
@@ -247,7 +247,7 @@ export function projectProblems(p) {
   const sheetName = (i) => p?.schematic?.sheets?.[i]?.name;
   const where = (path) => path.replace(/^\$\.?/, '')
     .replace(/^schematic\.sheets\[(\d+)\]/, (_, i) => `sheet "${sheetName(+i) ?? +i + 1}"`)
-    .replace(/\.(symbols|wires|labels|noConnects)\[(\d+)\]/g, (_, k, i) => ` ${k.replace(/s$/, '').replace('noConnect', 'no-connect')} ${+i + 1}`)
+    .replace(/\.(symbols|wires|busses|labels|noConnects)\[(\d+)\]/g, (_, k, i) => ` ${k.replace(/es$|s$/, '').replace('noConnect', 'no-connect')} ${+i + 1}`)
     .replace(/^components\.([^.]+)/, (_, id) => `component ${p.components?.[id]?.ref ?? id}`) || 'the file';
   const out = raw.map((e) => { const i = e.indexOf(': '); return `${where(e.slice(0, i))}: ${e.slice(i + 2)}`; });
   if (out.length) return out;
@@ -280,10 +280,11 @@ export function projectProblems(p) {
       else if (!p.parts[c.partId]?.units[y.unit]) out.push(`${what}: ${c.ref} is placed as unit ${y.unit + 1}, which its part doesn't have`);
     });
     s.wires.forEach((w, i) => seen(w.id, `${what} wire ${i + 1}`));
+    (s.busses || []).forEach((b, i) => seen(b.id, `${what} bus ${i + 1}`));
     s.labels.forEach((l, i) => {
       seen(l.id, `${what} label ${l.net}`);
       if ((l.style === 'power' || l.style === 'gnd') && l.scope !== 'global') out.push(`${what}: the power symbol ${l.net} must be global`);
-      if (!l.net.trim() || /\s/.test(l.net)) out.push(`${what} label ${i + 1}: "${l.net}" isn't a usable net name`);
+      if (!l.net.trim() || (!l.bus && /\s/.test(l.net))) out.push(`${what} label ${i + 1}: "${l.net}" isn't a usable net name`);
     });
     s.noConnects.forEach((n, i) => seen(n.id, `${what} no-connect ${i + 1}`));
     s.drawings.forEach((d, i) => seen(d.id, `${what} drawing ${i + 1}`));

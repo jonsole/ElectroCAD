@@ -9,6 +9,7 @@ import * as drawings from './core/drawings.js';
 import * as schematic from './core/schematic.js';
 import * as collision from './core/collision.js';
 import * as zip from './core/zip.js';
+import * as erc from './core/erc.js';
 
 // The app has its own menus; keep the browser's right-click menu off the canvas and
 // chrome, but leave it on text fields for copy, paste and spelling (as DabbleCAD does).
@@ -20,7 +21,7 @@ document.addEventListener('contextmenu', (e) => {
 
 const app = new App();
 window.electrocad = app; // used by the smoke tests
-window.electrocadLib = { project, units, netlist, schematic, labels, drawings, collision, zip };
+window.electrocadLib = { project, units, netlist, schematic, labels, drawings, collision, zip, erc };
 // Starting up: say what's wrong instead of sitting on "Loading…" (another tab holding the
 // browser store open, or a saved project or setting this build can't use), and offer a way out.
 const bootMessage = (text, { error = false, actions = true } = {}) => {

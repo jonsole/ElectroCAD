@@ -422,3 +422,17 @@ test('pins (#63): Eagle\'s overbars, pin functions and per-pin visibility come o
   assert.ok([...nl.nets.values?.() || nl.nets].some((n) => n.name === '~{EN}'), 'net ~{EN}');
   assert.ok(!JSON.stringify(project.schematic).includes('!EN'));
 });
+
+test('busses (#64): Eagle\'s busses come over as Busses, named as Eagle names them, with their labels', () => {
+  const sch = SCH.replace('<busses/>\n<nets>', '<busses><bus name="!WR,D[0..3]"><segment><wire x1="0" y1="0" x2="0" y2="20.32" width="0.762" layer="92"/><wire x1="0" y1="20.32" x2="10.16" y2="20.32" width="0.762" layer="92"/><label x="0" y="10.16" size="1.778" layer="95" rot="R90"/></segment></bus></busses><nets>');
+  const { project, report, check } = importEagle({ sch, name: 'reg' });
+  const sheet = project.schematic.sheets[0];
+  assert.equal(sheet.busses.length, 2);
+  assert.ok(sheet.busses.every((b) => b.name === '~{WR},D[0..3]'));
+  const bl = sheet.labels.filter((l) => l.bus);
+  assert.equal(bl.length, 1);
+  assert.equal(bl[0].net, '~{WR},D[0..3]');
+  assert.ok(check.schematic.ok);
+  assert.ok(!report.some((r) => /Busses were left out/.test(JSON.stringify(r))));
+  assert.ok(!buildNetlist(project).nets.some((n) => /D\[0/.test(n.name)), 'a bus label names no net');
+});

@@ -140,6 +140,15 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 - **Pin marks and what a pin shows** (#63): a pin's Properties in the Symbol editor have **Mark** (None, Inverted: a bubble at the body; Clock: a wedge inside it; Inverted clock) and **Shows** (Name and number, Name only, Number only, Neither). With several pins selected, both set all of them. A Unit's own pin name / number switches still hide them all.
 - **Pin text per Unit:** the Symbol editor's **Pin text** row sets a Unit's pin name size, pin number size and the gap between a pin's inner end and its name (empty means the default: about 1 mm text, 0.6 mm gap). Eagle imports use Eagle's 1.524 mm (60 mil) names, 1.905 mm in from the pin.
 
+## Busses
+
+- **Bus (Shift+W)** in the tool palette draws a Bus like a Wire (click corners, double-click or click an existing Bus to finish), thicker and in the theme's **Bus** colour (#64). A run joined to an existing Bus takes its name. A new Bus with no name is selected and its Properties open on **Name**.
+- **The name lists its members**, as in Eagle: names and ranges separated by commas, `D[0..7]` for D0 to D7 (either way round), `A,B,~{WR}`, or both. KiCad's `{SDA SCL}` is read too. Properties list the members it gives. Renaming changes every segment of the Bus and its labels.
+- **Bus entries are Wires** ending on the Bus (often a short 45° stub). A Bus connects nothing itself: nets cross it by name, as in Eagle and KiCad. A Wire end on a Bus doesn't join a Wire that happens to cross the Bus at that point.
+- **Bus labels:** the Net label or Global label tool clicked on a named Bus puts down a label showing the Bus's name. It names no net, moves with the Bus and goes when the Bus is deleted.
+- **Editing:** Busses select, box-select, move (taking their entries' ends and labels along), copy, paste and delete like Wires, and print.
+- **ERC** warns about a Bus with no name, and about a net entering a Bus whose name doesn't list it (e.g. `CLK enters bus D[0..7], which doesn't list it`).
+
 ## Labels, Power symbols and Sheets
 
 - **Net label (L)**, **Global label (Ctrl+L)**, **Power symbol (P)** and **Ground (G)** are tools in the left palette. A ghost follows the cursor; R turns it. Clicking a Pin, a Wire (end or middle) or a grid point opens a name box there; Enter places, Esc cancels. Ground goes down at once as GND, and a Power symbol goes down at once with the last power net used (+5V the first time). Double-click a power symbol's name to pick another net: a drop-down under the name box lists every power net (+3V3, +5V, VCC… and any the Project uses, so a voltage typed once is offered on every power symbol), narrowing as you type; arrow keys and Enter or a click choose. The next Power symbol then uses that net. The inspector has the same list as a Power net select, plus a box for a new net. (Not a `<datalist>`: browsers hide datalist choices that don't match the text already in the box.) A name with spaces is refused in the box, like a bad Reference.
@@ -656,7 +665,7 @@ The import then shows a summary: what came in, whether the **Netlist matches Eag
 Some of Eagle's implicit connections are made visible, because ElectroCAD joins only what is drawn:
 
 - **Hidden power pins.** A power gate Eagle never placed (a 74xx gate P, `addlevel=request`) is placed under the part's drawing. Each power pin no wire reaches gets a power label naming its net (VCC, GND…), as Eagle joins it by name.
-- **Bus entries.** Busses don't come over. A stub wire whose end lands on another net's wire (a bus entry over the dropped bus) is removed, and a longer wire is pulled back 1.27 mm, so the two nets don't merge. Both are counted in the summary.
+- **Busses** (#64). Eagle's busses come over as Busses with Eagle's name (`!` overbars as `~{…}`), and its bus labels as Bus labels. Bus entries stay where Eagle drew them: their ends on the Bus join only the Bus, even where another net's wire crosses it there, as in Eagle. Elsewhere, a wire end that lands on another net's wire (Eagle joins by name, not by touching) is pulled back 1.27 mm, or a dead-end stub removed, so the nets don't merge; both are counted in the summary.
 - **Labels** (#81). Eagle's plain labels come over as text on the wire and its cross-reference labels (`xref`) as flags, each at Eagle's size, whatever nets they join. Cross-reference labels on nets that span sheets show their sheet references (#76): the other sheet numbers, not Eagle's frame column and row, which ElectroCAD has no frame grid for. The Project default is off, so Eagle's plain labels don't show them. Labels the import adds for nets Eagle names without one are text.
 - **Inner layers of through-hole pads** (#82): on the inner copper layers a pad is round and sized by Eagle's inner restring (`rvPadInner`, `rlMinPadInner`, `rlMaxPadInner`); its shape (square, long, first) is kept on top and bottom only. Polygons keep their width as the zone's minimum width.
 - **Courtyards** (#67): Eagle has no courtyard layer; its equivalent is the keepout outline (tKeepout/bKeepout, layers 39/40), which its DRC checks for overlaps. A package that draws one gets it as its courtyard (round its pads; a keepout that is just a circle stays round). A package without one gets no courtyard, as in Eagle, so DRC doesn't check it for overlaps.
@@ -766,7 +775,7 @@ Canvas colours come from a **Colour theme**, chosen separately for the **Schemat
 - **Rulers** are app chrome, so they follow the app's dark/light theme rather than the canvas theme.
 - **Settings → Colours layout:** two theme selects (Schematic, Board) with Duplicate / Edit / Import / Export buttons. The editor is a fork-style modal: a list of the theme's colours grouped as below, each with a swatch, and the preview on the right.
 
-**Schematic theme colours:** background, paper, grid minor, grid major, sheet edge and title block, origin mark, Wire, Junction, Symbol body line, Symbol body fill, Pin, Pin number, Pin name, Reference designator, Value, Net label, Global label, Power symbol, No-connect, selection, highlight (Cross-probing), ERC error, ERC warning.
+**Schematic theme colours:** background, paper, grid minor, grid major, sheet edge and title block, origin mark, Wire, Junction, Bus, Symbol body line, Symbol body fill, Pin, Pin number, Pin name, Reference designator, Value, Net label, Global label, Power symbol, No-connect, selection, highlight (Cross-probing), ERC error, ERC warning.
 
 **Board theme colours:**
 - background, grid minor, grid major, origin mark, Ratsnest, selection, highlight, DRC error;

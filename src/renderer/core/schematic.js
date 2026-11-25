@@ -6,6 +6,7 @@ import { labelBounds } from './labels.js';
 import { drawingBounds, moveDrawing, rotateDrawing } from './drawings.js';
 import { place, eq, distToSegment2, onSegment, rot90, key, shapePoints } from './geom.js';
 import { snapPt, SCH_GRID } from './units.js';
+import { busGroups, busOf } from './bus.js';
 
 /** Place a new Component's Unit on `sheet`, snapped to the 50 mil grid. */
 export function placeSymbol(project, sheet, part, at, opts = {}) {
@@ -96,7 +97,9 @@ export function deleteItems(project, ids) {
     s.noConnects = (s.noConnects || []).filter((n) => !gone.has(n.id) && !tips.has(key(n.at)));
     s.symbols = s.symbols.filter((y) => !gone.has(y.id));
     s.wires = s.wires.filter((w) => !gone.has(w.id));
-    s.labels = (s.labels || []).filter((l) => !gone.has(l.id));
+    if (s.busses) s.busses = s.busses.filter((b) => !gone.has(b.id));
+    // a Bus label (#64) goes with its Bus
+    s.labels = (s.labels || []).filter((l) => !gone.has(l.id) && (!l.bus || (s.busses || []).some((b) => onSegment(l.at, b.a, b.b))));
     s.drawings = (s.drawings || []).filter((d) => !gone.has(d.id));
   }
   pruneOrphans(project);
@@ -123,6 +126,31 @@ export function addWire(project, sheet, points) {
   for (let i = 1; i < pts.length; i++) segs.push({ id: uid('w'), a: pts[i - 1], b: pts[i] });
   sheet.wires.push(...segs);
   return segs;
+}
+
+/**
+ * Add a Bus (#64) through `points` as segments on the grid, named `name` (a new run joined to an
+ * existing Bus takes that Bus's name). Returns the new segments.
+ */
+export function addBus(project, sheet, points, name = '') {
+  sheet.busses ||= [];
+  const pts = [];
+  for (const p of points.map((q) => snapPt(q, SCH_GRID))) if (!pts.length || !eq(pts[pts.length - 1], p)) pts.push(p);
+  const segs = [];
+  for (let i = 1; i < pts.length; i++) segs.push({ id: uid('b'), a: pts[i - 1], b: pts[i], name: '' });
+  sheet.busses.push(...segs);
+  const g = busGroups(sheet).find((x) => x.segs.includes(segs[0]));
+  const n = String(name || '').trim() || g?.name || '';
+  for (const x of g?.segs || segs) x.name = n;
+  return segs;
+}
+
+/** Rename a Bus (#64): every segment of it, and the Bus labels on it. */
+export function renameBus(project, sheet, id, name) {
+  const segs = busOf(sheet, id);
+  const n = String(name ?? '').trim();
+  for (const s of segs) s.name = n;
+  for (const l of sheet.labels || []) if (l.bus && segs.some((s) => onSegment(l.at, s.a, s.b))) l.net = n;
 }
 
 /**
@@ -263,6 +291,12 @@ export function moveSelection(project, sheet, ids, delta) {
   const moving = new Set();
   for (const y of movingSyms) for (const { at } of pinPositions(project, y)) moving.add(ptKey(at));
   for (const w of sheet.wires) if (sel.has(w.id)) { moving.add(ptKey(w.a)); moving.add(ptKey(w.b)); }
+  // Busses (#64): selected (or both ends moving) move whole, their ends taking Wires along; one
+  // moving end stretches
+  const busses = sheet.busses || [];
+  const wholeBus = busses.filter((b) => sel.has(b.id) || (moving.has(ptKey(b.a)) && moving.has(ptKey(b.b))));
+  for (const b of wholeBus) { moving.add(ptKey(b.a)); moving.add(ptKey(b.b)); }
+  const busEnds = busses.filter((b) => !wholeBus.includes(b)).flatMap((b) => ['a', 'b'].filter((e) => moving.has(ptKey(b[e]))).map((e) => ({ b, e })));
   const labels = sheet.labels || [];
   const movingLabels = labels.filter((l) => sel.has(l.id));
   // no-connect markers go with the Pins they sit on, or on their own when selected
@@ -283,7 +317,7 @@ export function moveSelection(project, sheet, ids, delta) {
   // a Wire end resting in the middle of a Wire that moves as a whole (a T-join) moves with it
   for (const w of sheet.wires) {
     if (whole.includes(w) || stretch.some((x) => x.w === w)) continue;
-    const onMoving = (pt) => whole.some((m) => onSegment(pt, m.a, m.b));
+    const onMoving = (pt) => whole.some((m) => onSegment(pt, m.a, m.b)) || wholeBus.some((m) => onSegment(pt, m.a, m.b));
     const am = onMoving(w.a), bm = onMoving(w.b);
     if (am && bm) whole.push(w);
     else if (am || bm) { moving.add(ptKey(am ? w.a : w.b)); stretch.push({ w, end: am ? 'a' : 'b' }); }
@@ -305,14 +339,17 @@ export function moveSelection(project, sheet, ids, delta) {
     }
   }
   // labels sitting on Wires that move as a whole go along (unless selected: they move anyway)
-  for (const l of labels) if (!sel.has(l.id) && whole.some((w) => onSegment(l.at, w.a, w.b))) movingLabels.push(l);
-  for (const w of whole) { w.a = add2(w.a, delta); w.b = add2(w.b, delta); }
+  for (const l of labels) if (!sel.has(l.id) && [...whole, ...wholeBus].some((w) => onSegment(l.at, w.a, w.b))) movingLabels.push(l);
+  for (const w of [...whole, ...wholeBus]) { w.a = add2(w.a, delta); w.b = add2(w.b, delta); }
+  for (const { b, e } of busEnds) b[e] = add2(b[e], delta);
   for (const l of movingLabels) l.at = add2(l.at, delta);
   const added = [];
   const slid = new Map(); // corner key -> new point (so two Wires sharing a corner agree)
   for (const { w, end } of stretch) {
     const other = end === 'a' ? 'b' : 'a';
     const A = w[end], B = w[other];
+    // a slanted run (a bus entry, #64): only the moving end moves
+    if (A[0] !== B[0] && A[1] !== B[1]) { w[end] = add2(A, delta); continue; }
     const horiz = A[1] === B[1];
     const A2 = add2(A, delta);
     const B2 = horiz ? [B[0], B[1] + delta[1]] : [B[0] + delta[0], B[1]];
@@ -342,6 +379,7 @@ export function moveSelection(project, sheet, ids, delta) {
   sheet.wires.push(...added, ...tethers);
   // tidy: drop zero-length runs
   sheet.wires = sheet.wires.filter((w) => w.a[0] !== w.b[0] || w.a[1] !== w.b[1]);
+  if (sheet.busses) sheet.busses = sheet.busses.filter((b) => b.a[0] !== b.b[0] || b.a[1] !== b.b[1]);
 }
 
 // ---------------------------------------------------------------- copy / paste / box select (#8)
@@ -363,7 +401,8 @@ export function copySelection(project, sheet, ids) {
   const tips = new Set(symbols.flatMap((y) => pinPositions(project, y).map((x) => key(x.at))));
   const noConnects = (sheet.noConnects || []).filter((n) => sel.has(n.id) || tips.has(key(n.at))).map((n) => structuredClone(n));
   const drawings = (sheet.drawings || []).filter((d) => sel.has(d.id)).map((d) => structuredClone(d));
-  return { kind: 'electrocad-schematic-clip', symbols, wires, labels, noConnects, drawings, components, parts, footprints };
+  const busses = (sheet.busses || []).filter((b) => sel.has(b.id)).map((b) => structuredClone(b));
+  return { kind: 'electrocad-schematic-clip', symbols, wires, busses, labels, noConnects, drawings, components, parts, footprints };
 }
 
 /**
@@ -395,6 +434,12 @@ export function pasteClip(project, sheet, clip, delta) {
     sheet.wires.push(nw);
     ids.push(nw.id);
   }
+  for (const b of clip.busses || []) {
+    sheet.busses ||= [];
+    const nb = { id: uid('b'), a: add2(b.a, delta), b: add2(b.b, delta), name: b.name || '' };
+    sheet.busses.push(nb);
+    ids.push(nb.id);
+  }
   sheet.drawings ||= [];
   for (const d of clip.drawings || []) {
     const nd = { ...structuredClone(d), id: uid('d') };
@@ -422,7 +467,7 @@ export function itemsBounds(project, sheet, ids) {
   const sel = new Set(ids);
   const boxes = [];
   for (const y of sheet.symbols) if (sel.has(y.id)) boxes.push(symbolBounds(project, y));
-  for (const w of sheet.wires) if (sel.has(w.id)) boxes.push({ x0: Math.min(w.a[0], w.b[0]), y0: Math.min(w.a[1], w.b[1]), x1: Math.max(w.a[0], w.b[0]), y1: Math.max(w.a[1], w.b[1]) });
+  for (const w of [...sheet.wires, ...(sheet.busses || [])]) if (sel.has(w.id)) boxes.push({ x0: Math.min(w.a[0], w.b[0]), y0: Math.min(w.a[1], w.b[1]), x1: Math.max(w.a[0], w.b[0]), y1: Math.max(w.a[1], w.b[1]) });
   for (const l of sheet.labels || []) if (sel.has(l.id)) boxes.push(labelBounds(l));
   for (const n of sheet.noConnects || []) if (sel.has(n.id)) boxes.push(noConnectBox(n));
   for (const d of sheet.drawings || []) if (sel.has(d.id)) boxes.push(drawingBounds(d));
@@ -444,7 +489,7 @@ export function itemsInRect(project, sheet, r, mode = 'window') {
   };
   const out = [];
   for (const y of sheet.symbols) { const b = symbolBounds(project, y); if (b && (mode === 'window' ? inside(b) : touches(b))) out.push(y.id); }
-  for (const w of sheet.wires) {
+  for (const w of [...sheet.wires, ...(sheet.busses || [])]) {
     const b = { x0: Math.min(w.a[0], w.b[0]), y0: Math.min(w.a[1], w.b[1]), x1: Math.max(w.a[0], w.b[0]), y1: Math.max(w.a[1], w.b[1]) };
     if (mode === 'window' ? inside(b) : segTouches(w.a, w.b)) out.push(w.id);
   }

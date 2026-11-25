@@ -164,6 +164,7 @@ export const DEFAULT_DISPLAY = { colorConnectedPins: false, markUnconnectedPins:
 const PIN_BUBBLE = mm(0.4);
 const PIN_CLOCK = mm(0.6);
 const WIRE = mm(0.15);
+const BUS = mm(0.5);
 const HOP = mm(0.5); // radius of the bridge where Wires cross without connecting
 const JUNCTION = mm(0.5);
 
@@ -426,7 +427,7 @@ export function drawSheet(ctx, view, C, project, sheet0, { selection = new Set()
   // sheet references on Global labels (#76): given by the editor, else worked out here when any label shows them
   if (refs === undefined) refs = (sheet0.labels || []).some((l) => showsRefs(project, l)) ? sheetRefs(project) : null;
   const wireW = Math.max(1.5, WIRE * view.scale);
-  const sheet = only ? { ...sheet0, symbols: sheet0.symbols.filter((x) => only.has(x.id)), wires: sheet0.wires.filter((x) => only.has(x.id)), labels: (sheet0.labels || []).filter((x) => only.has(x.id)), noConnects: (sheet0.noConnects || []).filter((x) => only.has(x.id)), drawings: (sheet0.drawings || []).filter((x) => only.has(x.id)) } : sheet0;
+  const sheet = only ? { ...sheet0, symbols: sheet0.symbols.filter((x) => only.has(x.id)), wires: sheet0.wires.filter((x) => only.has(x.id)), busses: (sheet0.busses || []).filter((x) => only.has(x.id)), labels: (sheet0.labels || []).filter((x) => only.has(x.id)), noConnects: (sheet0.noConnects || []).filter((x) => only.has(x.id)), drawings: (sheet0.drawings || []).filter((x) => only.has(x.id)) } : sheet0;
   if (only) { ghost = null; wiring = null; target = null; ghostLabel = null; erc = null; ghostDrawing = null; }
   // the title block and markup go underneath the circuit
   if (!only) drawTitleBlock(ctx, view, C, project, sheet);
@@ -455,6 +456,13 @@ export function drawSheet(ctx, view, C, project, sheet0, { selection = new Set()
     ctx.lineTo(bx, ay);
   }
   ctx.stroke();
+  // Busses (#64): thicker, in the Bus colour, square-jointed where runs meet
+  if (sheet.busses?.length) {
+    ctx.strokeStyle = C.bus || C.wire; ctx.lineWidth = Math.max(3, BUS * view.scale); ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (const b of sheet.busses) strokeWire(ctx, view, b.a, b.b);
+    ctx.stroke();
+  }
   ctx.restore();
   const conn = connectedPins(project, sheet0);
   for (const sym of sheet.symbols) {
@@ -499,7 +507,7 @@ export function drawSheet(ctx, view, C, project, sheet0, { selection = new Set()
   }
   // a Wire being drawn, and the Pin/Wire it would end on
   if (wiring && wiring.length > 1) {
-    ctx.save(); ctx.globalAlpha = 0.75; ctx.strokeStyle = C.wire; ctx.lineWidth = wireW; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.save(); ctx.globalAlpha = 0.75; ctx.strokeStyle = wiring.bus ? (C.bus || C.wire) : C.wire; ctx.lineWidth = wiring.bus ? Math.max(3, BUS * view.scale) : wireW; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.beginPath(); wiring.map((p) => view.toScreen(p)).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
     ctx.restore();
   }

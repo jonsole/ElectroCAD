@@ -5,13 +5,15 @@
 import { h, button, toast } from '../ui/dom.js';
 import { cardHead } from '../ui/cards.js';
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
-import { moveSelection, rotateSymbols, mirrorSymbols, cleanupWires, placedUnits, setSymbolUnit, unitLetter } from '../core/schematic.js';
+import { renameBus, moveSelection, rotateSymbols, mirrorSymbols, cleanupWires, placedUnits, setSymbolUnit, unitLetter } from '../core/schematic.js';
 import { setComponentFieldStyle, styleFor, hasPinnedFields } from '../core/fields.js';
 import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { partOf } from '../core/project.js';
 import { validateLabelName, isPower, netNameChoices, canonicalNetName, labelLook, labelSize, LABEL_TEXT } from '../core/labels.js';
 import { snap, SCH_GRID, mm } from '../core/units.js';
 import { buildNetlist } from '../core/netlist.js';
+import { busMembers } from '../core/bus.js';
+import { onSegment } from '../core/geom.js';
 import { netClassOf, assignNet, DEFAULT_CLASS } from '../core/netclasses.js';
 
 const fmtMm = (nm) => String(+(nm / 1e6).toFixed(2));
@@ -36,13 +38,18 @@ export class SchematicInspector {
     const wires = this.ed.sheet.wires.filter((w) => this.ed.selection.has(w.id));
     const labels = (this.ed.sheet.labels || []).filter((l) => this.ed.selection.has(l.id));
     const drawings = (this.ed.sheet.drawings || []).filter((d) => this.ed.selection.has(d.id));
+    const busses = (this.ed.sheet.busses || []).filter((b) => this.ed.selection.has(b.id));
     const comps = syms.map((y) => this.project.components[y.componentId]);
-    const sig = JSON.stringify([!!this.ed.propsOpen, [...this.ed.selection], syms, wires.length, labels, drawings, comps, this.project.fieldStyles?.default]);
+    const sig = JSON.stringify([!!this.ed.propsOpen, [...this.ed.selection], syms, wires.length, labels, drawings, busses, comps, this.project.fieldStyles?.default]);
     const focused = this.el.contains(document.activeElement) ? document.activeElement : null;
     const typing = focused && /^(INPUT|TEXTAREA)$/.test(focused.tagName);
     if (typing && sig === this.sig) return;
     this.sig = sig;
-    if (!this.ed.propsOpen || (!syms.length && !wires.length && !labels.length && !drawings.length)) { this.el.replaceChildren(); return; }
+    if (!this.ed.propsOpen || (!syms.length && !wires.length && !labels.length && !drawings.length && !busses.length)) { this.el.replaceChildren(); return; }
+    if (busses.length && !syms.length && !wires.length && !drawings.length) { this._bus(busses[0]); return this._refocus(focused); }
+    // a Bus label shows its Bus's name: edit the Bus
+    const labelBus = labels.length === 1 && labels[0].bus && !syms.length && !wires.length && (this.ed.sheet.busses || []).find((x) => onSegment(labels[0].at, x.a, x.b));
+    if (labelBus) { this._bus(labelBus); return this._refocus(focused); }
     if (drawings.length === 1 && !syms.length && !labels.length && !wires.length) { this._drawing(drawings[0]); return this._refocus(focused); }
     if (wires.length && !syms.length && !drawings.length) this._wires(wires, labels); // a wire (or a whole net): the net's details
     else if (syms.length === 1 && !labels.length) this._one(syms[0], wires.length);
@@ -310,6 +317,20 @@ export class SchematicInspector {
     }
     rows.push(h('div', { class: 'insp-note' }, 'Markup never connects to wires or pins.'));
     this.el.replaceChildren(this._head(title, null, { rotate: true }), h('div', { class: 'insp-body' }, ...rows));
+  }
+
+  /** A Bus (#64): its name (every segment of it, and its Bus labels) and the members it lists. */
+  _bus(b) {
+    const ed = this.ed;
+    const input = h('input', { class: 'input', type: 'text', value: b.name || '', 'aria-label': 'Bus name', placeholder: 'e.g. D[0..7] or A,B,C', spellcheck: false });
+    const commit = () => { const v = input.value.trim(); if (v === (b.name || '')) return; ed.app.edit('Rename bus', (p) => renameBus(p, ed._S(p), b.id, v)); ed.refresh(); };
+    input.addEventListener('change', commit);
+    input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') input.blur(); });
+    const members = busMembers(b.name);
+    const rows = [h('div', { class: 'param param-wide' }, h('label', {}, 'Name'), input),
+      h('div', { class: 'insp-note' }, members.length ? `Members (${members.length}): ${members.slice(0, 24).join(', ')}${members.length > 24 ? '…' : ''}` : 'Name it after its members: D[0..7] (D0 to D7), A,B,C, or both.'),
+      h('div', { class: 'insp-note' }, 'A bus connects nothing itself: nets cross it by name. ERC warns when a net entering it isn\'t one of its members.')];
+    this.el.replaceChildren(this._head('Bus', null, {}), h('div', { class: 'insp-body' }, ...rows));
   }
 
   _find(p, id) { return (this.ed._S(p).labels || []).find((x) => x.id === id); }

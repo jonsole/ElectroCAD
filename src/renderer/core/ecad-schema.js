@@ -750,6 +750,13 @@ export const ECAD_SCHEMA = {
             "$ref": "#/$defs/wire"
           }
         },
+        "busses": {
+          "type": "array",
+          "description": "Bus segments (#64); optional.",
+          "items": {
+            "$ref": "#/$defs/bus"
+          }
+        },
         "labels": {
           "type": "array",
           "items": {
@@ -838,6 +845,18 @@ export const ECAD_SCHEMA = {
         }
       }
     },
+    "bus": {
+      "type": "object",
+      "description": "A Bus segment (#64): drawn like a Wire, carrying no connection; Nets cross it by name. Segments that touch are one Bus and share its name.",
+      "required": ["id", "a", "b", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "a": { "$ref": "#/$defs/point" },
+        "b": { "$ref": "#/$defs/point" },
+        "name": { "type": "string", "description": "Its members, Eagle's notation: names and ranges separated by commas, D[0..7] (D0…D7), A,B,~{WR}; KiCad's {SIG1 SIG2} is read too. Empty: not named yet." }
+      }
+    },
     "label": {
       "type": "object",
       "required": [
@@ -871,6 +890,10 @@ export const ECAD_SCHEMA = {
             "global"
           ],
           "description": "Power symbols are always global."
+        },
+        "bus": {
+          "type": "boolean",
+          "description": "A Bus label (#64): sits on a Bus and shows its name (net); it names no Net."
         },
         "style": {
           "enum": [

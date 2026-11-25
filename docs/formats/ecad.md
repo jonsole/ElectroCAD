@@ -121,7 +121,8 @@ Courtyard rectangles and circles may carry `generated: true` (#67): an importer 
 | `name` | string | Unique in the Project regardless of case; no `/` (used in qualified Net names like `Power/EN`). |
 | `symbols` | `[Symbol]` | Placed Units. |
 | `wires` | `[Wire]` | |
-| `labels` | `[Label]` | Net labels, Global labels and Power symbols. |
+| `busses` | `[Bus]`? | Bus segments (#64). Optional. |
+| `labels` | `[Label]` | Net labels, Global labels and Power symbols; and Bus labels (`bus: true`, #64), which show their Bus's name and name no Net. |
 | `noConnects` | `[{ id, at }]` | No-connect markers on Pin tips (#11); always empty today. |
 | `drawings` | `[Drawing]` | Markup (#59): text notes, lines, rectangles, circles and arcs. Never connects. |
 | `paper` | `{ size, orientation }` | `A4`, `A3`, `A2`, `Letter` or `Tabloid`; `landscape` or `portrait`. Sets the frame and the print size. |
@@ -141,7 +142,9 @@ Courtyard rectangles and circles may carry `generated: true` (#67): an importer 
 | `fieldPins` | `{ [fieldKey]: point }`? | Fields dragged by hand (#53): the text centre in the Symbol's **own frame**, so the field follows the Symbol when it moves, rotates or mirrors (the text is always drawn upright). Field keys: `reference`, `value`, `footprint`, `mpn`. Absent when no field is pinned; Re-apply style removes it. |
 | `locked` | boolean? | A locked part doesn't move, rotate or mirror; its origin shows a × instead of a +. Absent when unlocked. |
 
-**Wire:** `{ id, a, b }`. A straight run between two grid points (the editor only draws horizontal and vertical runs). Wires connect where an end touches another Wire's end or runs into its middle (a T), or touches a Pin tip. Crossing Wires don't connect.
+**Wire:** `{ id, a, b }`. A straight run between two grid points (the editor only draws horizontal and vertical runs). Wires connect where an end touches another Wire's end or runs into its middle (a T), or touches a Pin tip. Crossing Wires don't connect. A Wire end on a Bus (a bus entry) joins only its own Wire there, not a Wire crossing the Bus at that point (#64).
+
+**Bus** (#64): `{ id, a, b, name }`, a straight run drawn like a thick Wire. Segments that touch are one Bus and share its `name`, which lists its members in Eagle's notation: names and ranges separated by commas, `D[0..7]` (D0 to D7, either way round), `A,B,~{WR}`; KiCad's group `{SDA SCL}` is read too. A Bus connects nothing: Nets cross it by name, and ERC warns when a Net entering it isn't a member or when it has no name.
 
 **Label:**
 

@@ -9,7 +9,8 @@ import { buildNetlist, compareRefs } from './netlist.js';
 import { partOf, pinPositions, footprintOf, padForPin } from './project.js';
 import { unitLetter } from './schematic.js';
 import { placeFields } from './fields.js';
-import { key } from './geom.js';
+import { key, onSegment } from './geom.js';
+import { busGroups, busMembers } from './bus.js';
 
 const DRIVERS = new Set(['output', 'power_out', 'bidirectional', 'tri_state', 'open_collector', 'open_emitter']);
 
@@ -127,6 +128,29 @@ export function runErc(project, { measure = null } = {}) {
     if (usedMarkers.has(nc.id)) continue;
     const onPin = [...pins.values()].some((p) => p.sheet.id === nc.sheet.id && key(p.at) === key(nc.at));
     if (!onPin) add({ rule: 'stray-no-connect', severity: 'warning', message: 'A no-connect marker isn\'t on a pin.', sheetId: nc.sheet.id, at: nc.at, items: [nc.id] });
+  }
+
+  // Busses (#64): a Bus needs a name, and a Net entering one (a Wire ending on it) should be one of
+  // its members; the Bus itself connects nothing, so a Net that isn't listed is likely a slip
+  const netOfWire = new Map();
+  for (const net of nl.nets) for (const id of net.wires || []) netOfWire.set(id, net);
+  for (const sheet of project.schematic.sheets) {
+    for (const g of busGroups(sheet)) {
+      const at = g.segs[0].a;
+      if (!g.name.trim()) { add({ rule: 'bus-unnamed', severity: 'warning', message: 'A bus has no name. Name it after its members, e.g. D[0..7].', sheetId: sheet.id, at, items: g.segs.map((x) => x.id) }); continue; }
+      const members = new Set(busMembers(g.name).map((m) => m.toLowerCase()));
+      const seen = new Set();
+      for (const w of sheet.wires) {
+        const end = [w.a, w.b].find((p) => g.segs.some((b) => onSegment(p, b.a, b.b)));
+        const net = end && netOfWire.get(w.id);
+        if (!net || seen.has(net.name)) continue;
+        seen.add(net.name);
+        // a local Net's name carries its Sheet (Sheet 2/EN); a member is named without it
+        const name = net.sheet && net.name.startsWith(net.sheet + '/') ? net.name.slice(net.sheet.length + 1) : net.name;
+        if (members.has(name.toLowerCase())) continue;
+        add({ rule: 'bus-member', nets: [net.name], severity: 'warning', message: `${net.name} enters bus ${g.name}, which doesn't list it.`, sheetId: sheet.id, at: end, items: [w.id] });
+      }
+    }
   }
 
   // fields that couldn't find a free spot (only when the caller can measure text)

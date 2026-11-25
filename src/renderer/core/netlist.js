@@ -52,9 +52,11 @@ export function buildNetlist(project) {
     const prefix = sheet.id + ':';
     const k = (p) => prefix + key(p);
     for (const w of sheet.wires) { uf.union(k(w.a), k(w.b)); wired.add(k(w.a)); wired.add(k(w.b)); wireKeys.push([w.id, k(w.a)]); }
-    const labels = sheet.labels || [];
-    // T-joins: any Wire end, Pin or label point lying on a Wire joins it
-    const points = [...sheet.wires.flatMap((w) => [w.a, w.b]), ...sp.map((x) => x.at), ...labels.map((l) => l.at)];
+    const labels = (sheet.labels || []).filter((l) => !l.bus); // a Bus label (#64) names no Net
+    // T-joins: any Wire end, Pin or label point lying on a Wire joins it; except a Wire end on a
+    // Bus (a bus entry, #64), which joins the Bus by name only, not a Wire crossing the Bus there
+    const onBus = (p) => (sheet.busses || []).some((b) => onSegment(p, b.a, b.b));
+    const points = [...sheet.wires.flatMap((w) => [w.a, w.b]).filter((p) => !onBus(p)), ...sp.map((x) => x.at), ...labels.map((l) => l.at)];
     for (const p of points) {
       for (const w of sheet.wires) {
         if (onSegment(p, w.a, w.b)) { uf.union(k(p), k(w.a)); wired.add(k(p)); }
@@ -164,8 +166,11 @@ export function junctions(project, sheet) {
   const pinPts = sheet.symbols.flatMap((s) => pinPositions(project, s).map((x) => x.at));
   const endKeys = new Set(ends.map(key));
   for (const p of pinPts) if (endKeys.has(key(p))) add(p);
-  // a Wire end strictly inside another Wire counts that Wire twice (it passes through)
+  // a Wire end strictly inside another Wire counts that Wire twice (it passes through); not a
+  // bus entry's end on a Bus (#64), which doesn't join a Wire crossing the Bus there
+  const onBus = (p) => (sheet.busses || []).some((b) => onSegment(p, b.a, b.b));
   for (const p of ends) {
+    if (onBus(p)) continue;
     for (const w of sheet.wires) {
       const inside = onSegment(p, w.a, w.b) && key(p) !== key(w.a) && key(p) !== key(w.b);
       if (inside) add(p, 2);

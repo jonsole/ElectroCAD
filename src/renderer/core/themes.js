@@ -17,7 +17,7 @@ export const TOKENS = {
     T('background', 'Background', 'Canvas'), T('paper', 'Paper (sheet)', 'Canvas'),
     T('gridMinor', 'Grid', 'Canvas'), T('gridMajor', 'Grid (major)', 'Canvas'),
     T('sheetEdge', 'Sheet edge and title block', 'Canvas'), T('note', 'Notes and markup', 'Canvas'), T('origin', 'Origin mark', 'Canvas'),
-    T('wire', 'Wire', 'Connections'), T('junction', 'Junction', 'Connections'),
+    T('wire', 'Wire', 'Connections'), T('junction', 'Junction', 'Connections'), T('bus', 'Bus', 'Connections'),
     T('netLabel', 'Net label', 'Connections'), T('globalLabel', 'Global label', 'Connections'),
     T('power', 'Power symbol', 'Connections'), T('noConnect', 'No-connect', 'Connections'),
     T('symbolBody', 'Symbol body', 'Symbols'), T('symbolFill', 'Symbol fill', 'Symbols'),
@@ -46,20 +46,20 @@ export const TOKENS = {
 // ElectroCAD Dark / Light: the canvas colours of docs/UI.md, used by "Match app".
 const SCH_DARK = {
   background: '#14161b', paper: '#1b1e25', gridMinor: '#232831', gridMajor: '#2f3542', sheetEdge: '#6b7890', note: '#a9b4c8', origin: '#e5484d',
-  wire: '#46a758', junction: '#46a758', netLabel: '#4f8cff', globalLabel: '#4f8cff', power: '#e5484d', noConnect: '#e5484d',
+  wire: '#46a758', junction: '#46a758', bus: '#3f7fe0', netLabel: '#4f8cff', globalLabel: '#4f8cff', power: '#e5484d', noConnect: '#e5484d',
   symbolBody: '#e7eaf0', symbolFill: '#262a33', pin: '#98a2b3', pinNumber: '#98a2b3', pinName: '#c9d1dc', reference: '#e7eaf0', value: '#98a2b3',
   selection: '#29c5ff', highlight: '#ffb74d', ercError: '#ef5350', ercWarning: '#ffb74d',
 };
 const SCH_LIGHT = {
   background: '#e4e9f0', paper: '#ffffff', gridMinor: '#eef2f6', gridMajor: '#d3dbe6', sheetEdge: '#8b98aa', note: '#3d4b63', origin: '#e5484d',
-  wire: '#1f7a35', junction: '#1f7a35', netLabel: '#2463eb', globalLabel: '#2463eb', power: '#c62828', noConnect: '#c62828',
+  wire: '#1f7a35', junction: '#1f7a35', bus: '#1f5fc9', netLabel: '#2463eb', globalLabel: '#2463eb', power: '#c62828', noConnect: '#c62828',
   symbolBody: '#1c2430', symbolFill: '#f3f6fa', pin: '#5f6b7c', pinNumber: '#5f6b7c', pinName: '#2b3442', reference: '#1c2430', value: '#5f6b7c',
   selection: '#0a84ff', highlight: '#e08a00', ercError: '#d32f2f', ercWarning: '#e08a00',
 };
 // Classic paper: the traditional printed-schematic look; light in any UI theme.
 const SCH_CLASSIC = {
   background: '#c9ccd1', paper: '#ffffff', gridMinor: '#eeeeee', gridMajor: '#d6d6d6', sheetEdge: '#840000', note: '#000084', origin: '#840000',
-  wire: '#008400', junction: '#008400', netLabel: '#0000c2', globalLabel: '#0000c2', power: '#840000', noConnect: '#0000c2',
+  wire: '#008400', junction: '#008400', bus: '#0000c2', netLabel: '#0000c2', globalLabel: '#0000c2', power: '#840000', noConnect: '#0000c2',
   symbolBody: '#840000', symbolFill: '#ffffc2', pin: '#840000', pinNumber: '#840000', pinName: '#000000', reference: '#000000', value: '#000000',
   selection: '#0a84ff', highlight: '#ff9f00', ercError: '#ff0000', ercWarning: '#ff9f00',
 };

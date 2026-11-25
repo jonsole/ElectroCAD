@@ -171,7 +171,6 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
       else if (c.name === 'text' && c.text.trim()) sheet.drawings.push({ id: uid('d'), type: 'text', at: place.T(c.attr('x'), c.attr('y')), text: eagleOverbar(c.text.trim()), size: nm(c.attr('size', 1.778)), bold: false, italic: false, align: 'left', rot: rotOf(c.attr('rot')).rot % 180 === 90 ? 90 : 0 });
       else if (c.name !== 'text') report.add(`Sheet drawings (${c.name}) were left out`);
     }
-    if (se.path('busses')?.children.length) report.add('Busses were left out (their nets keep their labels)');
   });
 
   if (smashedFields) report.add('Moved (smashed) NAME and VALUE texts kept where Eagle has them (pinned fields)', smashedFields);
@@ -196,6 +195,32 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
       wiresOf.set(seg, wires);
     }
   }
+  // Busses (#64): their wires as Bus segments, named as Eagle names them; their labels as Bus labels
+  let nBus = 0;
+  for (const se of sheetsEl) {
+    const sheet = se.sheet, T = se.T;
+    for (const b of se.path('busses')?.all('bus') || []) {
+      const name = eagleOverbar(b.attr('name') || '');
+      for (const seg of b.all('segment')) {
+        const segs = [];
+        for (const w of seg.all('wire')) {
+          const a = T(w.attr('x1'), w.attr('y1')), c = T(w.attr('x2'), w.attr('y2'));
+          if (a[0] === c[0] && a[1] === c[1]) continue;
+          const x = { id: uid('b'), a, b: c, name };
+          (sheet.busses ||= []).push(x); segs.push(x);
+        }
+        if (segs.length) nBus++;
+        for (const l of seg.all('label')) {
+          const at = nearestOnWires(T(l.attr('x'), l.attr('y')), segs);
+          if (!at) continue;
+          const lab = eagleLabel({ at, rot: labelRot(l.attr('rot')), net: name, scope: 'local', shape: l.attr('xref') === 'yes' ? 'flag' : 'text', size: nm(l.attr('size', 1.778)) });
+          lab.bus = true;
+          sheet.labels.push(lab);
+        }
+      }
+    }
+  }
+  if (nBus) report.add('Busses came over as Busses (their wires are bus entries; nets join by name, as in Eagle)', nBus);
   trimForeignEnds(project, parts, segWires, report);
   const invented = []; // segments that need a label Eagle didn't draw
   for (const [netName, segs] of netsByName) {
@@ -301,6 +326,8 @@ function trimForeignEnds(project, parts, segWires, report) {
     for (const sw of list) {
       for (const end of ['a', 'b']) {
         const e = sw.wire[end];
+        // an end on a Bus (a bus entry, #64) is where Eagle drew it: the Bus joins nothing
+        if ((sheet.busses || []).some((b) => onWire(e, b))) continue;
         const foreign = list.some((o) => o.net !== sw.net && o.wire !== sw.wire && sheet.wires.includes(o.wire) && onWire(e, o.wire))
           || segsHere.some((sg) => sg !== sw.seg && !list.find((x) => x.seg === sg && x.net === sw.net) && pinsOf(sg).some((q) => q[0] === e[0] && q[1] === e[1]));
         if (!foreign) continue;
