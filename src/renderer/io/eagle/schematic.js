@@ -10,7 +10,7 @@ import { newProject, newSheet, uid, pinPositions } from '../../core/project.js';
 import { buildNetlist } from '../../core/netlist.js';
 import { PAPER_SIZES } from '../../core/drawings.js';
 import { rot90 as r90geom } from '../../core/geom.js';
-import { nm, pt, rotOf, rot90, pinBase, Report } from './common.js';
+import { nm, pt, rotOf, rot90, pinBase, Report, placedRot } from './common.js';
 import { readLibrary, devicesetToPart, isSupply, isPinless, fpIdOf } from './library.js';
 
 const GRID = 2_540_000; // keep the sheet's offset on Eagle's 0.1" grid, so pins stay on ElectroCAD's
@@ -124,7 +124,8 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
     for (const inst of se.path('instances')?.all('instance') || []) {
       const p = parts.get(inst.attr('part'));
       if (!p || p.frame) continue;
-      const { rot, mirror } = rotOf(inst.attr('rot'));
+      const { rot: eRot, mirror } = rotOf(inst.attr('rot'));
+      const rot = placedRot(eRot, mirror);
       if (rot % 90) report.add('Symbols turned off 90° steps were squared up');
       if (p.supply) {
         // one power symbol per supply pin, on the net it names
@@ -152,11 +153,13 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
     if (se.path('busses')?.children.length) report.add('Busses were left out (their nets keep their labels)');
   });
 
-  // wires and the labels that join a net's segments by name
+  implicitPower(project, parts, pinNet, powered, report);
+
+  // wires first (all nets), then trim ends that land on another net, then the labels that join a
+  // net's segments by name, on the wires that are left
+  const segWires = []; // { wire, net, sheet, seg }
+  const wiresOf = new Map(); // seg -> its wires
   for (const [netName, segs] of netsByName) {
-    const sheetsOf = new Set(segs.map((s) => s.si));
-    const scope = sheetsOf.size > 1 || powered.has(netName) ? 'global' : 'local';
-    const needsLabel = segs.length > 1 || !isAuto(netName);
     for (const { si, seg } of segs) {
       const se = sheetsEl[si], sheet = se.sheet, T = se.T;
       const wires = [];
@@ -166,7 +169,19 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
         if (a[0] === b[0] && a[1] === b[1]) continue;
         const wire = { id: uid('w'), a, b };
         sheet.wires.push(wire); wires.push(wire);
+        segWires.push({ wire, net: netName, sheet, seg, T });
       }
+      wiresOf.set(seg, wires);
+    }
+  }
+  trimForeignEnds(project, parts, segWires, report);
+  for (const [netName, segs] of netsByName) {
+    const sheetsOf = new Set(segs.map((s) => s.si));
+    const scope = sheetsOf.size > 1 || powered.has(netName) ? 'global' : 'local';
+    const needsLabel = segs.length > 1 || !isAuto(netName);
+    for (const { si, seg } of segs) {
+      const sheet = sheetsEl[si].sheet, T = sheetsEl[si].T;
+      const wires = wiresOf.get(seg).filter((w) => sheet.wires.includes(w));
       // a segment with a power symbol is named by it
       if (!needsLabel || seg.all('pinref').some((pr) => parts.get(pr.attr('part'))?.supply)) continue;
       // where a label sits: Eagle's labels, moved onto their wire; else the first wire's start, or the first pin
@@ -183,6 +198,98 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
   const result = { project, report, eagle: { parts, netsByName, pinNet } };
   result.verify = () => verifySchematic(project, parts, netsByName, report);
   return result;
+}
+
+/**
+ * Eagle joins a power pin (direction "pwr") that no wire reaches to the net named like the pin:
+ * the hidden VCC and GND of a 74xx gate P that is never placed ("addlevel=request"), say.
+ * ElectroCAD joins only what is drawn, so such a gate is placed under the part's drawing, and each
+ * such pin gets a power label naming its net.
+ */
+function implicitPower(project, parts, pinNet, powered, report) {
+  const placedUnits = [];
+  let labels = 0;
+  for (const [ref, p] of parts) {
+    if (!p.comp) continue;
+    const gates = p.ds.path('gates')?.all('gate') || [];
+    gates.forEach((g, unit) => {
+      const sym = p.lib.symbols.get(g.attr('symbol'));
+      const pins = (sym?.all('pin') || []).filter((pn) => pn.attr('direction') === 'pwr' && !pinNet.has(`${ref}\t${g.attr('name')}\t${pn.attr('name')}`));
+      if (!pins.length) return;
+      let ys = null;
+      for (const sh of project.schematic.sheets) { const y = sh.symbols.find((q) => q.componentId === p.comp.id && q.unit === unit); if (y) { ys = { sheet: sh, y }; break; } }
+      if (!ys) {
+        // never placed: put it on the sheet of the part's first unit, in a row under what's drawn
+        const sheet = project.schematic.sheets.find((sh) => sh.symbols.some((q) => q.componentId === p.comp.id)) || project.schematic.sheets[0];
+        if (!sheet || pins.length !== (sym?.all('pin') || []).length) return; // only gates that are all power pins
+        const ys0 = sheet.symbols.flatMap((q) => [q.at[1]]), xs0 = sheet.symbols.map((q) => q.at[0]);
+        const row = placedUnits.filter((u) => u.sheet === sheet).length;
+        const at = [Math.round(((xs0.length ? Math.min(...xs0) : 25_400_000) + row * 15_240_000) / 2_540_000) * 2_540_000, Math.round(((ys0.length ? Math.max(...ys0) : 25_400_000) + 20_320_000) / 2_540_000) * 2_540_000];
+        const y = { id: uid('y'), componentId: p.comp.id, unit, at, rot: 0, mirror: false };
+        sheet.symbols.push(y);
+        placedUnits.push({ sheet, ref: `${ref} ${g.attr('name')}` });
+        ys = { sheet, y };
+      }
+      const where = new Map(pinPositions(project, ys.y).map((x) => [x.pin.number, x.at]));
+      for (const pn of pins) {
+        const net = pinBase(pn.attr('name'));
+        for (const num of p.numbers.get(`${g.attr('name')}\t${pn.attr('name')}`) || []) {
+          const at = where.get(num);
+          if (!at) continue;
+          ys.sheet.labels.push({ id: uid('l'), at, rot: 0, net, scope: 'global', style: GROUND.test(net) ? 'gnd' : 'power' });
+          pinNet.set(`${ref}\t${g.attr('name')}\t${pn.attr('name')}`, net);
+          powered.add(net);
+          labels++;
+        }
+      }
+    });
+  }
+  if (placedUnits.length) report.add(`Hidden power gates were placed under the drawing so their pins can be labelled: ${placedUnits.map((u) => u.ref).join(', ')}`);
+  if (labels) report.add('Power pins Eagle connects by name were given power labels', labels);
+}
+
+const onWire = (q, w) => {
+  const [ax, ay] = w.a, [bx, by] = w.b;
+  if ((q[0] - ax) * (by - ay) !== (q[1] - ay) * (bx - ax)) return false;
+  return q[0] >= Math.min(ax, bx) && q[0] <= Math.max(ax, bx) && q[1] >= Math.min(ay, by) && q[1] <= Math.max(ay, by);
+};
+
+/**
+ * Eagle keeps nets apart by name, so a wire may end on another net's wire or pin without joining
+ * it: a bus entry ending on the (dropped) bus where another net's wire runs, say. ElectroCAD joins
+ * what touches, so such an end would merge the two nets. A dead-end stub that only touches the
+ * other net is removed; a longer wire is pulled back off it.
+ */
+function trimForeignEnds(project, parts, segWires, report) {
+  const bySheet = new Map();
+  for (const sw of segWires) { if (!bySheet.has(sw.sheet)) bySheet.set(sw.sheet, []); bySheet.get(sw.sheet).push(sw); }
+  const pinPts = new Map(); // seg -> its pins' points
+  const pinsOf = (seg) => {
+    if (!pinPts.has(seg)) pinPts.set(seg, seg.all('pinref').map((pr) => pinAt(project, parts, pr)).filter(Boolean));
+    return pinPts.get(seg);
+  };
+  let removed = 0, pulled = 0;
+  for (const [sheet, list] of bySheet) {
+    const segsHere = [...new Set(list.map((x) => x.seg))];
+    for (const sw of list) {
+      for (const end of ['a', 'b']) {
+        const e = sw.wire[end];
+        const foreign = list.some((o) => o.net !== sw.net && o.wire !== sw.wire && sheet.wires.includes(o.wire) && onWire(e, o.wire))
+          || segsHere.some((sg) => sg !== sw.seg && !list.find((x) => x.seg === sg && x.net === sw.net) && pinsOf(sg).some((q) => q[0] === e[0] && q[1] === e[1]));
+        if (!foreign) continue;
+        const own = list.some((o) => o.net === sw.net && o.wire !== sw.wire && sheet.wires.includes(o.wire) && onWire(e, o.wire)) || pinsOf(sw.seg).some((q) => q[0] === e[0] && q[1] === e[1]);
+        if (own) continue; // a real shared point: nothing to do
+        const other = sw.wire[end === 'a' ? 'b' : 'a'];
+        const len = Math.hypot(e[0] - other[0], e[1] - other[1]);
+        if (len <= 3_600_000) { sheet.wires.splice(sheet.wires.indexOf(sw.wire), 1); removed++; break; }
+        const k = 1_270_000 / len;
+        sw.wire[end] = [Math.round(e[0] + (other[0] - e[0]) * k), Math.round(e[1] + (other[1] - e[1]) * k)];
+        pulled++;
+      }
+    }
+  }
+  if (removed) report.add(`Wire stubs (bus entries) ending on another net were removed, so the nets stay apart`, removed);
+  if (pulled) report.add(`Wire ends that landed on another net were pulled back 1.27 mm, so the nets stay apart`, pulled);
 }
 
 /** The nearest point on a set of wires (on a wire end or its run), for a label to sit on. */
@@ -234,6 +341,16 @@ export function verifySchematic(project, parts, netsByName, report = new Report(
     }
     const ours = new Set(pins.map((k) => where.get(k)));
     if (pins.length > 1 && (ours.size !== 1 || ours.has(undefined))) mismatches.push(`Net ${netName}: its pins ${pins.map((k) => k.replace('\t', '.')).join(', ')} are not all on one net here`);
+  }
+  // and no net here may join pins Eagle keeps on different nets
+  const eagleNet = new Map();
+  for (const [netName, segs] of netsByName) for (const { seg } of segs) for (const pr of seg.all('pinref')) {
+    const p = parts.get(pr.attr('part'));
+    if (p?.comp && !p.supply) for (const num of p.numbers.get(`${pr.attr('gate')}\t${pr.attr('pin')}`) || []) eagleNet.set(`${p.comp.ref}\t${num}`, netName);
+  }
+  for (const n of nl.nets) {
+    const names = [...new Set(n.pins.map((p) => eagleNet.get(`${p.ref}\t${p.pin}`)).filter(Boolean))];
+    if (names.length > 1) mismatches.push(`Nets ${names.join(' and ')} are joined into one here (${n.name})`);
   }
   for (const m of mismatches) report.add(m);
   return { ok: !mismatches.length, mismatches, netlist: nl };

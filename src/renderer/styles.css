@@ -774,3 +774,7 @@ body.resizing iframe, body.resizing canvas { pointer-events: none; }
 /* the import summary */
 .import-report .outline-state { margin: 6px 0; }
 .import-notes ul { margin: 4px 0 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; line-height: 1.5; max-height: 220px; overflow: auto; }
+.outline-state.wait { color: var(--muted); }
+.outline-state.wait svg { color: var(--muted); }
+.import-log-text { margin: 0; max-height: 60vh; overflow: auto; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; user-select: text; }
+.import-report .modal-actions, .import-log .modal-actions { gap: 8px; }

@@ -391,6 +391,7 @@ The Board tab (#15) edits the board's layer stack and its Outline. Footprints, T
 - **Ratsnest.**
   - A thin line in the theme's Ratsnest colour for each unrouted connection: a minimum spanning tree per net over its pads and the copper already joining them.
   - It follows a drag live, and changes straight away after a swap or a flip.
+  - Zone fills are copper too: a pad reached by a fill (solidly or through its thermal spokes), a via inside one, or a track ending in one joins it. A ground or power plane connects everything dropped onto it, and DRC's Unrouted check agrees. It updates when a refill lands.
   - The status bar counts the unrouted connections.
 
 ## Cross-probing and split view
@@ -596,6 +597,14 @@ Using the card:
 - **Schematic only:** the Board is left empty; Update from Schematic (F8) as usual.
 
 The import then shows a summary: what came in, whether the **Netlist matches Eagle's nets pin for pin**, whether **every board signal matches the Schematic**, and a list of what wasn't carried over or was changed (octagonal pads become round, curved tracks become short straight segments, inner layers past two, blind vias become through vias, and so on). Nothing is dropped without being listed there.
+
+Some of Eagle's implicit connections are made visible, because ElectroCAD joins only what is drawn:
+
+- **Hidden power pins.** A power gate Eagle never placed (a 74xx gate P, `addlevel=request`) is placed under the part's drawing. Each power pin no wire reaches gets a power label naming its net (VCC, GND…), as Eagle joins it by name.
+- **Bus entries.** Busses don't come over. A stub wire whose end lands on another net's wire (a bus entry over the dropped bus) is removed, and a longer wire is pulled back 1.27 mm, so the two nets don't merge. Both are counted in the summary.
+- **Mirrored parts.** Eagle turns a part and then mirrors it; ElectroCAD mirrors and then turns, so `MR90` becomes the back side at 270°.
+
+**The import log.** Every import writes a plain-text log: the files and the Eagle version that saved them, what came in, both net checks with every difference listed, everything not carried over, and the DRC results once the Zones have filled (positions in Eagle's coordinates, mm with Y up, so you can find them in Eagle). **Copy log** and **Save log…** are on the summary, and **Import → Show the last import log** brings it back later, after a restart too. To report a problem with an import, paste the log into an issue.
 
 The Schematic opens zoomed to what's drawn, clear of the cards on the right; the Board opens fitted to its outline. Older binary Eagle files (before 6) need opening and saving in Eagle 6 or later first. KiCad import comes with #33.
 

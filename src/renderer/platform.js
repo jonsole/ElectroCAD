@@ -142,7 +142,7 @@ export const platform = {
   /** Write an .ecad file: a Save dialog on desktop, a download in the browser. Resolves to { name } or null. */
   async exportFile(suggestedName, text, kind = 'project') {
     if (native) return native.exportFile(suggestedName, text, kind);
-    download(suggestedName, text, { pdf: 'application/pdf', svg: 'image/svg+xml', zip: 'application/zip' }[kind] || 'application/json');
+    download(suggestedName, text, { pdf: 'application/pdf', svg: 'image/svg+xml', zip: 'application/zip', log: 'text/plain' }[kind] || 'application/json');
     return { name: suggestedName };
   },
 

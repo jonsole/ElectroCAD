@@ -218,7 +218,7 @@ export function runDrc(project, fills = new Map()) {
   }
 
   // unrouted connections
-  const rats = ratsnest(project, board);
+  const rats = ratsnest(project, board, fills);
   for (const w of rats.wires) {
     const at = mid(w.a, w.b);
     add({ rule: 'unrouted', severity: 'warning', at, box: merge(boxAround(w.a, 1_500_000), boxAround(w.b, 1_500_000)), items: [w.net], message: `${w.net} is not routed here (${mmText(Math.round(Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1])))}).` });

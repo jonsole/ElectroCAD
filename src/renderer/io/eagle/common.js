@@ -27,6 +27,14 @@ export function rotOf(s) {
   return { rot: ((deg % 360) + 360) % 360, mirror: r.includes('M'), spin: r.includes('S') };
 }
 
+/**
+ * Eagle "MR<θ>" rotates by θ and then mirrors X; ElectroCAD (Symbols and Footprints alike) mirrors X
+ * and then rotates. Mirroring after a turn of θ is mirroring before a turn of -θ, so a mirrored
+ * Eagle part at θ is ours at 360 - θ. (Found importing a real board: a mirrored 0603 at MR90 had its
+ * pads swapped against the tracks.)
+ */
+export const placedRot = (rot, mirror) => (mirror ? (360 - rot) % 360 : rot);
+
 /** A rotation as ElectroCAD keeps it on the Schematic (a multiple of 90). */
 export const rot90 = (deg) => ((Math.round(deg / 90) * 90) % 360 + 360) % 360;
 

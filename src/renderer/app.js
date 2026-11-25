@@ -18,10 +18,12 @@ import { fieldStylesSection } from './ui/fieldStyles.js';
 import { setDefaultFieldStyle } from './core/fields.js';
 import { DEFAULT_DISPLAY } from './schematic/render.js';
 import { buildWorkspaces } from './workspaces/index.js';
-import { importEagle, eagleKind } from './io/eagle/index.js';
+import { importEagle, eagleKind, importLog } from './io/eagle/index.js';
+import { runDrc, drcCounts } from './core/drc.js';
 import { later, sep, spacer } from './workspaces/workspace.js';
 
 /** The commit this build was made from (set in vite.config.mjs). */
+const VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '0.0.0';
 const BUILD = typeof __APP_BUILD__ === 'object' ? __APP_BUILD__ : { sha: 'unknown', short: 'dev', branch: '', date: '' };
 const BUILD_TITLE = `Commit ${BUILD.sha}${BUILD.branch ? `\nBranch ${BUILD.branch}` : ''}${BUILD.date ? `\nBuilt ${new Date(BUILD.date).toLocaleString()}` : ''}`;
 
@@ -274,6 +276,8 @@ export class App {
     popupMenu([
       { label: 'Eagle schematic and board (.sch, .brd)…', icon: 'import', onClick: () => this.importEagle() },
       { label: 'KiCad project (coming in #33)', icon: 'import', disabled: true, onClick: () => {} },
+      'sep',
+      { label: 'Show the last import log', icon: 'info', disabled: !this.settings.importLog, onClick: () => this.showImportLog() },
     ], this.importBtn);
   }
 
@@ -310,20 +314,72 @@ export class App {
 
   _importReport(r, { sch, brd }) {
     const p = r.project, b = p.board;
-    const m = modal({ title: `Imported ${p.name}`, width: 600, cls: 'import-report' });
+    const m = modal({ title: `Imported ${p.name}`, width: 640, cls: 'import-report' });
     const nl = r.check.schematic.netlist;
+    const meta = { files: { sch, brd }, app: { version: VERSION, build: BUILD.short }, date: new Date() };
+    this.importLog = { name: p.name, projectId: p.id, text: importLog(r, meta) };
+    const keep = () => { this.settings.importLog = this.importLog; platform.setSettings({ importLog: this.importLog }); };
+    keep();
     const facts = [
       sch ? `${sch.name}: ${p.schematic.sheets.length} sheet${p.schematic.sheets.length === 1 ? '' : 's'}, ${Object.keys(p.components).length} parts, ${nl ? nl.nets.length : '?'} nets` : null,
       brd ? `${brd.name}: ${b.stack.copper}-layer, ${b.footprints.length} footprints, ${b.tracks.length} track segments, ${b.vias.length} vias, ${b.zones.length} zones` : null,
     ].filter(Boolean);
     const ok = r.check.schematic.ok && !r.check.signals.length;
     const row = (k, t) => h('div', { class: `outline-state ${k}` }, icon(k === 'ok' ? 'check' : 'info', 16), h('span', {}, t));
+    const drcRow = h('div', {}, row('wait', brd ? 'DRC: waiting for the Zones to fill…' : 'DRC: no board.'));
     m.body.append(...[
       ...facts.map((t) => h('p', { class: 'modal-text' }, t)),
-      sch ? row(r.check.schematic.ok ? 'ok' : 'bad', r.check.schematic.ok ? 'The Netlist matches Eagle\'s nets, pin for pin.' : `${r.check.schematic.mismatches.length} net${r.check.schematic.mismatches.length === 1 ? '' : 's'} differ from Eagle's (listed below).`) : null,
-      brd && sch ? row(r.check.signals.length ? 'bad' : 'ok', r.check.signals.length ? `${r.check.signals.length} board signal${r.check.signals.length === 1 ? '' : 's'} don't match the Schematic.` : 'Every board signal matches the Schematic\'s nets.') : null,
+      sch ? row(r.check.schematic.ok ? 'ok' : 'bad', r.check.schematic.ok ? 'The Netlist matches Eagle\'s nets, pin for pin.' : `${r.check.schematic.mismatches.length} net${r.check.schematic.mismatches.length === 1 ? '' : 's'} differ from Eagle's (see the log).`) : null,
+      brd && sch ? row(r.check.signals.length ? 'bad' : 'ok', r.check.signals.length ? `${r.check.signals.length} board signal${r.check.signals.length === 1 ? '' : 's'} don't match the Schematic (see the log).` : 'Every board signal matches the Schematic\'s nets.') : null,
+      brd ? drcRow : null,
       r.report.length ? h('div', { class: 'import-notes' }, h('div', { class: 'set-group-title' }, 'Not carried over, or changed'), h('ul', {}, ...r.report.map((t) => h('li', {}, t)))) : h('p', { class: 'side-note' }, 'Nothing was left out.'),
-      h('div', { class: 'modal-actions' }, button({ label: ok ? 'Done' : 'OK', cls: 'btn-primary', onClick: () => m.close() }))].filter(Boolean));
+      h('p', { class: 'side-note' }, 'The import log has all of this as text, with the DRC results once they are in: copy it or save it to report a problem. Import → Show the last import log brings it back.'),
+      h('div', { class: 'modal-actions' },
+        button({ label: 'Copy log', icon: 'copy', cls: 'btn-outline', title: 'Copy the import log to the clipboard', onClick: () => this.copyImportLog() }),
+        button({ label: 'Save log…', icon: 'export', cls: 'btn-outline', title: 'Save the import log as a text file', onClick: () => this.saveImportLog() }),
+        button({ label: ok ? 'Done' : 'OK', cls: 'btn-primary', onClick: () => m.close() }))].filter(Boolean));
+    // DRC on the imported Board, once its Zones have filled: into the summary and the log
+    if (brd) (async () => {
+      const be = this.workspace('board')?.editor;
+      if (!be) return;
+      be.zoneFiller.update(this.project);
+      await be.whenZonesFilled();
+      if (this.project.id !== p.id) return;
+      const v = runDrc(this.project, be.zoneFiller.fills);
+      const c = drcCounts(v);
+      this.importLog = { ...this.importLog, text: importLog(r, { ...meta, drc: v }) };
+      keep();
+      const by = {}; for (const x of v) by[x.rule] = (by[x.rule] || 0) + 1;
+      drcRow.replaceChildren(row(c.error ? 'bad' : 'ok', v.length ? `DRC: ${c.error} error${c.error === 1 ? '' : 's'}, ${c.warning} warning${c.warning === 1 ? '' : 's'} (${Object.entries(by).map(([k, n]) => `${n} ${k}`).join(', ')}).` : 'DRC: no problems.'));
+    })();
+    return m;
+  }
+
+  async copyImportLog() {
+    const t = this.importLog?.text || this.settings.importLog?.text;
+    if (!t) return false;
+    try { await navigator.clipboard.writeText(t); toast('Import log copied', 'info', 2000); return true; } catch { toast('Couldn\'t reach the clipboard: use Save log… instead.', 'error', 5000); return false; }
+  }
+
+  async saveImportLog() {
+    const l = this.importLog || this.settings.importLog;
+    if (!l) return null;
+    const r = await platform.exportFile(`${String(l.name || 'import').replace(/[^\w.-]+/g, '_')}-import-log.txt`, l.text, 'log');
+    if (r) toast(`Saved ${r.name}`, 'info', 2500);
+    return r;
+  }
+
+  /** The last import's log, to read, copy or save. */
+  showImportLog() {
+    const l = this.importLog || this.settings.importLog;
+    if (!l) return null;
+    const m = modal({ title: `Import log: ${l.name}`, width: 760, cls: 'import-log' });
+    m.body.append(h('pre', { class: 'import-log-text', tabindex: '0' }, l.text),
+      h('div', { class: 'modal-actions' },
+        button({ label: 'Copy log', icon: 'copy', cls: 'btn-outline', onClick: () => this.copyImportLog() }),
+        button({ label: 'Save log…', icon: 'export', cls: 'btn-outline', onClick: () => this.saveImportLog() }),
+        button({ label: 'Close', cls: 'btn-primary', onClick: () => m.close() })));
+    return m;
   }
 
   /** Save as file…: write the open (or a stored) Project to an .ecad file on disk. */

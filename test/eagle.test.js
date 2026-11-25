@@ -10,7 +10,8 @@ import { fileURLToPath } from 'node:url';
 import { parseXml } from '../src/renderer/io/xml.js';
 import { arcMid, arcPoints, len, rotOf, Report } from '../src/renderer/io/eagle/common.js';
 import { packageToFootprint } from '../src/renderer/io/eagle/library.js';
-import { importEagle, eagleKind } from '../src/renderer/io/eagle/index.js';
+import { importEagle, eagleKind, importLog, eagleVersion } from '../src/renderer/io/eagle/index.js';
+import { ratsnest } from '../src/renderer/core/ratsnest.js';
 import { serialize, deserialize } from '../src/renderer/core/project.js';
 import { buildNetlist } from '../src/renderer/core/netlist.js';
 import { placedPads, padNets } from '../src/renderer/core/footprint.js';
@@ -104,7 +105,7 @@ test('board: every pad lands where Eagle puts it, on the right side and net', ()
   const r = importEagle({ sch: SCH, brd: BRD, name: 'reg' });
   assert.deepEqual(r.check.signals, []);
   const p = deserialize(serialize(r.project)), b = p.board;
-  // Eagle's own transform: mirror X, then rotate anticlockwise (Y up), then translate; we're Y down
+  // Eagle's own transform: rotate anticlockwise (Y up), then mirror X, then translate; we're Y down
   const xml = parseXml(BRD), pk = new Map();
   for (const lib of xml.path('drawing/board/libraries').all('library')) for (const g of lib.path('packages').all('package')) pk.set(`${lib.attr('name')}/${g.attr('name')}`, g);
   const nets = padNets(b);
@@ -116,10 +117,12 @@ test('board: every pad lands where Eagle puts it, on the right side and net', ()
     assert.equal(!!fp.locked, el.attr('locked') === 'yes', el.attr('name'));
     const placed = new Map(placedPads(p, fp, nets).map((q) => [q.number, q]));
     for (const c of pk.get(`${el.attr('library')}/${el.attr('package')}`).children.filter((c) => c.name === 'smd' || c.name === 'pad')) {
-      let x = Number(c.attr('x')), y = Number(c.attr('y'));
-      if (mirror) x = -x;
+      const x = Number(c.attr('x')), y = Number(c.attr('y'));
       const t = (rot * Math.PI) / 180;
-      const ex = Number(el.attr('x')) + x * Math.cos(t) - y * Math.sin(t), ey = Number(el.attr('y')) + x * Math.sin(t) + y * Math.cos(t);
+      let rx = x * Math.cos(t) - y * Math.sin(t);
+      const ry = x * Math.sin(t) + y * Math.cos(t);
+      if (mirror) rx = -rx; // Eagle turns first, then mirrors
+      const ex = Number(el.attr('x')) + rx, ey = Number(el.attr('y')) + ry;
       const q = placed.get(c.attr('name'));
       assert.ok(q, `${el.attr('name')}.${c.attr('name')}`);
       assert.ok(near(q.at[0], ex * 1e6, 5) && near(q.at[1], -ey * 1e6, 5), `${el.attr('name')}.${c.attr('name')}: ${q.at} vs ${[ex, -ey]}`);
@@ -166,4 +169,89 @@ test('loss report: inner layers past two and blind vias', () => {
 
 test('a file that isn\'t Eagle XML is refused', () => {
   assert.throws(() => importEagle({}));
+});
+
+// ---- regressions found importing a real design (a 4-layer ECU board, Eagle 7.7)
+
+test('a mirrored part turns before it mirrors: MR90 puts pad 1 where Eagle does', () => {
+  // R1 (an 0805, pads at x = ±0.95) on the bottom at MR90: Eagle turns pad 1 to (0, -0.95) and then
+  // mirrors X (no change), so pad 1 is at y = 30 - 0.95 and pad 2 at y = 30 + 0.95
+  const brd = BRD.replace('<element name="R1" library="rcl" package="R0805" value="330" x="10" y="30"/>', '<element name="R1" library="rcl" package="R0805" value="330" x="10" y="30" rot="MR90"/>');
+  const r = importEagle({ sch: SCH, brd, name: 'reg' });
+  const p = r.project, f = p.board.footprints.find((x) => p.components[x.componentId].ref === 'R1');
+  const pads = Object.fromEntries(placedPads(p, f, padNets(p.board)).map((q) => [q.number, q.at]));
+  assert.equal(f.side, 'B');
+  assert.deepEqual(pads['1'], [10e6, -29.05e6]);
+  assert.deepEqual(pads['2'], [10e6, -30.95e6]);
+});
+
+test('a device with named pads keeps its Pin map when the board brings its own package', () => {
+  // 78XX gets a first device numbered 1..4 and its SOT223 device names its pads VI/G1/VO/G2
+  const named = (t) => t.replace('<package name="SOT223">\n<smd name="1"', '<package name="SOT223">\n<smd name="VI"').replace('<smd name="2" x="0" y="-3.15"', '<smd name="G1" x="0" y="-3.15"').replace('<smd name="3" x="2.3" y="-3.15"', '<smd name="VO" x="2.3" y="-3.15"').replace('<smd name="4" x="0" y="3.15"', '<smd name="G2" x="0" y="3.15"');
+  const sch = named(SCH).replace('<devices><device name="SOT223" package="SOT223"><connects><connect gate="G$1" pin="IN" pad="1"/><connect gate="G$1" pin="GND" pad="2 4"/><connect gate="G$1" pin="OUT" pad="3"/>',
+    '<devices><device name="N" package="SO8"><connects><connect gate="G$1" pin="IN" pad="1"/><connect gate="G$1" pin="GND" pad="2 4"/><connect gate="G$1" pin="OUT" pad="3"/></connects><technologies><technology name="05"/></technologies></device><device name="SOT223" package="SOT223"><connects><connect gate="G$1" pin="IN" pad="VI"/><connect gate="G$1" pin="GND" pad="G1 G2"/><connect gate="G$1" pin="OUT" pad="VO"/>');
+  const brd = named(BRD).replace('<contactref element="U1" pad="1"/>', '<contactref element="U1" pad="VI"/>').replace('<contactref element="U1" pad="3"/>', '<contactref element="U1" pad="VO"/>').replace('<contactref element="U1" pad="2"/><contactref element="U1" pad="4"/>', '<contactref element="U1" pad="G1"/><contactref element="U1" pad="G2"/>');
+  assert.notEqual(sch, SCH); assert.notEqual(brd, BRD);
+  const r = importEagle({ sch, brd, name: 'reg' });
+  assert.equal(r.check.schematic.ok, true, r.check.schematic.mismatches.join('\n'));
+  assert.deepEqual(r.check.signals, [], (r.check.signalDetails || []).join('\n'));
+  const p = r.project, f = p.board.footprints.find((x) => p.components[x.componentId].ref === 'U1');
+  const nets = Object.fromEntries(placedPads(p, f, padNets(p.board)).map((q) => [q.number, q.net]));
+  assert.deepEqual(nets, { VI: 'VCC', G1: 'GND', VO: 'VOUT', G2: 'GND' });
+});
+
+test('a bus entry ending on another net\'s wire doesn\'t join the two nets', () => {
+  // a stub of N$1 whose end lands on VOUT's wire (sheet 1, y = 76.2 from x = 96.52 to 104.14)
+  const sch = SCH.replace('<net name="N$1" class="0">\n<segment>', '<net name="N$1" class="0">\n<segment><wire x1="99.06" y1="78.74" x2="99.06" y2="76.2" width="0.1524" layer="91"/></segment>\n<segment>');
+  assert.notEqual(sch, SCH);
+  const r = importEagle({ sch, name: 'reg' });
+  assert.equal(r.check.schematic.ok, true, r.check.schematic.mismatches.join('\n'));
+  assert.ok(r.report.some((t) => /Wire stubs \(bus entries\)/.test(t)), r.report.join('\n'));
+  assert.ok(!r.project.schematic.sheets.flatMap((s) => s.labels).some((l) => l.net === 'N$1' && l.at[0] === 99_060_000));
+});
+
+test('the merge check: nets Eagle keeps apart but we join are reported', () => {
+  // the same stub, but drawn by hand onto the sheet after import: verify must catch it
+  const sch = SCH.replace('<net name="N$1" class="0">\n<segment><pinref part="R1" gate="G$1" pin="2"/>\n<wire x1="55.88" y1="76.2" x2="60.96" y2="76.2"', '<net name="N$1" class="0">\n<segment><pinref part="R1" gate="G$1" pin="2"/>\n<wire x1="55.88" y1="76.2" x2="81.28" y2="76.2"');
+  assert.notEqual(sch, SCH);
+  // R1's N$1 wire now runs into U1's IN pin (VCC); the pin is foreign and the wire long, so it's pulled back
+  const r = importEagle({ sch, name: 'reg' });
+  assert.equal(r.check.schematic.ok, true, r.check.schematic.mismatches.join('\n'));
+  assert.ok(r.report.some((t) => /pulled back/.test(t)), r.report.join('\n'));
+});
+
+test('hidden power gates are placed, with power labels on their pins', () => {
+  // U2's gate P (addlevel=request) not placed and nothing wired to it: Eagle joins V+ and V- by name
+  const sch = SCH.replace('<instance part="U2" gate="P" x="101.6" y="38.1"/>', '').replace('<pinref part="U2" gate="P" pin="V-"/>', '').replace('<pinref part="U2" gate="P" pin="V+"/>', '');
+  const r = importEagle({ sch, name: 'reg' });
+  const p = r.project, u2 = Object.values(p.components).find((c) => c.ref === 'U2');
+  assert.ok(p.schematic.sheets.some((s) => s.symbols.some((y) => y.componentId === u2.id && y.unit === 2)));
+  const nets = Object.fromEntries(buildNetlist(p).nets.map((n) => [n.name, n.pins.map((x) => `${x.ref}.${x.pin}`)]));
+  assert.deepEqual(nets['V+'], ['U2.8']);
+  assert.deepEqual(nets['V-'], ['U2.4']);
+  assert.ok(r.report.some((t) => /Hidden power gates were placed.*U2 P/.test(t)), r.report.join('\n'));
+});
+
+test('a Zone fill joins what it reaches: a plane-connected net isn\'t unrouted', () => {
+  const r = importEagle({ sch: SCH, brd: BRD, name: 'reg' });
+  const p = r.project, fills = fillZones(zoneInput(p));
+  const gnd = (rats) => rats.wires.filter((w) => w.net === 'GND').length;
+  assert.ok(gnd(ratsnest(p, p.board, fills)) < gnd(ratsnest(p, p.board)), 'the bottom GND pour connects the via and the THT pad');
+});
+
+test('the import log: files, versions, checks, DRC and every note', () => {
+  const r = importEagle({ sch: SCH, brd: BRD, name: 'regulator' });
+  const files = { sch: { name: 'regulator.sch', text: SCH }, brd: { name: 'regulator.brd', text: BRD } };
+  const before = importLog(r, { files, app: { version: '1.2.3', build: 'abc' }, date: new Date('2026-11-25T12:00:00Z') });
+  assert.match(before, /ElectroCAD 1\.2\.3 \(abc\) · 2026-11-25 12:00 UTC/);
+  assert.match(before, /Schematic: regulator\.sch \(Eagle 9\.6\.2|Schematic: regulator\.sch \(Eagle [\d.]+/);
+  assert.match(before, /\[ok\] The Netlist matches Eagle's nets/);
+  assert.match(before, /\[ok\] Every board signal matches/);
+  assert.match(before, /\[\.\.\] DRC: not run yet/);
+  for (const t of r.report) assert.ok(before.includes(`- ${t}`), t);
+  const p = r.project, drc = runDrc(p, fillZones(zoneInput(p)));
+  const after = importLog(r, { files, drc });
+  assert.match(after, /DRC: 0 errors, \d+ warnings\. Positions are Eagle's/);
+  assert.match(after, /Unrouted: \d+\n {4}- \(\d+\.\d{3}, \d+\.\d{3}\) \w+ is not routed here/);
+  assert.equal(eagleVersion('<?xml version="1.0"?><eagle version="7.7.0">'), '7.7.0');
 });

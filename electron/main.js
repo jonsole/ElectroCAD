@@ -37,7 +37,7 @@ function saveSettings() {
 ipcMain.handle('settings:get', () => ({ ...settings, platform: process.platform, version: app.getVersion(), smoke: !!SMOKE }));
 ipcMain.handle('settings:set', (_e, patch) => {
   if (!patch || typeof patch !== 'object') return settings;
-  const allowed = ['theme', 'units', 'workspace', 'lastProject', 'colorThemes', 'customThemes', 'customFieldStyles', 'schematicDisplay'];
+  const allowed = ['theme', 'units', 'workspace', 'lastProject', 'colorThemes', 'customThemes', 'customFieldStyles', 'schematicDisplay', 'importLog'];
   for (const k of allowed) if (k in patch) settings[k] = patch[k];
   if ('theme' in patch) nativeTheme.themeSource = settings.theme === 'light' ? 'light' : 'dark';
   saveSettings();
@@ -123,6 +123,7 @@ const FILE_KINDS = {
   pdf: { ext: 'pdf', filters: [{ name: 'PDF', extensions: ['pdf'] }], save: 'Export schematic as PDF' },
   svg: { ext: 'svg', filters: [{ name: 'SVG image', extensions: ['svg'] }], save: 'Export sheet as SVG' },
   zip: { ext: 'zip', filters: [{ name: 'Zip archive', extensions: ['zip'] }], save: 'Save the fab zip' },
+  log: { ext: 'txt', filters: [{ name: 'Text', extensions: ['txt'] }], save: 'Save the import log' },
   eagle: { ext: 'sch', filters: [{ name: 'Eagle schematic and board', extensions: ['sch', 'brd'] }, { name: 'All files', extensions: ['*'] }], open: 'Import an Eagle schematic and/or board' },
 };
 const fileKind = (k) => FILE_KINDS[k] || FILE_KINDS.project;

@@ -21,6 +21,8 @@ export function eagleKind(text) {
  * says how the Schematic's Netlist compares with Eagle's nets ({ ok, mismatches }) and which board
  * signals don't match the Schematic.
  */
+export { importLog, eagleVersion, drcLines } from './log.js';
+
 export function importEagle({ sch = null, brd = null, name = 'Imported from Eagle' } = {}) {
   if (!sch && !brd) throw new Error('Choose an Eagle .sch and/or .brd file.');
   const report = new Report();
@@ -32,5 +34,5 @@ export function importEagle({ sch = null, brd = null, name = 'Imported from Eagl
   } else project = newProject(name);
   let board = { mismatched: [] };
   if (brd) board = importEagleBoard(parseXml(brd), project, { report, eagle });
-  return { project, report: report.list(), check: { schematic: verify, signals: board.mismatched || [] } };
+  return { project, report: report.list(), check: { schematic: verify, signals: board.mismatched || [], signalDetails: board.details || [] } };
 }

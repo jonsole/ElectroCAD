@@ -71,7 +71,7 @@ export class BoardEditor {
     this.trackSel = new Set();  // ids of selected Tracks and Vias
     this.zoneSel = new Set();   // ids of selected Zones
     // Zone fills, refilled in a Web Worker after each edit (only the Zones it touched)
-    this.zoneFiller = new ZoneFiller(() => { this.renderProps(); this.ws?.renderBar(); this.ws?.view.invalidate(); });
+    this.zoneFiller = new ZoneFiller(() => { this._rats = ratsnest(this.project, this.board, this.zoneFiller.fills); this.renderProps(); this.ws?.renderBar(); this.ws?.view.invalidate(); });
     this.pair = pref.get('boardLayerPair', null); // the layers V switches between while routing (4-layer boards)
     this.routeMode = pref.get('boardRouteMode', 'walkaround'); // 'walkaround' | 'free' (Shove: #29)
     this.corner = pref.get('boardCorner', '45');            // track bends: '90' | '45' | 'any'
@@ -447,7 +447,7 @@ export class BoardEditor {
     const pc = this.cards?.card('props');
     if (pc?.isOpen && (!this._propsFor || this._selSig() !== this._propsFor)) { pc.toggle(false); this._propsFor = null; }
     this.zoneFiller.update(this.project);
-    this._rats = ratsnest(this.project);
+    this._rats = ratsnest(this.project, this.board, this.zoneFiller.fills);
     if (!copperLayerNames(this.board.stack.copper).includes(this.activeLayer) && /^In\d/.test(this.activeLayer)) this.activeLayer = 'F.Cu';
     if (this.btn) {
       this.btn.undo.disabled = !this.app.history.canUndo;
@@ -717,7 +717,7 @@ export class BoardEditor {
           moveFootprints({ board: { footprints: fps } }, [...this.fpSel], d.delta);
           this.previewFps = fps;
           // the Ratsnest follows the drag
-          this._rats = ratsnest(this.project, { ...this.board, footprints: fps });
+          this._rats = ratsnest(this.project, { ...this.board, footprints: fps }, this.zoneFiller.fills);
         }
         if (this.zoneSel.size) {
           const zs = structuredClone(d.zoneSnapshot);

@@ -10,7 +10,7 @@ import { uid, newSheet, addFootprint } from '../../core/project.js';
 import { changeList, applyChanges } from '../../core/annotate.js';
 import { padNets } from '../../core/footprint.js';
 import { mm } from '../../core/units.js';
-import { nm, pt, len, rotOf, arcMid, arcPoints, restring, Report } from './common.js';
+import { nm, pt, len, rotOf, arcMid, arcPoints, restring, Report, placedRot } from './common.js';
 import { packageToFootprint } from './library.js';
 import { libraries } from './schematic.js';
 
@@ -55,6 +55,7 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
   const inner = [...used].filter((n) => n >= 2 && n <= 15).sort((a, b) => a - b);
   if (inner.length > 2) report.add(`Inner copper layers past two (${inner.slice(2).join(', ')}) were left out: ElectroCAD makes 2- or 4-layer boards`);
   const layerName = new Map([[1, 'F.Cu'], [16, 'B.Cu']]);
+  const eagleLayerNames = new Map((root.path('drawing/layers')?.all('layer') || []).map((l) => [Number(l.attr('number')), l.attr('name')]));
   if (inner.length) { layerName.set(inner[0], 'In1.Cu'); if (inner[1]) layerName.set(inner[1], 'In2.Cu'); }
   const b = project.board;
   b.stack.copper = inner.length ? 4 : 2;
@@ -80,8 +81,11 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
     if (!comp) { report.add(`${el.attr('name')} is on the Board but not on the Schematic; it was left off`); continue; }
     const fp = packageToFootprint(pkg, { report, rules: rules.restring });
     fpOfElement.set(el.attr('name'), fp);
-    // the Board's package is the one that counts (the Schematic's device may have used a library copy)
-    comp.footprint = { fpKey: addFootprint(project, `eagle:${el.attr('library')}`, fp) };
+    // the Board's package is the one that counts (the Schematic's library copy may be older). It
+    // replaces the Part's own Footprint, so the Part's Pin map (pin 1 -> pad "TMS") still applies.
+    const part = comp.footprint?.fpId && project.parts?.[comp.partId];
+    if (part?.footprints?.[comp.footprint.fpId]) part.footprints[comp.footprint.fpId] = fp;
+    else comp.footprint = { fpKey: addFootprint(project, `eagle:${el.attr('library')}`, fp) };
   }
   // the Footprints and the Board's record of Nets, from the Schematic
   applyChanges(project, changeList(project));
@@ -91,7 +95,7 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
     if (!bf) continue;
     const { rot, mirror } = rotOf(el.attr('rot'));
     bf.at = pt(el.attr('x'), el.attr('y'));
-    bf.rot = Math.round(rot * 100) / 100;
+    bf.rot = Math.round(placedRot(rot, mirror) * 100) / 100;
     bf.side = mirror ? 'B' : 'F';
     bf.locked = el.attr('locked') === 'yes';
   }
@@ -111,7 +115,7 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
     } else if (c.name === 'hole') report.add('Board holes (outside packages) were left out');
     else if (c.name === 'polygon' && layerName.has(layer)) {
       b.zones.push(zoneOf(c, layerName.get(layer), '', report));
-    } else if (c.name === 'text' || c.name === 'wire' || c.name === 'circle' || c.name === 'rectangle' || c.name === 'polygon') report.add(`Board drawings on layer ${layer} (${c.name}) were left out`);
+    } else if (c.name === 'text' || c.name === 'wire' || c.name === 'circle' || c.name === 'rectangle' || c.name === 'polygon') report.add(`Board drawings on layer ${layer}${eagleLayerNames.get(layer) ? ` ${eagleLayerNames.get(layer)}` : ''} (${c.name}) were left out`);
   }
   b.outline = dims;
   if (!b.outline.length) report.add('The board has no outline on layer 20 (Dimension)');
@@ -120,14 +124,19 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
   const nets = padNets(b);
   const compRefToId = new Map(Object.values(project.components).map((c) => [c.ref, c.id]));
   const netOfSignal = new Map();
-  const mismatched = [];
+  const mismatched = [], details = [];
   for (const s of signals) {
     const pads = s.all('contactref').map((c) => `${compRefToId.get(c.attr('element'))}:${c.attr('pad')}`);
     const counts = new Map();
     for (const k of pads) { const n = nets.get(k); if (n) counts.set(n, (counts.get(n) || 0) + 1); }
     const net = [...counts].sort((x, y) => y[1] - x[1])[0]?.[0] || (pads.length ? '' : s.attr('name'));
     netOfSignal.set(s.attr('name'), net);
-    if (counts.size > 1 || (net && pads.some((k) => nets.get(k) !== net))) mismatched.push(s.attr('name'));
+    if (counts.size > 1 || (net && pads.some((k) => nets.get(k) !== net))) {
+      mismatched.push(s.attr('name'));
+      const odd = s.all('contactref').filter((c) => nets.get(`${compRefToId.get(c.attr('element'))}:${c.attr('pad')}`) !== net)
+        .map((c) => `${c.attr('element')}.${c.attr('pad')} (${nets.get(`${compRefToId.get(c.attr('element'))}:${c.attr('pad')}`) || (compRefToId.get(c.attr('element')) ? 'no net' : 'not on the Schematic')})`);
+      details.push(`Signal ${s.attr('name')} (${net || 'no net'} here): ${odd.slice(0, 12).join(', ')}${odd.length > 12 ? `, and ${odd.length - 12} more` : ''} differ`);
+    }
     for (const c of s.children) {
       if (c.name === 'wire') {
         const L = layerName.get(Number(c.attr('layer')));
@@ -151,7 +160,7 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
       }
     }
   }
-  if (mismatched.length) report.add(`Signals whose pads the Schematic puts on different nets: ${mismatched.slice(0, 8).join(', ')}${mismatched.length > 8 ? '…' : ''}`);
+  for (const d of details) report.add(d);
 
   // ---- net classes
   const classes = brd.path('classes')?.all('class') || [];
@@ -168,7 +177,7 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
       viaDiameter: drill + 2 * restring(drill, rules.restring.viaRatio, rules.restring.viaMin, rules.restring.viaMax), nets: [...new Set(members)],
     };
   }
-  return { project, report, mismatched, netOfSignal };
+  return { project, report, mismatched, details, netOfSignal };
 }
 
 function zoneOf(c, layer, net, report) {
