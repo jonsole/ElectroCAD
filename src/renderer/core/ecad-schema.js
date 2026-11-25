@@ -286,7 +286,7 @@ export const ECAD_SCHEMA = {
         },
         "name": {
           "type": "string",
-          "description": "\"~\" means no name."
+          "description": "\"~\" means no name. ~{…} draws a bar over the text inside (#63): \"~{RESET}\", \"IS/~{RD}\"."
         },
         "at": {
           "$ref": "#/$defs/point",
@@ -318,6 +318,18 @@ export const ECAD_SCHEMA = {
             "unspecified",
             "no_connect"
           ]
+        },
+        "shape": {
+          "enum": ["line", "inverted", "clock", "inverted-clock"],
+          "description": "Its mark (#63): an inversion bubble at the body, a clock wedge inside it, or both. Default line."
+        },
+        "showName": {
+          "type": "boolean",
+          "description": "false: its name isn't shown (#63), whatever the Unit's hidePinNames. Default true."
+        },
+        "showNumber": {
+          "type": "boolean",
+          "description": "false: its number isn't shown (#63), whatever the Unit's hidePinNumbers. Default true."
         }
       }
     },

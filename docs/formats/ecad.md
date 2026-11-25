@@ -77,7 +77,9 @@ A generic Part ([ADR-0005](../adr/0005-generic-multi-unit-parts.md)): its Symbol
 
 A Unit says nothing about where fields go: Field styles place them ([ADR-0012](../adr/0012-fields-are-placed-automatically-by-field-styles.md)).
 
-**Pin:** `number` (string), `name` (`"~"` = none), `at` (the connection tip, on the 50 mil grid), `dir` (`L`/`R`/`U`/`D`, from the tip into the body), `length` (nm), `type` (`passive`, `input`, `output`, `bidirectional`, `tri_state`, `power_in`, `power_out`, `open_collector`, `open_emitter`, `unspecified`, `no_connect`; used by ERC, #11).
+**Pin:** `number` (string), `name` (`"~"` = none), `at` (the connection tip, on the 50 mil grid), `dir` (`L`/`R`/`U`/`D`, from the tip into the body), `length` (nm), `type` (`passive`, `input`, `output`, `bidirectional`, `tri_state`, `power_in`, `power_out`, `open_collector`, `open_emitter`, `unspecified`, `no_connect`; used by ERC, #11). Optional (#63): `shape` (`line`, the default; `inverted`, a bubble at the body; `clock`, a wedge inside it; `inverted-clock`), and `showName` / `showNumber` (`false` hides this Pin's name or number, whatever the Unit's switches).
+
+**Overbars** (#63): in pin names, Net labels (so Net names), fields and Schematic text, `~{…}` draws a bar over the text inside, as KiCad writes it: `~{RESET}`, `IS/~{RD}`. An unclosed `~{` runs to the end; a `~` not followed by `{` is itself. The text is drawn and measured without the markup.
 
 **Shape** (Symbol bodies and Footprint graphics):
 

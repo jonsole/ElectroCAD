@@ -1,6 +1,7 @@
 // Drawing the Board (#15): the Outline on Edge.Cuts, a faint board fill inside closed loops, the
 // open ends of an unclosed Outline, and the shape being drawn. Footprints, Tracks and Zones join
 // with their tickets. Screen space is the world scaled (+Y down on both), so angles match.
+import { plainText } from '../core/overbar.js';
 import { vectorLayout } from '../core/strokefont.js';
 import { drawingGeometry } from '../core/boardDrawings.js';
 import { chamferPts, OCTAGON } from '../core/collision.js';
@@ -317,6 +318,7 @@ function silkText(ctx, str, x, y, px, mirror, color, font = 'stroke') {
 
 /** A Net name that fits `maxPx`: unnamed nets show as their Pad (Net-(R1-Pad2) -> R1-2). */
 function shortNet(net, ctx, maxPx) {
+  net = plainText(net); // overbar markup (#63) left out of the small pad label
   let s = /^Net-\((.+)-Pad(.+)\)$/.test(net) ? net.replace(/^Net-\((.+)-Pad(.+)\)$/, '$1-$2') : net;
   while (s.length > 3 && ctx.measureText(s).width > maxPx) s = s.slice(0, -2) + '…';
   return s;

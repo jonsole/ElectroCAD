@@ -6,6 +6,7 @@
 // Pins are numbered by the pads they connect to (Eagle names pins; ElectroCAD numbers them), so
 // the Board's pads and the Schematic's pins line up. A pin connected to several pads (GND on a
 // regulator's tab and pin) becomes stacked pins at one tip, one per pad.
+import { eagleOverbar, plainText } from '../../core/overbar.js';
 import { textCentre } from '../../core/boardDrawings.js';
 import { placedRot, nm, pt, rotOf, arcMid, pinBase, restring, PACKAGE_LAYER, Report } from './common.js';
 
@@ -64,7 +65,8 @@ function shapes(el, layerOf, text = (t) => t, report = new Report(), { anchored 
       const { rot, mirror, spin } = rotOf(c.attr('rot'));
       if (anchored) out.push(withLayer({ type: 'text', at: pt(c.attr('x'), c.attr('y')), text: t, size, rot: placedRot(rot, mirror), align: c.attr('align', 'bottom-left'), ...(spin ? { spin: true } : {}) }));
       // a Symbol's text is drawn upright about its centre: where Eagle's anchored, turned text has it
-      else out.push(withLayer({ type: 'text', at: textCentre(t, { at: pt(c.attr('x'), c.attr('y')), size, rot: placedRot(rot, mirror), mirror, align: c.attr('align', 'bottom-left'), font: 'vector' }), text: t, size }));
+      // (Eagle's `!` overbars as markup, #63)
+      else out.push(withLayer({ type: 'text', at: textCentre(plainText(eagleOverbar(t)), { at: pt(c.attr('x'), c.attr('y')), size, rot: placedRot(rot, mirror), mirror, align: c.attr('align', 'bottom-left'), font: 'vector' }), text: eagleOverbar(t), size }));
     }
   }
   return out;
@@ -144,6 +146,9 @@ export function packageToFootprint(pkg, { report = new Report(), rules = DEFAULT
 
 // ---------------------------------------------------------------- symbols and devicesets -> Parts
 
+// Eagle pin functions (#63)
+const PIN_SHAPE = { dot: 'inverted', clk: 'clock', dotclk: 'inverted-clock' };
+
 function symbolUnit(sym, gateName, numberOf) {
   const pins = [];
   for (const p of sym.all('pin')) {
@@ -151,8 +156,11 @@ function symbolUnit(sym, gateName, numberOf) {
     const { rot } = rotOf(p.attr('rot'));
     const pads = numberOf(name);
     const vis = p.attr('visible', 'both');
+    // its mark and which of its name and number show (#63)
+    const shape = PIN_SHAPE[p.attr('function', 'none')];
+    const own = { ...(shape ? { shape } : {}), ...(vis === 'pad' || vis === 'off' ? { showName: false } : {}), ...(vis === 'pin' || vis === 'off' ? { showNumber: false } : {}) };
     for (const number of pads) {
-      pins.push({ number, name: pinBase(name), at: pt(p.attr('x'), p.attr('y')), dir: PIN_DIR[(Math.round(rot / 90) * 90) % 360] || 'R', length: PIN_LENGTH[p.attr('length', 'long')] ?? PIN_LENGTH.long, type: PIN_TYPE[p.attr('direction', 'io')] || 'unspecified', _vis: vis });
+      pins.push({ number, name: eagleOverbar(pinBase(name)), at: pt(p.attr('x'), p.attr('y')), dir: PIN_DIR[(Math.round(rot / 90) * 90) % 360] || 'R', length: PIN_LENGTH[p.attr('length', 'long')] ?? PIN_LENGTH.long, type: PIN_TYPE[p.attr('direction', 'io')] || 'unspecified', ...own, _vis: vis });
     }
   }
   const vis = pins.map((p) => p._vis);

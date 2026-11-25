@@ -401,3 +401,24 @@ test('courtyards (#67): overlaps of generated courtyards (from older imports) ar
   const e = runDrc(project).filter((x) => x.rule === 'courtyard');
   assert.ok(e.length >= 1 && e.every((x) => x.severity === 'error'));
 });
+
+test('pins (#63): Eagle\'s overbars, pin functions and per-pin visibility come over', () => {
+  const sch = SCH.replaceAll('name="IN"', 'name="!IN"').replaceAll('pin="IN"', 'pin="!IN"')
+    .replace('<pin name="OUT" x="7.62" y="0" length="short" direction="pas" rot="R180"/>', '<pin name="OUT" x="7.62" y="0" length="short" direction="pas" rot="R180" function="dotclk" visible="pin"/>')
+    .replace('<pin name="!IN" x="-7.62" y="0" length="short" direction="pwr"/>', '<pin name="!IN" x="-7.62" y="0" length="short" direction="pwr" function="dot" visible="off"/>')
+    .replace('<net name="N$1" class="0">', '<net name="!EN" class="0">');
+  const { project, check } = importEagle({ sch, name: 'reg' });
+  assert.ok(check.schematic.ok, JSON.stringify(check.schematic.mismatches));
+  const pins = Object.values(project.parts).flatMap((p) => p.units.flatMap((u) => u.pins));
+  const inp = pins.find((p) => p.name === '~{IN}'), out = pins.find((p) => p.name === 'OUT' && p.shape);
+  assert.ok(inp, 'the !IN pin, as ~{IN}');
+  assert.deepEqual([inp.shape, inp.showName, inp.showNumber], ['inverted', false, false]);
+  assert.deepEqual([out.shape, out.showName, out.showNumber], ['inverted-clock', undefined, false]);
+  // the other regulator pin (GND) shows both, and has no mark
+  const gnd = pins.find((p) => p.name === 'GND' && p.type === 'power_in');
+  assert.ok(gnd && !gnd.shape && gnd.showName === undefined && gnd.showNumber === undefined);
+  // a net named with ! is named with the markup, on its labels too
+  const nl = buildNetlist(project);
+  assert.ok([...nl.nets.values?.() || nl.nets].some((n) => n.name === '~{EN}'), 'net ~{EN}');
+  assert.ok(!JSON.stringify(project.schematic).includes('!EN'));
+});

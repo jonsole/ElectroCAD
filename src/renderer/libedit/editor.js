@@ -26,6 +26,15 @@ const HALF = G / 2;
 const snap = (v, step) => Math.round(v / step) * step;
 const snapPt = ([x, y], step) => [snap(x, step), snap(y, step)];
 const DIRS = { L: [-1, 0], R: [1, 0], U: [0, -1], D: [0, 1] };
+// a Pin's mark and which of its name and number show (#63)
+const PIN_SHAPES = [['line', 'None'], ['inverted', 'Inverted (bubble)'], ['clock', 'Clock'], ['inverted-clock', 'Inverted clock']];
+const PIN_SHOWS = [['both', 'Name and number'], ['name', 'Name only'], ['number', 'Number only'], ['none', 'Neither']];
+const pinShows = (p) => (p.showName === false ? (p.showNumber === false ? 'none' : 'number') : p.showNumber === false ? 'name' : 'both');
+function setPinShape(pin, v) { if (v === 'line') delete pin.shape; else pin.shape = v; }
+function setPinShows(pin, v) {
+  if (v === 'both' || v === 'name') delete pin.showName; else pin.showName = false;
+  if (v === 'both' || v === 'number') delete pin.showNumber; else pin.showNumber = false;
+}
 const DIR_NAMES = { R: 'Right (pin on the left)', L: 'Left (pin on the right)', D: 'Down (pin on top)', U: 'Up (pin at the bottom)' };
 const ROTATE_DIR = { R: 'U', U: 'L', L: 'D', D: 'R' };
 
@@ -351,10 +360,15 @@ export class LibraryEditor {
         field('Name', p.name === '~' ? '' : p.name, (v) => this.edit('Pin name', (d) => { d.units[this.unit].pins[i].name = v.trim() || '~'; }), { placeholder: 'none' }),
         select('Points', p.dir, Object.entries(DIR_NAMES), (v) => this.edit('Pin direction', (d) => { d.units[this.unit].pins[i].dir = v; })),
         field('Length', +(p.length / G).toFixed(2), (v) => { const n = Number(v); if (n > 0) this.edit('Pin length', (d) => { d.units[this.unit].pins[i].length = Math.round(n * G); }); }, { 'aria-label': 'Length (grid steps)', title: 'In grid steps (50 mil)' }),
-        select('Type', p.type, PIN_TYPES.map((t) => [t, t.replace('_', ' ')]), (v) => this.edit('Pin type', (d) => { d.units[this.unit].pins[i].type = v; })));
+        select('Type', p.type, PIN_TYPES.map((t) => [t, t.replace('_', ' ')]), (v) => this.edit('Pin type', (d) => { d.units[this.unit].pins[i].type = v; })),
+        select('Mark', p.shape || 'line', PIN_SHAPES, (v) => this.edit('Pin mark', (d) => setPinShape(d.units[this.unit].pins[i], v))),
+        select('Shows', pinShows(p), PIN_SHOWS, (v) => this.edit('Pin shows', (d) => setPinShows(d.units[this.unit].pins[i], v))),
+        h('div', { class: 'insp-note' }, 'Name: ~{…} draws a bar over the text inside, e.g. ~{RESET}.'));
     } else if (pins.length > 1 && !gs.length) {
       rows.push(h('div', { class: 'insp-note' }, `${pins.length} pins`),
-        select('Type', '', [['', 'Set type…'], ...PIN_TYPES.map((t) => [t, t.replace('_', ' ')])], (v) => v && this.edit('Pin type', (d) => { for (const i of pins) d.units[this.unit].pins[i].type = v; })));
+        select('Type', '', [['', 'Set type…'], ...PIN_TYPES.map((t) => [t, t.replace('_', ' ')])], (v) => v && this.edit('Pin type', (d) => { for (const i of pins) d.units[this.unit].pins[i].type = v; })),
+        select('Mark', '', [['', 'Set mark…'], ...PIN_SHAPES], (v) => v && this.edit('Pin mark', (d) => { for (const i of pins) setPinShape(d.units[this.unit].pins[i], v); })),
+        select('Shows', '', [['', 'Set…'], ...PIN_SHOWS], (v) => v && this.edit('Pin shows', (d) => { for (const i of pins) setPinShows(d.units[this.unit].pins[i], v); })));
     } else if (gs.length === 1 && !pins.length) {
       const i = gs[0], g = u.graphics[i];
       rows.push(h('div', { class: 'insp-note' }, { rect: 'Rectangle', line: 'Line', poly: 'Polygon', circle: 'Circle', arc: 'Arc', text: 'Text' }[g.type] || g.type));

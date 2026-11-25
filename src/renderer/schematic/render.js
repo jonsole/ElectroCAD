@@ -1,7 +1,8 @@
 // Draws Symbols on the schematic canvas with the Schematic Colour theme (#51).
 // Graphics are in the Symbol's local frame (nm); `place` applies the Symbol's rotation/mirror.
 import { chamferPts, OCTAGON } from '../core/collision.js';
-import { vectorLayout, vectorWidth } from '../core/strokefont.js';
+import { vectorLayout, vectorWidth, FONTS } from '../core/strokefont.js';
+import { overbarRuns, hasOverbar, plainText } from '../core/overbar.js';
 import { drawOriginMark } from '../view/handles.js';
 import { place, arcCircle, shapePoints } from '../core/geom.js';
 import { partOf } from '../core/project.js';
@@ -94,19 +95,36 @@ export function drawUnit(ctx, toScreen, scale, part, unitIndex, sym, fields, C, 
     // Pin colour and gets a small open circle at its tip (only when connection info is given)
     const conn = opts.connected ? opts.connected.has(pin.number) : null;
     ctx.strokeStyle = conn && opts.colorConnected ? C.wire : C.pin;
-    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+    // its mark (#63): an inversion bubble at the body (the line stops at it), a clock wedge inside
+    const inverted = pin.shape === 'inverted' || pin.shape === 'inverted-clock';
+    const clock = pin.shape === 'clock' || pin.shape === 'inverted-clock';
+    const stop = inverted ? P([end[0] - d[0] * 2 * PIN_BUBBLE, end[1] - d[1] * 2 * PIN_BUBBLE]) : [bx, by];
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(stop[0], stop[1]); ctx.stroke();
+    if (inverted) {
+      const [qx, qy] = P([end[0] - d[0] * PIN_BUBBLE, end[1] - d[1] * PIN_BUBBLE]);
+      ctx.beginPath(); ctx.arc(qx, qy, PIN_BUBBLE * scale, 0, Math.PI * 2); ctx.stroke();
+    }
+    if (clock) {
+      const n = [-d[1], d[0]];
+      const w1 = P([end[0] + n[0] * PIN_CLOCK, end[1] + n[1] * PIN_CLOCK]), w2 = P([end[0] - n[0] * PIN_CLOCK, end[1] - n[1] * PIN_CLOCK]);
+      const tip = P([end[0] + d[0] * PIN_CLOCK * 1.6, end[1] + d[1] * PIN_CLOCK * 1.6]);
+      ctx.save(); ctx.strokeStyle = C.symbolBody; ctx.lineWidth = bodyW;
+      ctx.beginPath(); ctx.moveTo(...w1); ctx.lineTo(...tip); ctx.lineTo(...w2); ctx.stroke(); ctx.restore();
+    }
     if (conn === false && opts.markUnconnected) {
       ctx.beginPath(); ctx.arc(ax, ay, Math.max(2, mm(0.3) * scale), 0, Math.PI * 2); ctx.stroke();
     }
-    if (!unit.hidePinNumbers && !opts.bare && scale * TEXT > 5) {
+    // names and numbers: the Unit's setting, and the Pin's own (showName / showNumber: false)
+    if (!unit.hidePinNumbers && pin.showNumber !== false && !opts.bare && scale * TEXT > 5) {
       ctx.font = `${numberPx}px "Segoe UI", system-ui, sans-serif`;
       ctx.fillStyle = C.pinNumber; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
       fillText(ctx, pin.number, (ax + bx) / 2, (ay + by) / 2 - 2);
     }
-    if (!unit.hidePinNames && !opts.bare && pin.name && pin.name !== '~' && scale * TEXT > 5) {
+    if (!unit.hidePinNames && pin.showName !== false && !opts.bare && pin.name && pin.name !== '~' && scale * TEXT > 5) {
       ctx.font = `${namePx}px "Segoe UI", system-ui, sans-serif`;
       ctx.fillStyle = C.pinName; ctx.textBaseline = 'middle';
-      const inward = P([end[0] + d[0] * nameGap, end[1] + d[1] * nameGap]);
+      const gap = nameGap + (clock ? PIN_CLOCK * 1.6 : 0); // past the clock wedge
+      const inward = P([end[0] + d[0] * gap, end[1] + d[1] * gap]);
       ctx.textAlign = inward[0] > bx + 0.5 ? 'left' : inward[0] < bx - 0.5 ? 'right' : 'center';
       fillText(ctx, pin.name, inward[0], inward[1]);
     }
@@ -142,6 +160,9 @@ function bodyHalfHeight(unit) {
 /** Schematic display options (Settings → Schematic display); app settings, not per Project. */
 export const DEFAULT_DISPLAY = { colorConnectedPins: false, markUnconnectedPins: true, wireHops: true };
 
+/** A Pin's inversion bubble radius and clock wedge half-width (#63). */
+const PIN_BUBBLE = mm(0.4);
+const PIN_CLOCK = mm(0.6);
 const WIRE = mm(0.15);
 const HOP = mm(0.5); // radius of the bridge where Wires cross without connecting
 const JUNCTION = mm(0.5);
@@ -163,8 +184,41 @@ export function setTextStyle(style) { TEXT_STYLE = style === 'vector' ? 'vector'
 /** The text style a Project's schematic uses: 'vector' or 'sans'. */
 export const projectTextStyle = (project) => (project?.schematic?.textFont === 'vector' ? 'vector' : 'sans');
 
-/** Draw text with the context's font, alignment, baseline and fill colour, in the chosen text style. */
+/**
+ * Draw text with the context's font, alignment, baseline and fill colour, in the chosen text style.
+ * Overbar markup (`~{RD}`, #63) is drawn as a line over its run, the text without the markup.
+ */
 export function fillText(ctx, text, x, y) {
+  if (!hasOverbar(text)) { fillPlain(ctx, text, x, y); return; }
+  const runs = overbarRuns(text), plain = runs.map((r) => r.text).join('');
+  fillPlain(ctx, plain, x, y);
+  const m = /(\d+(?:\.\d+)?)px/.exec(ctx.font || '');
+  const px = m ? Number(m[1]) : 10;
+  const vector = TEXT_STYLE === 'vector';
+  const width = (t) => (vector ? vectorWidth(t, px) : ctx.measureText(t).width);
+  const W = width(plain), al = ctx.textAlign;
+  let cx = al === 'center' ? x - W / 2 : al === 'right' || al === 'end' ? x - W : x;
+  // the top of the capitals, from the baseline (as vectorLayout places it, or the sans font's)
+  const cap = vector ? px * FONTS.vector.cap : px * 0.72;
+  const bl = ctx.textBaseline;
+  const base = vector
+    ? (bl === 'middle' ? y + cap / 2 : bl === 'top' || bl === 'hanging' ? y + cap : bl === 'bottom' || bl === 'ideographic' ? y - cap * 0.3 : y)
+    : (bl === 'middle' ? y + px * 0.36 : bl === 'top' || bl === 'hanging' ? y + px * 0.8 : bl === 'bottom' || bl === 'ideographic' ? y - px * 0.21 : y);
+  const lw = Math.max(0.6, px * (vector ? FONTS.vector.pen : 0.07));
+  const by = base - cap - Math.max(1, px * 0.12) - lw / 2;
+  ctx.save();
+  ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = lw; ctx.lineCap = 'butt'; ctx.setLineDash?.([]);
+  ctx.beginPath();
+  for (const r of runs) {
+    const w = width(r.text);
+    if (r.over) { ctx.moveTo(cx, by); ctx.lineTo(cx + w, by); }
+    cx += w;
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function fillPlain(ctx, text, x, y) {
   if (TEXT_STYLE === 'sans') { ctx.fillText(text, x, y); return; }
   const f = ctx.font || '';
   const m = /(\d+(?:\.\d+)?)px/.exec(f);
@@ -182,6 +236,7 @@ export function fillText(ctx, text, x, y) {
 let measureCtx = null;
 /** Text width in nm for a text size in nm, in the current text style (used by the field placer and labels). */
 export function measureText(text, sizeNm) {
+  text = plainText(text);
   if (TEXT_STYLE === 'vector') return Math.round(vectorWidth(text, sizeNm));
   if (typeof document === 'undefined') return Math.round(String(text).length * sizeNm * 0.6); // no DOM (tests, print in a worker)
   measureCtx ||= document.createElement('canvas').getContext('2d');

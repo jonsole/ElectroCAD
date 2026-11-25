@@ -6,6 +6,7 @@
 //   net with several segments, or a name of its own, gets a label on each segment (global when
 //   it reaches more than one sheet, or has a power symbol)
 // After the import the Netlist is compared with Eagle's nets, pin by pin (verify()).
+import { eagleOverbar } from '../../core/overbar.js';
 import { newProject, newSheet, uid, pinPositions } from '../../core/project.js';
 import { symbolBounds } from '../../core/schematic.js';
 import { labelBounds, LABEL_TEXT } from '../../core/labels.js';
@@ -114,7 +115,7 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
   const pinNet = new Map(); // `${part}\t${gate}\t${pin}` -> net name
   sheetsEl.forEach((se, si) => {
     for (const n of se.path('nets')?.all('net') || []) {
-      const nn = n.attr('name');
+      const nn = eagleOverbar(n.attr('name')); // Eagle's `!` overbars as markup (#63)
       if (!netsByName.has(nn)) netsByName.set(nn, []);
       for (const seg of n.all('segment')) {
         netsByName.get(nn).push({ si, seg });
@@ -144,7 +145,7 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
           const local = pt(pin.attr('x'), pin.attr('y'));
           const off = r90geom(local, rot90(rot), mirror);
           const at0 = place.T(inst.attr('x'), inst.attr('y'));
-          const net = pinNet.get(`${inst.attr('part')}\t${inst.attr('gate')}\t${pin.attr('name')}`) || pinBase(pin.attr('name'));
+          const net = pinNet.get(`${inst.attr('part')}\t${inst.attr('gate')}\t${pin.attr('name')}`) || eagleOverbar(pinBase(pin.attr('name')));
           powered.add(net);
           sheet.labels.push({ id: uid('l'), at: [at0[0] + off[0], at0[1] + off[1]], rot: rot90(rot), net, scope: 'global', style: GROUND.test(net) ? 'gnd' : 'power' });
         }
@@ -167,7 +168,7 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
     // plain drawings: lines and text
     for (const c of se.path('plain')?.children || []) {
       if (c.name === 'wire') sheet.drawings.push({ id: uid('d'), type: 'line', pts: [place.T(c.attr('x1'), c.attr('y1')), place.T(c.attr('x2'), c.attr('y2'))], style: c.attr('style') === 'shortdash' || c.attr('style') === 'longdash' ? 'dashed' : c.attr('style') === 'dashdot' ? 'dotted' : 'solid', arrowStart: false, arrowEnd: false });
-      else if (c.name === 'text' && c.text.trim()) sheet.drawings.push({ id: uid('d'), type: 'text', at: place.T(c.attr('x'), c.attr('y')), text: c.text.trim(), size: nm(c.attr('size', 1.778)), bold: false, italic: false, align: 'left', rot: rotOf(c.attr('rot')).rot % 180 === 90 ? 90 : 0 });
+      else if (c.name === 'text' && c.text.trim()) sheet.drawings.push({ id: uid('d'), type: 'text', at: place.T(c.attr('x'), c.attr('y')), text: eagleOverbar(c.text.trim()), size: nm(c.attr('size', 1.778)), bold: false, italic: false, align: 'left', rot: rotOf(c.attr('rot')).rot % 180 === 90 ? 90 : 0 });
       else if (c.name !== 'text') report.add(`Sheet drawings (${c.name}) were left out`);
     }
     if (se.path('busses')?.children.length) report.add('Busses were left out (their nets keep their labels)');
@@ -258,7 +259,7 @@ function implicitPower(project, parts, pinNet, powered, report) {
       }
       const where = new Map(pinPositions(project, ys.y).map((x) => [x.pin.number, x.at]));
       for (const pn of pins) {
-        const net = pinBase(pn.attr('name'));
+        const net = eagleOverbar(pinBase(pn.attr('name')));
         for (const num of p.numbers.get(`${g.attr('name')}\t${pn.attr('name')}`) || []) {
           const at = where.get(num);
           if (!at) continue;

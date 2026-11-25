@@ -6,6 +6,7 @@
 //   layer 20 (Dimension) -> the Outline; signal wires -> Tracks; vias -> Vias; polygons -> Zones
 //   design rules and net classes -> Design rules and Net classes
 // A board without its schematic gets a stub Schematic: one Part per package, net labels on its pins.
+import { eagleOverbar } from '../../core/overbar.js';
 import { uid, newSheet, addFootprint, footprintOf } from '../../core/project.js';
 import { changeList, applyChanges } from '../../core/annotate.js';
 import { padNets, flipLayer } from '../../core/footprint.js';
@@ -236,7 +237,7 @@ function stubSchematic(project, brd, libs, signals, elements, rules, report) {
   report.add('No schematic: a stub Schematic was made from the board (one symbol per part, net labels on its pins)');
   const sheet = project.schematic.sheets[0] || (project.schematic.sheets[0] = newSheet('Sheet 1'));
   const padNet = new Map();
-  for (const s of signals) for (const c of s.all('contactref')) padNet.set(`${c.attr('element')}\t${c.attr('pad')}`, s.attr('name'));
+  for (const s of signals) for (const c of s.all('contactref')) padNet.set(`${c.attr('element')}\t${c.attr('pad')}`, eagleOverbar(s.attr('name')));
   let col = 0, row = 0;
   for (const el of elements) {
     const lib = libs.get(el.attr('library'));
