@@ -1629,7 +1629,13 @@ export class BoardEditor {
       h('span', { class: 'erc-dot', 'aria-label': v.severity }),
       h('span', { class: 'erc-msg' }, h('b', { class: 'drc-rule' }, `${label[v.rule]}${v.layer ? ` · ${v.layer}` : ''}`), ' ', v.message));
     const empty = this.drcRunning || !this.drc ? null : !list.length ? 'Every rule is met, everything is routed and the Board matches the Schematic.' : !shown.length ? 'Everything is filtered out.' : null;
-    el.replaceChildren(head, h('div', { class: 'fp-body drc-list' }, empty ? h('p', { class: 'side-note erc-clean' }, empty) : '', ...shown.map(row)));
+    // the list is rebuilt on every refresh: keep where it was scrolled to, and the focused row in view
+    const old = el.querySelector('.drc-list'), top = old ? old.scrollTop : 0;
+    const box = h('div', { class: 'fp-body drc-list' }, empty ? h('p', { class: 'side-note erc-clean' }, empty) : '', ...shown.map(row));
+    el.replaceChildren(head, box);
+    box.scrollTop = top;
+    const on = box.querySelector('.erc-row.on');
+    if (on) { const r = on.getBoundingClientRect(), b = box.getBoundingClientRect(); if (r.top < b.top || r.bottom > b.bottom) on.scrollIntoView({ block: 'nearest' }); }
   }
 
   /** Zoom to a violation and select what it's about. */
