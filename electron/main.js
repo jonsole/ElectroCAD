@@ -123,6 +123,7 @@ const FILE_KINDS = {
   pdf: { ext: 'pdf', filters: [{ name: 'PDF', extensions: ['pdf'] }], save: 'Export schematic as PDF' },
   svg: { ext: 'svg', filters: [{ name: 'SVG image', extensions: ['svg'] }], save: 'Export sheet as SVG' },
   zip: { ext: 'zip', filters: [{ name: 'Zip archive', extensions: ['zip'] }], save: 'Save the fab zip' },
+  fab: { ext: 'zip', filters: [{ name: 'Fab files (zip, Gerber, drill)', extensions: ['zip', 'gbr', 'ger', 'gtl', 'gbl', 'gts', 'gbs', 'gto', 'gbo', 'gtp', 'gbp', 'gko', 'gml', 'g1', 'g2', 'g2l', 'g3l', 'drl', 'xln', 'txt', 'exc'] }, { name: 'All files', extensions: ['*'] }], open: 'Open fab files: a zip, or Gerber and drill files' },
   log: { ext: 'txt', filters: [{ name: 'Text', extensions: ['txt'] }], save: 'Save the import log' },
   eagle: { ext: 'sch', filters: [{ name: 'Eagle schematic and board', extensions: ['sch', 'brd'] }, { name: 'All files', extensions: ['*'] }], open: 'Import an Eagle schematic and/or board' },
 };
@@ -151,6 +152,18 @@ ipcMain.handle('file:importMany', async (_e, kind) => {
   }
   if (!files?.length) return null;
   return [].concat(files).map((f) => ({ name: path.basename(f), text: fs.readFileSync(f, 'utf8') }));
+});
+// files as bytes (a fab zip, Gerbers): [{ name, bytes }] or null
+ipcMain.handle('file:importBytes', async (_e, kind) => {
+  const K = fileKind(kind);
+  let files;
+  if (SMOKE) files = [].concat(smokeDialogs.shift() || []).map((f) => path.resolve(app.getAppPath(), f));
+  else {
+    const r = await dialog.showOpenDialog(win, { title: K.open, filters: K.filters, properties: ['openFile', 'multiSelections'] });
+    files = r.canceled || !r.filePaths.length ? null : r.filePaths;
+  }
+  if (!files?.length) return null;
+  return files.map((f) => ({ name: path.basename(f), bytes: new Uint8Array(fs.readFileSync(f)) }));
 });
 ipcMain.handle('file:export', async (_e, suggestedName, text, kind) => {
   const K = fileKind(kind);

@@ -778,3 +778,26 @@ body.resizing iframe, body.resizing canvas { pointer-events: none; }
 .outline-state.wait svg { color: var(--muted); }
 .import-log-text { margin: 0; max-height: 60vh; overflow: auto; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; user-select: text; }
 .import-report .modal-actions, .import-log .modal-actions { gap: 8px; }
+/* Gerber tab (#28): layers, what's shown, the comparison */
+.fab-show-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.fab-show-row .btn { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.fab-layer-row { display: grid; grid-template-columns: auto 12px 1fr auto auto; align-items: center; gap: 8px; padding: 3px 2px; font-size: 12.5px; cursor: pointer; }
+.fab-swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(255, 255, 255, .18); }
+.fab-layer-label { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fab-layer-file { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
+.fab-cmp { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; }
+.fab-cmp-row { display: grid; grid-template-columns: 1fr 70px 58px; align-items: center; gap: 8px; padding: 4px 6px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--text); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+.fab-cmp-row:hover:not(:disabled) { background: var(--hover, rgba(255, 255, 255, .05)); }
+.fab-cmp-row.active { border-color: var(--accent); background: rgba(79, 140, 255, .1); }
+.fab-cmp-row:disabled { cursor: default; color: var(--muted); }
+.fab-cmp-bar { height: 6px; border-radius: 3px; background: rgba(127, 127, 127, .25); overflow: hidden; }
+.fab-cmp-bar > span { display: block; height: 100%; background: #3fb950; }
+.fab-cmp-row.close .fab-cmp-bar > span { background: #d4a017; }
+.fab-cmp-row.bad .fab-cmp-bar > span { background: #e5484d; }
+.fab-cmp-pct { text-align: right; font-variant-numeric: tabular-nums; }
+.fab-cmp-row.miss .fab-cmp-pct { font-size: 11px; }
+.fab-cmp-legend { display: flex; gap: 12px; font-size: 11.5px; color: var(--muted); margin: 4px 0; }
+.fab-cmp-legend span::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.fab-cmp-legend .only-ours::before { background: rgb(235, 64, 64); }
+.fab-cmp-legend .only-theirs::before { background: rgb(64, 150, 255); }
+.fab-cmp-legend .shared::before { background: rgba(150, 150, 160, .5); }

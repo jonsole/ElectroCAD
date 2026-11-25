@@ -72,7 +72,7 @@ function shapes(el, layerOf, text = (t) => t, report = new Report()) {
 // ---------------------------------------------------------------- packages -> Footprints
 
 /** An Eagle <package> -> an ElectroCAD Footprint. */
-export function packageToFootprint(pkg, { report = new Report(), rules = DEFAULT_RESTRING } = {}) {
+export function packageToFootprint(pkg, { report = new Report(), rules = DEFAULT_RESTRING, shapes: shapeRules = null } = {}) {
   const pads = [];
   let holes = 0;
   for (const c of pkg.children) {
@@ -92,7 +92,9 @@ export function packageToFootprint(pkg, { report = new Report(), rules = DEFAULT
       const drill = nm(c.attr('drill'));
       let d = nm(c.attr('diameter', 0));
       if (!d) d = drill + 2 * restring(drill, rules.padRatio, rules.padMin, rules.padMax);
-      const shape = c.attr('shape', 'round');
+      // the board's design rules may override the library's shape (Eagle's Shapes tab)
+      const ruled = shapeRules && (c.attr('first') === 'yes' && shapeRules.first >= 0 ? shapeRules.first : shapeRules.top);
+      const shape = ruled >= 0 && ruled != null ? (['square', 'round', 'octagon'][ruled] || c.attr('shape', 'round')) : c.attr('shape', 'round');
       const { rot } = rotOf(c.attr('rot'));
       const turned = Math.round(rot / 90) % 2 === 1;
       let pad;
@@ -107,7 +109,8 @@ export function packageToFootprint(pkg, { report = new Report(), rules = DEFAULT
       pads.push({ number: c.attr('name'), at: pt(c.attr('x'), c.attr('y')), ...pad, drill, layers: c.attr('stop') === 'no' ? ['*.Cu'] : ['*.Cu', '*.Mask'] });
     } else if (c.name === 'hole') {
       const drill = nm(c.attr('drill'));
-      pads.push({ number: '', at: pt(c.attr('x'), c.attr('y')), shape: 'circle', size: [drill, drill], drill, layers: [] });
+      // a non-plated hole: no copper, and the solder mask opened over it (as Eagle does)
+      pads.push({ number: '', at: pt(c.attr('x'), c.attr('y')), shape: 'circle', size: [drill, drill], drill, layers: ['*.Mask'] });
       holes++;
     }
   }

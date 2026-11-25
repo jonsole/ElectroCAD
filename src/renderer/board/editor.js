@@ -306,6 +306,11 @@ export class BoardEditor {
       const ids = vias.map((v) => v.id);
       out.push(num('Via drill', one(vias, 'drill'), (d) => this.app.edit('Via drill', (p) => setViaSize(p, ids, { drill: d }))),
         num('Via diameter', one(vias, 'diameter'), (d) => this.app.edit('Via diameter', (p) => setViaSize(p, ids, { diameter: d }))));
+      const open = vias.filter((v) => v.tented === false).length;
+      const tent = stop(h('input', { type: 'checkbox', 'aria-label': 'Tented', title: 'Covered by solder mask. Untick to open the mask round the via (a test point)' }));
+      tent.checked = !open; tent.indeterminate = open > 0 && open < vias.length;
+      tent.addEventListener('change', () => this.app.edit(tent.checked ? 'Tent vias' : 'Open vias in the mask', (p) => { for (const v of p.board.vias) if (ids.includes(v.id)) { if (tent.checked) delete v.tented; else v.tented = false; } }));
+      out.push(row('Tented', tent));
     }
     out.push(h('div', { class: 'layer-actions' },
       button({ label: 'Whole connection (U)', cls: 'btn-ghost', title: 'Select every track and via joined to these', onClick: () => this.selectConnection() }),

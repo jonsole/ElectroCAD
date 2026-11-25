@@ -96,6 +96,18 @@ function pickFiles(accept) {
   });
 }
 
+function pickBytes(accept) {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = accept;
+    input.multiple = true;
+    input.onchange = async () => resolve(input.files.length ? await Promise.all([...input.files].map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) }))) : null);
+    input.oncancel = () => resolve(null);
+    input.click();
+  });
+}
+
 function download(name, text, type = 'application/json') {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = document.createElement('a');
@@ -137,6 +149,8 @@ export const platform = {
 
   /** Pick an .ecad file to bring into the store. Resolves to { name, text } or null if cancelled. */
   /** Pick several files to import (an Eagle .sch with its .brd): [{ name, text }] or null. */
+  /** Fab files as bytes (a zip, or loose Gerber and drill files): [{ name, bytes }] or null. */
+  importFabFiles: () => (native ? native.importBytes('fab') : pickBytes('.zip,.gbr,.ger,.gtl,.gbl,.gts,.gbs,.gto,.gbo,.gtp,.gbp,.gko,.gml,.g1,.g2,.g2l,.g3l,.drl,.xln,.txt,.exc,.cmp,.sol,.stc,.sts,.plc,.pls')),
   importFiles: (kind = 'eagle') => (native ? native.importFiles(kind) : pickFiles('.sch,.brd')),
   importFile: (kind = 'project') => (native ? native.importFile(kind) : pickFile(kind === 'theme' ? '.json,application/json' : '.ecad,application/json')),
   /** Write an .ecad file: a Save dialog on desktop, a download in the browser. Resolves to { name } or null. */

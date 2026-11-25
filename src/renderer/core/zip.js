@@ -59,3 +59,44 @@ export function readZip(bytes) {
   }
   return out;
 }
+
+/** Inflate raw deflate data (zip method 8) with the platform's DecompressionStream. */
+async function inflateRaw(data) {
+  const ds = new DecompressionStream('deflate-raw');
+  const out = new Response(new Blob([data]).stream().pipeThrough(ds));
+  return new Uint8Array(await out.arrayBuffer());
+}
+
+/**
+ * Read any ordinary zip (stored or deflated, with or without data descriptors), as board houses
+ * and other CAD tools make them: [{ name, bytes, ok }] (ok: the CRC matches). Folders are skipped.
+ * Reads the central directory, so sizes written after the data are found.
+ */
+export async function unzip(bytes) {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const dec = new TextDecoder();
+  // the end of central directory record: the last 0x06054b50 within the final 64 kB
+  let eocd = -1;
+  for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65_557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('This is not a zip file (no central directory).');
+  const count = dv.getUint16(eocd + 10, true);
+  let o = dv.getUint32(eocd + 16, true);
+  const out = [];
+  for (let k = 0; k < count; k++) {
+    if (dv.getUint32(o, true) !== 0x02014b50) throw new Error('The zip\'s directory is damaged.');
+    const method = dv.getUint16(o + 10, true), crc = dv.getUint32(o + 16, true);
+    const csize = dv.getUint32(o + 20, true), nlen = dv.getUint16(o + 28, true), xlen = dv.getUint16(o + 30, true), clen = dv.getUint16(o + 32, true);
+    const local = dv.getUint32(o + 42, true);
+    const name = dec.decode(bytes.subarray(o + 46, o + 46 + nlen));
+    o += 46 + nlen + xlen + clen;
+    if (name.endsWith('/')) continue;
+    const lnlen = dv.getUint16(local + 26, true), lxlen = dv.getUint16(local + 28, true);
+    const raw = bytes.subarray(local + 30 + lnlen + lxlen, local + 30 + lnlen + lxlen + csize);
+    let data;
+    if (method === 0) data = raw;
+    else if (method === 8) data = await inflateRaw(raw);
+    else { out.push({ name, bytes: new Uint8Array(0), ok: false, error: `compression method ${method}` }); continue; }
+    out.push({ name, bytes: data, ok: crc32(data) === crc });
+  }
+  return out;
+}

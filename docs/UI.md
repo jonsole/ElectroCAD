@@ -520,14 +520,34 @@ The **Gerber** tab makes the files a board house needs (#26).
 - **File names and units** follow the Fab output settings in Board setup: Protel extensions (`.GTL`, `.GBL`, `.G1`/`.G2` inner, `.GTS`/`.GBS` mask, `.GTP`/`.GBP` paste, `.GTO`/`.GBO` silk, `.GKO` outline) or descriptive `-F_Cu.gbr` names; drills in mm or inches.
 - **What goes into each layer:**
   - **Copper:** zone fills first, as hole-free regions. Each fill is cut into bands at its holes, so nothing needs clear polarity, which would also erase other copper. Then tracks (round apertures), vias on every copper layer, and pads. Circles, axis-aligned rectangles and ovals are flashed apertures; turned rectangles and rounded rectangles are regions, and turned ovals are strokes. X2 aperture functions are Conductor, ViaPad, SMDPad and ComponentPad.
-  - **Mask:** an opening at each pad with mask, grown by 0.05 mm; vias are tented. The file's polarity is Negative.
+  - **Mask:** an opening at each pad with mask, and at each non-plated hole, grown by 0.05 mm. Vias are tented unless a via's **Tented** box (in its Properties) is unticked, for a test point. The file's polarity is Negative.
   - **Paste:** SMD pads only.
   - **Silk:** footprint silk lines, shapes and text. Text uses ElectroCAD's own stroke font (`core/strokefont.js`), mirrored on B.SilkS. Footprints without their own Reference text get it above the courtyard, as on screen.
   - **Edge.Cuts:** the outline (`Profile`).
 - **Coordinates:** the Project's nanometres with +Y down become Gerber millimetres in 4.6 format, which is 1 nm per unit, with Y up. The flip happens only here (ADR-0003).
 - **The panel** lists the files with their layers and sizes. **Download zip** saves them as `<project>-fab.zip`, a stored zip made by `core/zip.js`. **Checks** shows the DRC result at generation time and an open outline, and the list says when the board has changed since generation.
 - **Zone clearance from holes:** zone fills also keep the clearance from non-plated holes.
-- Rendering the generated files on this tab comes with #28; BOM and pick-and-place with #27.
+- BOM and pick-and-place come with #27.
+
+### Viewing and comparing fab files (#28)
+
+The canvas shows fab files **read back by ElectroCAD's own Gerber and Excellon readers** (`core/gerber/`), not the Board, so what you see is what the board house receives.
+- **Generate** shows the generated files. **Open fab files…** shows any fab zip or loose Gerber and drill files from another tool or a board house; **Showing** switches between the two.
+- **Layers** lists each file with its layer, found from its X2 attributes or its name (Protel, Eagle and descriptive names): tick to show or hide, **Show all**, **Hide all**. A note icon means the reader skipped something (an image transform, incremental coordinates…); hover to see it.
+- **Top / Bottom** (B) views from either side. Bottom mirrors the board and draws the bottom layers on top.
+- **Measure** (M): click two points; the distance and dx, dy are in mm.
+- **Checks**, for opened files: which layers a board house needs are missing (copper, mask, outline, drills), files whose layer isn't known, and what the reader noted. For generated files: DRC at generation, an open outline, and layers not generated.
+- What the readers cover: apertures (circle, rectangle, obround, polygon, with holes), macros including Eagle's OC8 (variables, arithmetic, primitives 1, 4, 5, 6, 7, 20, 21), regions, arcs (multi and single quadrant), clear polarity, step and repeat, offsets, legacy G54/G70/G71, X2 attributes; Excellon in mm or inches, leading or trailing zeros, implied or explicit decimals, G85 and routed slots. Zips may be stored or deflated (`unzip`, with the platform's `DecompressionStream`).
+
+**Compare with…** checks the generated files against a reference set, a zip or loose files: what a board house built from before, or another tool's output for the same board.
+- The sets are lined up first: by the commonest shift between drill holes of the same size, so a few changed holes don't matter, or by the outline when there are no drills.
+- Each layer pair is drawn at 25 µm and compared (`compareLayers`). Differences closer than 0.05 mm to the other set's copper aren't counted (arcs drawn as chords, octagons for circles). Outlines are compared as lines of one width.
+- **Compare** lists each layer with its match, green at 99.9% or more, and says when one set lacks a layer (paste, often). Click a layer to see where they differ: red only ours, blue only theirs, grey both.
+- Some layers always differ a little, and the panel says why: silk (each tool's own font, and References), zone fills (each tool's own thermal and clearance rules), and outlines (some tools also draw holes there).
+- **Copy report** copies the comparison as text, with the alignment and each layer's areas, to paste into an issue.
+- It runs in a worker (`gerber/compareWorker.js`); a 4-layer board takes a few seconds.
+
+Checked against a real board: a 4-layer design imported from Eagle and compared with the files a board house built it from matches 100% on both outer copper layers, both masks and the drills, and 99.4–99.7% on the inner planes (pour details).
 
 ## Board setup: Fab presets, Design rules and Net classes
 

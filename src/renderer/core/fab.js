@@ -127,9 +127,15 @@ export function fillRegions(polys) {
     if (!holes.length) { out.push(outer); continue; }
     const ys = [...new Set([Math.min(...outer.map((q) => q[1])), Math.max(...outer.map((q) => q[1])), ...holes.flatMap((hl) => [Math.min(...hl.map((q) => q[1])), Math.max(...hl.map((q) => q[1]))])])].sort((a, b) => a - b);
     const xs = outer.map((q) => q[0]), x0 = Math.min(...xs) - 1, x1 = Math.max(...xs) + 1;
-    const subj = poly.map((ring) => ring.map(([x, y]) => ({ X: x, Y: y })));
+    // a band needs only the outline and the holes that cross it (the rest can't change it): on a
+    // plane with hundreds of holes this is what keeps Generate quick
+    const P = (ring) => ring.map(([x, y]) => ({ X: x, Y: y }));
+    const subjOuter = P(outer);
+    const hs = holes.map((hl) => { let lo = Infinity, hi = -Infinity; for (const q of hl) { if (q[1] < lo) lo = q[1]; if (q[1] > hi) hi = q[1]; } return { lo, hi, path: P(hl) }; }).sort((a, b) => a.lo - b.lo);
     for (let i = 1; i < ys.length; i++) {
       const band = [[{ X: x0, Y: ys[i - 1] }, { X: x1, Y: ys[i - 1] }, { X: x1, Y: ys[i] }, { X: x0, Y: ys[i] }]];
+      const subj = [subjOuter];
+      for (const hl of hs) { if (hl.lo >= ys[i]) break; if (hl.hi > ys[i - 1]) subj.push(hl.path); }
       const c = new CL.Clipper();
       c.AddPaths(subj, CL.PolyType.ptSubject, true);
       c.AddPaths(band, CL.PolyType.ptClip, true);
@@ -187,6 +193,8 @@ function gerberLayer(project, { layer, fn, polarity }, { fills, date, version })
     }
   } else if (/Mask$/.test(layer)) {
     for (const p of pads) if (p.layers.includes(layer) || p.layers.includes('*.Mask')) plotPad(g, p, MASK_MARGIN, null);
+    // vias are tented unless one says not
+    for (const v of board.vias || []) if (v.tented === false) g.flash(`C,${mm6(v.diameter + 2 * MASK_MARGIN)}`, v.at, null);
   } else if (/Paste$/.test(layer)) {
     for (const p of pads) if (p.layers.includes(layer) && !p.drill) plotPad(g, p, 0, null);
   } else if (/SilkS$/.test(layer)) {

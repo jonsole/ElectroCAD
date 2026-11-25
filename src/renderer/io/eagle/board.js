@@ -32,6 +32,10 @@ export function designRules(boardEl) {
       viaRatio: R('rvViaOuter', 0.25), viaMin: L('rlMinViaOuter', 203_200), viaMax: L('rlMaxViaOuter', 508_000),
     },
     layerSetup: p.get('layerSetup') || '',
+    // Shapes tab: -1 as in the library, 0 square, 1 round, 2 octagon (first: pads marked first="yes")
+    padShapes: { top: R('psTop', -1), first: R('psFirst', -1) },
+    // Masks tab: vias with a drill this big or bigger get a mask opening (0: none)
+    viaStopLimit: L('mlViaStopLimit', 0),
   };
 }
 
@@ -79,7 +83,7 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
     if (!pkg) { report.add(`Element ${el.attr('name')}: its package ${el.attr('package')} is not in the file`); continue; }
     const comp = compByRef.get(el.attr('name'));
     if (!comp) { report.add(`${el.attr('name')} is on the Board but not on the Schematic; it was left off`); continue; }
-    const fp = packageToFootprint(pkg, { report, rules: rules.restring });
+    const fp = packageToFootprint(pkg, { report, rules: rules.restring, shapes: rules.padShapes });
     fpOfElement.set(el.attr('name'), fp);
     // the Board's package is the one that counts (the Schematic's library copy may be older). It
     // replaces the Part's own Footprint, so the Part's Pin map (pin 1 -> pad "TMS") still applies.
@@ -152,7 +156,7 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
         if (extent !== '1-16') report.add(`Blind and buried vias (${extent}) became through vias`);
         if (c.attr('shape') && c.attr('shape') !== 'round') report.add('Square and octagonal vias became round');
         const d = nm(c.attr('diameter', 0)) || drill + 2 * restring(drill, rules.restring.viaRatio, rules.restring.viaMin, rules.restring.viaMax);
-        b.vias.push({ id: uid('v'), at: pt(c.attr('x'), c.attr('y')), drill, diameter: Math.max(d, drill + 2 * rules.restring.viaMin), from: 'F.Cu', to: 'B.Cu', net });
+        b.vias.push({ id: uid('v'), at: pt(c.attr('x'), c.attr('y')), drill, diameter: Math.max(d, drill + 2 * rules.restring.viaMin), from: 'F.Cu', to: 'B.Cu', net, ...(rules.viaStopLimit > 0 && drill >= rules.viaStopLimit ? { tented: false } : {}) });
       } else if (c.name === 'polygon') {
         const L = layerName.get(Number(c.attr('layer')));
         if (!L) { report.add(`A polygon on layer ${c.attr('layer')} was left out`); continue; }

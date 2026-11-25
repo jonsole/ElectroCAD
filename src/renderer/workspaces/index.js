@@ -63,20 +63,26 @@ function board(app) {
 function gerber(app) {
   const panel = (app.gerberPanel ||= new GerberPanel(app));
   const side = panel.side();
+  const sel = toolButton('select', 'Pan and inspect', { active: true }), meas = toolButton('ruler', 'Measure (M): click two points');
+  sel.dataset.tool = 'select'; meas.dataset.tool = 'measure';
+  sel.addEventListener('click', () => panel.setTool('select'));
+  meas.addEventListener('click', () => panel.setTool('measure'));
+  panel.toolBtns = [sel, meas];
+  panel.sideSeg = segmented([['top', 'Top', 'arrowUp', 'View from the top'], ['bottom', 'Bottom', 'flip', 'View from the bottom, mirrored (B)']], 'top', (id) => { panel.setSide(id); ws.renderBar(); });
   const ws = new Workspace({
     colors: () => app.canvasColors('board'),
-    id: 'gerber', label: 'Gerber', icon: 'gerber', title: 'Gerber: generate Fab output, check it and download the zip',
+    id: 'gerber', label: 'Gerber', icon: 'gerber', title: 'Gerber: generate the fab files, view them as the board house will, compare them and download the zip',
     grid: mm(0.5), home: { x0: -10e6, y0: -10e6, x1: 110e6, y1: 90e6 },
-    toolbar: [...panel.toolbar(),
-      later({ label: 'Open Gerber files…', icon: 'folder', title: 'Open a fab zip or Gerber/Excellon files' }, 28), spacer(),
-      segmented([['top', 'Top', null, 'View from the top', 28], ['bottom', 'Bottom', null, 'View from the bottom', 28]], 'top')],
-    hint: 'Generate makes the fab files (Gerber X2 and Excellon) from the Board; Download zip saves them for the board house. Viewing them here comes with #28.',
-    tools: [toolButton('select', 'Pan and inspect', { active: true }), toolButton('ruler', 'Measure', { ticket: 28 })],
+    toolbar: [...panel.toolbar(), spacer(), panel.sideSeg],
+    hint: 'Generate makes the fab files and shows them read back; Open fab files… views any zip or Gerbers; Compare with… checks them against a reference set, layer by layer.',
+    tools: [sel, meas],
     side,
+    draw: (ctx, v, C) => panel.viewer.draw(ctx, v, C),
     onRefresh: () => panel.refresh(),
     status: () => panel.status(),
   });
   ws.panel = panel;
+  panel.attach(ws);
   panel.refresh();
   return ws;
 }

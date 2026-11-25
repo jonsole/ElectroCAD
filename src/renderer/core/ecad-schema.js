@@ -1275,6 +1275,10 @@ export const ECAD_SCHEMA = {
         },
         "net": {
           "$ref": "#/$defs/netName"
+        },
+        "tented": {
+          "type": "boolean",
+          "description": "Covered by solder mask (the default). false: the mask is opened round the via, as for a test point."
         }
       }
     },
