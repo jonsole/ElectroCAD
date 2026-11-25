@@ -365,6 +365,7 @@ The Board tab (#15) edits the board's layer stack and its Outline. Footprints, T
 - **What the Board shows:**
   - Footprints show their pads in copper colours (through-hole pads with the drill), the courtyard dashed, the Reference on silk above and the Value on fab below.
   - Zoomed in, each pad shows its number and net. An unnamed net shows as its pad, e.g. `R1-2`.
+  - This text (Reference, Value, pad numbers and nets) is drawn over the copper: tracks, vias and the track being routed never hide it.
   - The Board draws References, Values and pad nets from what it was last told. A Schematic edit reaches the Board when you apply the update.
   - Footprint swaps are not in the list: they apply straight away (ADR-0008).
 - **Snapping:** pad centres are snap targets.
