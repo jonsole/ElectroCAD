@@ -432,6 +432,7 @@ Everywhere (the Schematic, the Board and both Library editors), an item's **Prop
 - **Double-click exceptions:** on the Schematic, double-clicking a Reference or Value still edits it in place, a net label is renamed in place, a text note is edited in place, and a wire selects its net.
 - **Select net:** on the Board, a pad's net is selected from its right-click menu (**Select net …**).
 - **Right-click menus:** the Board and the Library editors now have one, like the Schematic. On an item it offers Properties… and the item's actions (rotate, flip, lock, select the connection or net, delete); on empty board it offers Fit, Update from Schematic, Board setup and Run DRC.
+- **Show on Board / Show on Schematic:** right-click a part on the Schematic for **Show on Board**, or a footprint on the Board for **Show on Schematic**. It switches to the other view (or focuses its pane in Split view), selects the same component there (on its sheet) and zooms to it. On a wire, track, via, zone or pad, the menu offers the same for the net (**Show the net on Board / on Schematic**). When the other side doesn't have it yet, a message says so (e.g. Update from Schematic first).
 - **Not in Properties:** board information isn't a property. Whether the Outline is closed, with its size, shows at the bottom of the Layers card and in the status bar. The Footprint editor's **New pads** settings are on the Pad tool's context strip.
 
 ## Context strips

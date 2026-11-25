@@ -254,6 +254,7 @@ export class SchematicEditor {
     const anyLabel = (this.sheet.labels || []).some((l) => this.selection.has(l.id)) || (this.sheet.drawings || []).some((d) => this.selection.has(d.id));
     popupMenu([
       { label: 'Properties…', icon: 'sliders', shortcut: 'Double-click', onClick: () => this.openProperties() },
+      anySym || this.sheet.wires.some((w) => this.selection.has(w.id)) ? { label: anySym ? 'Show on Board' : 'Show the net on Board', icon: 'board', onClick: () => this.showOnBoard() } : null,
       'sep',
       { label: 'Copy', icon: 'copy', shortcut: 'Ctrl+C', onClick: () => this.copy() },
       { label: 'Paste', icon: 'paste', shortcut: 'Ctrl+V', disabled: !this.clipboard, onClick: () => this.paste() },
@@ -1495,6 +1496,48 @@ export class SchematicEditor {
   }
 
   _selSyms() { return this.sheet.symbols.filter((y) => this.selection.has(y.id)); }
+
+  /**
+   * Show the selection on the Board: its parts' footprints (or, for wires, their net's pads and
+   * copper), selected there and zoomed to.
+   */
+  showOnBoard() {
+    const comps = [...new Set(this._selSyms().map((y) => y.componentId))];
+    const wireIds = new Set(this.sheet.wires.filter((w) => this.selection.has(w.id)).map((w) => w.id));
+    const nets = comps.length ? [] : [...new Set(buildNetlist(this.project).nets.filter((n) => n.wires?.some((id) => wireIds.has(id))).map((n) => n.name))];
+    const bed = this.app.workspace('board')?.editor;
+    if (!bed) return;
+    if (!bed.hasItems({ components: comps, nets })) { toast(comps.length ? `${comps.map((id) => this.project.components[id]?.ref).join(', ')} ${comps.length === 1 ? "isn't" : "aren't"} on the Board yet: Update from Schematic (F8) on the Board.` : 'That net has nothing on the Board yet.', 'info', 3200); return; }
+    this.app.setWorkspace('board');
+    // zoom once the Board's canvas has its size
+    requestAnimationFrame(() => requestAnimationFrame(() => bed.showItems({ components: comps, nets })));
+  }
+
+  /** Are any of these parts or nets on the Schematic? */
+  hasItems({ components = [], nets = [] }) {
+    const comps = new Set(components), low = new Set(nets.map((n) => n.toLowerCase()));
+    const wires = new Set(low.size ? buildNetlist(this.project).nets.filter((n) => low.has(n.name.toLowerCase())).flatMap((n) => n.wires || []) : []);
+    return this.project.schematic.sheets.some((sh) => sh.symbols.some((y) => comps.has(y.componentId)) || sh.wires.some((w) => wires.has(w.id)));
+  }
+
+  /** Select these parts (by Component) or nets here, on the first Sheet that has them, and zoom to them. */
+  showItems({ components = [], nets = [] }) {
+    const comps = new Set(components), low = new Set(nets.map((n) => n.toLowerCase()));
+    const nl = low.size ? buildNetlist(this.project).nets.filter((n) => low.has(n.name.toLowerCase())) : [];
+    const wireIds = new Set(nl.flatMap((n) => n.wires || [])), labelIds = new Set(nl.flatMap((n) => n.labels || []));
+    const sheet = this.project.schematic.sheets.find((sh) => sh.symbols.some((y) => comps.has(y.componentId)) || sh.wires.some((w) => wireIds.has(w.id)));
+    if (!sheet) return false;
+    if (sheet.id !== this.sheet.id) this.switchSheet(sheet.id);
+    const ids = [...sheet.symbols.filter((y) => comps.has(y.componentId)).map((y) => y.id), ...sheet.wires.filter((w) => wireIds.has(w.id)).map((w) => w.id), ...(sheet.labels || []).filter((l) => labelIds.has(l.id)).map((l) => l.id)];
+    this.selection = new Set(ids);
+    const b = itemsBounds(this.project, sheet, ids);
+    if (b && this.ws) {
+      const m = SCH_GRID * 8, w = Math.max(b.x1 - b.x0, SCH_GRID * 20), hh = Math.max(b.y1 - b.y0, SCH_GRID * 14), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+      this.ws.view.view.fit({ x0: cx - w / 2 - m, y0: cy - hh / 2 - m, x1: cx + w / 2 + m, y1: cy + hh / 2 + m }, this.ws.view.w, this.ws.view.h, 20);
+    }
+    this.refresh();
+    return true;
+  }
 
   /** Lock the selected parts (or unlock them when they all are). */
   lockSel() {

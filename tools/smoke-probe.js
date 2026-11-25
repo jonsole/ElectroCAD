@@ -66,4 +66,27 @@ document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: tr
 check('cleared', !app.probeFor('schematic'));
 app.toggleSplit(false);
 check('unsplit', !bws.el.classList.contains('active') || !sws.el.classList.contains('active'));
+// right-click a part → Show on Board: the Board, its footprint selected and in view; and back
+const raf2 = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r))));
+app.setWorkspace('schematic'); await raf2();
+const menuItem = (text) => [...document.querySelectorAll('.menu .menu-item')].find((m) => m.textContent.includes(text));
+{
+  const y = sheet().symbols.find((q) => q.componentId === ids.r2);
+  const cr = sws.view.canvas.getBoundingClientRect(), [sx, sy] = sws.view.view.toScreen(y.at);
+  sed.contextMenu({ clientX: cr.left + sx, clientY: cr.top + sy });
+  const item = menuItem('Show on Board');
+  check('menu-show-on-board', !!item);
+  item?.click();
+  await raf2();
+  const fp = app.project.board.footprints.find((f) => f.componentId === ids.r2);
+  const [fx, fy] = bws.view.view.toScreen(fp.at);
+  check('shown-on-board', app.active === bws && bed.fpSel.has(fp.id) && bed.fpSel.size === 1 && fx > 0 && fx < bws.view.w && fy > 0 && fy < bws.view.h, [app.active?.id, [...bed.fpSel], fx, fy]);
+  const br = bws.view.canvas.getBoundingClientRect();
+  bed.contextMenu({ clientX: br.left + fx, clientY: br.top + fy });
+  const back = menuItem('Show on Schematic');
+  check('menu-show-on-schematic', !!back);
+  back?.click();
+  await raf2();
+  check('shown-on-schematic', app.active === sws && sed.selection.has(y.id) && sed.selection.size === 1, [app.active?.id, [...sed.selection]]);
+}
 return { fails };

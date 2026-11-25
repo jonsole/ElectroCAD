@@ -863,9 +863,10 @@ export class BoardEditor {
     }
     const props = { label: 'Properties…', icon: 'sliders', shortcut: 'Double-click', onClick: () => this.openProperties() };
     const del = { label: 'Delete', icon: 'trash', shortcut: 'Del', onClick: () => this.deleteSelection() };
+    const toSch = this.fpSel.size || net ? { label: this.fpSel.size ? 'Show on Schematic' : 'Show the net on Schematic', icon: 'schematic', onClick: () => this.showOnSchematic(this.fpSel.size ? null : net) } : null;
     if (this.fpSel.size) {
       const locked = this.board.footprints.filter((f) => this.fpSel.has(f.id)).every((f) => f.locked);
-      popupMenu([props, 'sep',
+      popupMenu([props, toSch, 'sep',
         { label: `Rotate ${this.rotStep}° anticlockwise`, icon: 'rotateLeft', shortcut: 'R', onClick: () => this.rotateSel(this.rotStep) },
         { label: `Rotate ${this.rotStep}° clockwise`, icon: 'rotateRight', shortcut: 'Shift+R', onClick: () => this.rotateSel(-this.rotStep) },
         { label: 'Flip to the other side', icon: 'flip', shortcut: 'F', onClick: () => this.flipSel() },
@@ -874,10 +875,55 @@ export class BoardEditor {
       return;
     }
     if (this.trackSel.size) {
-      popupMenu([props, 'sep', { label: 'Select the whole connection', icon: 'route', shortcut: 'U', onClick: () => this.selectConnection() }, selectNet, 'sep', del], at);
+      popupMenu([props, toSch, 'sep', { label: 'Select the whole connection', icon: 'route', shortcut: 'U', onClick: () => this.selectConnection() }, selectNet, 'sep', del], at);
       return;
     }
-    popupMenu([props, 'sep', selectNet, selectNet ? 'sep' : null, del], at);
+    popupMenu([props, toSch, 'sep', selectNet, selectNet ? 'sep' : null, del], at);
+  }
+
+  /**
+   * Show the selected footprints' parts on the Schematic (or `net`'s wires), selected there and
+   * zoomed to.
+   */
+  showOnSchematic(net = null) {
+    const comps = net ? [] : [...new Set(this.board.footprints.filter((f) => this.fpSel.has(f.id)).map((f) => f.componentId))];
+    const sed = this.app.workspace('schematic')?.editor;
+    if (!sed) return;
+    const what = { components: comps, nets: net ? [net] : [] };
+    if (!sed.hasItems(what)) { toast(net ? `${net} has no wires on the Schematic.` : 'Not on the Schematic.', 'info', 2600); return; }
+    this.app.setWorkspace('schematic');
+    requestAnimationFrame(() => requestAnimationFrame(() => sed.showItems(what))); // once its canvas has its size
+  }
+
+  /** Are any of these parts' footprints, or these nets' pads or copper, on the Board? */
+  hasItems({ components = [], nets = [] }) {
+    const comps = new Set(components), low = new Set(nets.map((n) => n.toLowerCase()));
+    if (this.board.footprints.some((f) => comps.has(f.componentId))) return true;
+    if ([...(this.board.tracks || []), ...(this.board.vias || [])].some((t) => t.net && low.has(t.net.toLowerCase()))) return true;
+    return [...padNets(this.board).values()].some((n) => n && low.has(n.toLowerCase()));
+  }
+
+  /** Select these parts' footprints (by Component) or these nets' pads and copper here, and zoom to them. */
+  showItems({ components = [], nets = [] }) {
+    const comps = new Set(components), low = new Set(nets.map((n) => n.toLowerCase()));
+    const fps = this.board.footprints.filter((f) => comps.has(f.componentId));
+    const copper = [...(this.board.tracks || []), ...(this.board.vias || [])].filter((t) => t.net && low.has(t.net.toLowerCase()));
+    const padMap = padNets(this.board);
+    const padPts = low.size ? this.board.footprints.flatMap((f) => placedPads(this.project, f, padMap).filter((p) => p.net && low.has(p.net.toLowerCase())).map((p) => p.at)) : [];
+    if (!fps.length && !copper.length && !padPts.length) return false;
+    this.selection.clear(); this.zoneSel.clear();
+    this.fpSel = new Set(fps.map((f) => f.id));
+    this.trackSel = new Set(copper.map((t) => t.id));
+    this.netSel = new Set([...new Set(padMap.values())].filter((n) => n && low.has(n.toLowerCase())));
+    const pts = [...fps.flatMap((f) => footprintOutline(this.project, f)), ...copper.flatMap((t) => (t.at ? [t.at] : [t.a, t.b])), ...padPts];
+    if (pts.length && this.ws) {
+      const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+      const m = mm(4), w = Math.max(Math.max(...xs) - Math.min(...xs), mm(12)), hh = Math.max(Math.max(...ys) - Math.min(...ys), mm(8));
+      const cx = (Math.max(...xs) + Math.min(...xs)) / 2, cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+      this.ws.view.view.fit({ x0: cx - w / 2 - m, y0: cy - hh / 2 - m, x1: cx + w / 2 + m, y1: cy + hh / 2 + m }, this.ws.view.w, this.ws.view.h, 20);
+    }
+    this.refresh();
+    return true;
   }
 
   /** Select a Net: its pads light up, here and on the Schematic. */
