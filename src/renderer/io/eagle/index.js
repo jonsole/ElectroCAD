@@ -34,5 +34,8 @@ export function importEagle({ sch = null, brd = null, name = 'Imported from Eagl
   } else project = newProject(name);
   let board = { mismatched: [] };
   if (brd) board = importEagleBoard(parseXml(brd), project, { report, eagle });
+  // text in Eagle's vector-font metrics, so sizes and spacing come out as Eagle drew them (#79)
+  project.schematic.textFont = 'vector';
+  project.board.textFont = 'vector';
   return { project, report: report.list(), check: { schematic: verify, signals: board.mismatched || [], signalDetails: board.details || [] } };
 }

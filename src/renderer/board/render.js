@@ -180,7 +180,7 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
     const ref = ann[bf.componentId]?.ref ?? comp?.ref ?? '';
     const value = ann[bf.componentId]?.value ?? comp?.value ?? '';
     // silk, courtyard and fab graphics (and its own ${REF} / ${VALUE} text)
-    const own = partial ? { ref: true, value: true } : drawFootprintGraphics(ctx, view, C, fp, T, { side: bf.side, visible, ref, value, labels });
+    const own = partial ? { ref: true, value: true } : drawFootprintGraphics(ctx, view, C, fp, T, { side: bf.side, visible, ref, value, labels, font: board.textFont });
     // pads
     for (const pad of placedPads(project, bf, nets)) {
       if (partial && !padKeys?.has(`${bf.componentId}:${pad.number}`)) continue;
@@ -233,7 +233,7 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
       if (px < 4) return;
       const [x, y] = S(local);
       labels.push(() => {
-        silkText(ctx, str, x, y, px, bf.side === 'B', C[layer] || '#ddd');
+        silkText(ctx, str, x, y, px, bf.side === 'B', C[layer] || '#ddd', board.textFont);
       });
     };
     if (!own.ref) text(flipLayer('F.SilkS', bf.side), ref, [0, top - mm(0.8)], mm(1));
@@ -244,10 +244,10 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
 
 /**
  * Footprint text on screen in the board's stroke font (#79): the same glyphs, size and pen as the
- * Gerber silk (core/fab.js strokeText), centred on (x, y) px, mirrored for the back.
+ * Gerber silk (core/fab.js strokeText) in the board's `font` metrics, centred on (x, y) px, mirrored for the back.
  */
-function silkText(ctx, str, x, y, px, mirror, color) {
-  const { lines, pen } = vectorLayout(str, { x: 0, y: 0, px, align: 'center', baseline: 'middle' });
+function silkText(ctx, str, x, y, px, mirror, color, font = 'stroke') {
+  const { lines, pen } = vectorLayout(str, { x: 0, y: 0, px, align: 'center', baseline: 'middle', font: font || 'stroke' });
   ctx.save();
   ctx.translate(x, y); if (mirror) ctx.scale(-1, 1);
   ctx.strokeStyle = color; ctx.lineWidth = pen; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.setLineDash([]);
@@ -270,7 +270,7 @@ function shortNet(net, ctx, maxPx) {
  * `${VALUE}` in text are filled in with `ref` / `value`. Returns { ref, value }: whether it drew
  * its own Reference / Value text. Shared by the Board and the Footprint editor.
  */
-export function drawFootprintGraphics(ctx, view, C, fp, T, { side = 'F', visible = () => true, ref = 'REF**', value = 'VALUE', only = null, labels = null } = {}) {
+export function drawFootprintGraphics(ctx, view, C, fp, T, { side = 'F', visible = () => true, ref = 'REF**', value = 'VALUE', only = null, labels = null, font = 'stroke' } = {}) {
   const S = (p) => view.toScreen(T(p));
   const own = { ref: false, value: false };
   const lw = (layer) => Math.max(1, mm(/SilkS/.test(layer) ? 0.12 : 0.1) * view.scale);
@@ -298,7 +298,7 @@ export function drawFootprintGraphics(ctx, view, C, fp, T, { side = 'F', visible
         const str = String(g.text).replace(/\$\{REF\}/g, ref).replace(/\$\{VALUE\}/g, value);
         const [x, y] = S(g.at);
         const draw = () => {
-          silkText(ctx, str, x, y, px, side === 'B', col);
+          silkText(ctx, str, x, y, px, side === 'B', col, font);
         };
         if (labels) labels.push(draw); else draw(); // with `labels`, over the copper later
       }

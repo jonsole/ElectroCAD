@@ -1315,7 +1315,7 @@ export class SchematicEditor {
     this.labelEdit = { input: box, commit, close };
   }
 
-  /** A Sheet's setup: paper size, grid, Alt grid and origin (this Sheet), and the title block (every Sheet). */
+  /** A Sheet's setup: paper size, grid, Alt grid and origin (this Sheet), and the text font and title block (every Sheet). */
   sheetSetup(sheetId = this.sheet.id) {
     const sheet = this.project.schematic.sheets.find((x) => x.id === sheetId) || this.sheet;
     const m = modal({ title: `Sheet setup: ${sheet.name}`, width: 540 });
@@ -1338,6 +1338,8 @@ export class SchematicEditor {
     const ox = stop(h('input', { class: 'input', type: 'number', step: '0.01', value: fmt(o[0]), 'aria-label': 'Origin X (mm)' }));
     const oy = stop(h('input', { class: 'input', type: 'number', step: '0.01', value: fmt(o[1]), 'aria-label': 'Origin Y (mm)' }));
     const reset = button({ label: 'Reset', cls: 'btn-ghost', title: "Put the origin back at the paper's top-left corner", onClick: () => { ox.value = '0'; oy.value = '0'; } });
+    const font = h('select', { class: 'select', 'aria-label': 'Text font' }, h('option', { value: 'system' }, 'System font'), h('option', { value: 'vector' }, 'Vector font (as Eagle draws it)'));
+    font.value = this.project.schematic.textFont === 'vector' ? 'vector' : 'system';
     const inputs = TITLE_FIELDS.map(([k, label]) => [k, stop(h('input', { class: 'input', type: 'text', value: tb[k] || '', 'aria-label': label, placeholder: k === 'title' ? this.project.name : '' })), label]);
     const apply = () => {
       const nx = Math.round((parseFloat(ox.value) || 0) * 1e6), ny = Math.round((parseFloat(oy.value) || 0) * 1e6);
@@ -1349,6 +1351,7 @@ export class SchematicEditor {
         setGridStep(s.grid, 'alt', +alt.value);
         s.origin = [nx, ny];
         p.titleBlock = Object.fromEntries(inputs.map(([k, i]) => [k, i.value.trim()]));
+        if (font.value === 'vector') p.schematic.textFont = 'vector'; else delete p.schematic.textFont;
       });
       m.close();
       this.refresh();
@@ -1363,6 +1366,9 @@ export class SchematicEditor {
       h('div', { class: 'setup-group' }, h('div', { class: 'setup-head' }, 'Origin'),
         h('div', { class: 'param-pair origin-pair' }, h('label', { class: 'field' }, h('span', {}, 'X (mm)'), ox), h('label', { class: 'field' }, h('span', {}, 'Y (mm)'), oy), reset),
         h('p', { class: 'side-note' }, "From the paper's top-left corner. The grid, rulers and coordinates measure from it; the Origin tool (O) sets it by clicking.")),
+      h('div', { class: 'setup-group' }, h('div', { class: 'setup-head' }, 'Text (every sheet)'),
+        h('label', { class: 'field' }, h('span', {}, 'Font'), font),
+        h('p', { class: 'side-note' }, 'Kept with the project. The vector font has the board\'s stroke glyphs, sized and spaced as Eagle\'s; Eagle imports use it. Field positions follow the font\'s widths.')),
       h('div', { class: 'setup-group' }, h('div', { class: 'setup-head' }, 'Title block (every sheet)'),
         h('div', { class: 'setup-grid' }, ...inputs.map(([, i, label]) => h('label', { class: 'field' }, h('span', {}, label), i))),
         h('p', { class: 'side-note' }, 'The sheet name and "Sheet n of N" are filled in for each sheet. Text notes can show these fields too: ${TITLE}, ${COMPANY}, ${AUTHOR}, ${REV}, ${DATE}, ${COMMENT}, ${SHEET_NAME}, ${SHEET_NUMBER}, ${SHEET_COUNT}, ${PROJECT}.')),

@@ -4,11 +4,10 @@ import { h, button, modal, toast } from '../ui/dom.js';
 import { platform } from '../platform.js';
 import { sheetToSvg, sheetsToPdf, printFileName, PRINT_COLOURS } from './schematic.js';
 import { paperRect } from '../core/drawings.js';
-import { measureText, textStyle } from '../schematic/render.js';
+import { measureText, projectTextStyle } from '../schematic/render.js';
 
-const PREF = 'electrocad.printColours', TEXT_PREF = 'electrocad.printText';
+const PREF = 'electrocad.printColours';
 const readPref = () => { try { return localStorage.getItem(PREF) || 'light'; } catch { return 'light'; } };
-const readText = () => { try { return localStorage.getItem(TEXT_PREF) || textStyle(); } catch { return textStyle(); } };
 
 export function openPrintDialog(app) {
   const project = app.project;
@@ -20,9 +19,9 @@ export function openPrintDialog(app) {
   which.value = sheets.length > 1 ? 'all' : current.id;
   const colours = h('select', { class: 'select', 'aria-label': 'Colours' }, ...Object.entries(PRINT_COLOURS).map(([k, v]) => h('option', { value: k }, v)));
   colours.value = readPref();
-  // the vector font (as on screen), or real text a PDF reader can search and copy (#79)
-  const textSel = h('select', { class: 'select', 'aria-label': 'Text' }, h('option', { value: 'vector' }, 'Vector font (as on screen)'), h('option', { value: 'sans' }, 'Searchable text (Helvetica)'));
-  textSel.value = readText();
+  // the vector font, or real text a PDF reader can search and copy (#79); the Project's own to start
+  const textSel = h('select', { class: 'select', 'aria-label': 'Text' }, h('option', { value: 'vector' }, 'Vector font'), h('option', { value: 'sans' }, 'Searchable text (Helvetica)'));
+  textSel.value = projectTextStyle(project);
   const img = h('img', { class: 'print-preview', alt: 'Preview of the first page' });
   const info = h('div', { class: 'print-info' });
   const chosen = () => (which.value === 'all' ? sheets : sheets.filter((s) => s.id === which.value));
@@ -36,7 +35,7 @@ export function openPrintDialog(app) {
     svgBtn.title = chosen().length === 1 ? 'One SVG file for this sheet' : 'SVG is one sheet per file: pick a sheet above';
   };
   const save = async (kind) => {
-    try { localStorage.setItem(PREF, colours.value); localStorage.setItem(TEXT_PREF, textSel.value); } catch { /* private window */ }
+    try { localStorage.setItem(PREF, colours.value); } catch { /* private window */ }
     const list = chosen();
     const text = kind === 'pdf'
       ? sheetsToPdf(project, list, { colours: colours.value, measure: measureText, textStyle: textSel.value })

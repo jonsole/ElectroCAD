@@ -133,8 +133,8 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 - **Junctions:** a dot where Wires really connect (a T-join, or three or more ends).
 - **Crossings** (option, on by default): where a horizontal and a vertical Wire cross without connecting, the horizontal one draws a small semicircle **hop** over the other.
 
-**Text** (Settings → Schematic display → Text; #79): schematic text (pin names and numbers, References and Values, labels, sheet text, the title block) is drawn in ElectroCAD's **vector font** by default: the same single-stroke glyphs as the board's silk and the silk Gerber (`core/strokefont.js`). Or choose **System font** for the operating system's sans font.
-- A text **size** is the full height of a capital, pen included, as in Eagle. Capitals are 0.9 of it between stroke centres, the pen 0.1, and each character advances 0.786 of it. These are Eagle's own metrics, measured from a board house's Gerbers and from boxes a designer drew round parts of pin names, so imported layouts line up.
+**Text** (Sheet setup → Text, kept with the Project; #79): schematic text (pin names and numbers, References and Values, labels, sheet text, the title block) is drawn in the operating system's sans font, or in ElectroCAD's **vector font**: the same single-stroke glyphs as the board's silk and the silk Gerber (`core/strokefont.js`), sized and spaced as Eagle's. New projects use the system font; Eagle imports use the vector font (and Eagle's metrics on the board, below).
+- In the vector font a text **size** is the full height of a capital, pen included, as in Eagle. Capitals are 0.9 of it between stroke centres, the pen 0.1, and each character advances 0.786 of it. These are Eagle's own metrics, measured from a board house's Gerbers and from boxes a designer drew round parts of pin names, so imported layouts line up.
 - Field placement, labels and selection measure text in the chosen style, so they always fit what's drawn.
 - **Pin text per Unit:** the Symbol editor's **Pin text** row sets a Unit's pin name size, pin number size and the gap between a pin's inner end and its name (empty means the default: about 1 mm text, 0.6 mm gap). Eagle imports use Eagle's 1.778 mm names, 1.905 mm in from the pin.
 
@@ -172,6 +172,7 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 - **Sheet setup** opens with the gear on a sheet's row in the Sheets card, by double-clicking the title block, or from **Sheet setup…** in the right-click menu on empty canvas. It sets:
   - that Sheet's paper size (A4, A3, A2, Letter, Tabloid) and orientation; the canvas frame and Home follow it, and Print uses it;
   - that Sheet's grid, Alt grid and origin (X and Y in mm from the paper's top-left corner, with Reset);
+  - the Project's text font (every sheet): system or vector (see Text, above);
   - the Project's title block fields.
 
 ## Print and export
@@ -180,7 +181,7 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 
 - **Sheets:** all of them, or one.
 - **Colours:** ElectroCAD Light (the default), Classic paper, or black and white. They don't follow the editor's theme.
-- **Text:** the **vector font** (as on screen; letters are strokes), or **searchable text** in Helvetica that a PDF reader can find and copy. Defaults to the screen's text style; the choice is remembered.
+- **Text:** the **vector font** (letters are strokes), or **searchable text** in Helvetica that a PDF reader can find and copy. Starts at the Project's own text font.
 - **Export PDF:** the chosen Sheets in one file, each page at its Sheet's paper size, with a border and the title block. With searchable text, characters Helvetica can't show become `?`, except Ω, which is written "Ohm". Open the PDF in any viewer to print it.
 - **Export SVG:** one Sheet per file, at its paper size in millimetres.
 
@@ -530,7 +531,7 @@ The **Gerber** tab makes the files a board house needs (#26).
   - **Copper:** zone fills first, as hole-free regions. Each fill is cut into bands at its holes, so nothing needs clear polarity, which would also erase other copper. Then tracks (round apertures), vias on every copper layer, and pads. Circles, axis-aligned rectangles and ovals are flashed apertures; turned rectangles and rounded rectangles are regions, and turned ovals are strokes. X2 aperture functions are Conductor, ViaPad, SMDPad and ComponentPad.
   - **Mask:** an opening at each pad with mask, and at each non-plated hole, grown by 0.05 mm. Vias are tented unless a via's **Tented** box (in its Properties) is unticked, for a test point. The file's polarity is Negative.
   - **Paste:** SMD pads only.
-  - **Silk:** footprint silk lines, shapes and text. Text uses ElectroCAD's own stroke font (`core/strokefont.js`), mirrored on B.SilkS, at the size as text height (Eagle's metrics, #79); the board view draws the same glyphs. Footprints without their own Reference text get it above the courtyard, as on screen.
+  - **Silk:** footprint silk lines, shapes and text. Text uses ElectroCAD's own stroke font (`core/strokefont.js`), mirrored on B.SilkS, in the board's text font metrics (Board setup → Text, #79); the board view draws the same glyphs. Footprints without their own Reference text get it above the courtyard, as on screen.
   - **Edge.Cuts:** the outline (`Profile`).
 - **Coordinates:** the Project's nanometres with +Y down become Gerber millimetres in 4.6 format, which is 1 nm per unit, with Y up. The flip happens only here (ADR-0003).
 - **The panel** lists the files with their layers and sizes. **Download zip** saves them as `<project>-fab.zip`, a stored zip made by `core/zip.js`. **Checks** shows the DRC result at generation time and an open outline, and the list says when the board has changed since generation.
@@ -567,6 +568,7 @@ Checked against a real board: a 4-layer design imported from Eagle and compared 
     - A preset for the other layer count is flagged, with a button for the right one.
   - **Rules** (mm): clearance, track width, via drill, via diameter, minimum hole, annular ring, edge clearance. These are the **Default** net class.
   - **Fab output:** Gerber file names (Protel extensions or descriptive) and drill file units, used by the Fab output (#26).
+  - **Text** (#79): the metrics of footprint text on the board and in the silk Gerbers, kept with the Project. **ElectroCAD stroke** (the default): the size is the capital height, characters advance by the size, the pen is 0.15 of it. **Eagle vector** (Eagle imports use it): the size is the full height including the pen, capitals 0.9 of it, advance 0.786, pen 0.1, so text comes out about 10% smaller and tighter, as Eagle's Gerbers have it.
 - **Net classes:**
   - A table of classes: **Default** (the Design rules, read-only here), then each class's name, track width, clearance, via drill and via diameter (all editable), its net count and Delete. **Add net class** starts from the Design rules.
   - **Nets:** every net on the board with a class picker (filterable). A net is in one class at a time; deleting a class puts its nets back in Default.

@@ -31,30 +31,36 @@ const G = {
   '°': '1,6 2,6 2,5 1,5 1,6',
 };
 const GLYPHS = Object.fromEntries(Object.entries(G).map(([k, v]) => [k, v ? v.split('|').map((pl) => pl.split(' ').map((q) => q.split(',').map(Number))) : []]));
-// Metrics (#79), measured against Eagle's own Gerbers: a text's size is the full height of a capital
-// including the pen, as Eagle's is. The capital's stroke centres span 0.9 of it, the pen is 0.1 of
-// it, and each character advances 0.786 of it (boxes drawn round parts of Eagle pin names line up
-// only with that advance). Glyphs are drawn on a grid 4 wide and 6 tall for the capital height.
+// Two sets of metrics for the same glyphs, chosen per Project (Board setup / Sheet setup):
+//  'stroke' (ElectroCAD's own, the default): a text's size is the capital height between stroke
+//           centres, characters advance by the size, and the pen is 0.15 of it.
+//  'vector' (#79, Eagle's vector font, measured against Eagle's own Gerbers): a size is the full
+//           height of a capital including the pen; capitals span 0.9 of it, the pen is 0.1 and each
+//           character advances 0.786 (boxes drawn round parts of Eagle pin names line up only with
+//           that advance). Eagle imports use it.
+// Glyphs are drawn on a grid 4 wide and 6 tall for the capital height.
 const CAP = 6;
-export const CAP_RATIO = 0.9;
-export const PEN_RATIO = 0.1;
-export const ADVANCE_RATIO = 0.786;
+export const FONTS = {
+  stroke: { cap: 1, pen: 0.15, advance: 1 },
+  vector: { cap: 0.9, pen: 0.1, advance: 0.786 },
+};
+const metrics = (font) => FONTS[font] || FONTS.stroke;
 
 /** The glyph for a character (unknown ones show as ?). */
 export const glyph = (ch) => GLYPHS[ch] || GLYPHS[ch.toUpperCase()] || GLYPHS['?'];
 
-/** Width of `text` at `size` (text height), between the outer stroke centres, nm. */
-export const strokeWidthOf = (text, size) => {
-  const n = [...String(text)].length;
-  return n ? (n - 1) * size * ADVANCE_RATIO + (4 * size * CAP_RATIO) / CAP : 0;
+/** Width of `text` at `size` in `font` ('stroke' | 'vector'), between the outer stroke centres, nm. */
+export const strokeWidthOf = (text, size, font = 'stroke') => {
+  const n = [...String(text)].length, f = metrics(font);
+  return n ? (n - 1) * size * f.advance + (4 * size * f.cap) / CAP : 0;
 };
 
-/** The pen width for text of `size`. */
-export const strokePen = (size) => Math.max(1, Math.round(size * PEN_RATIO));
+/** The pen width for text of `size` in `font`. */
+export const strokePen = (size, font = 'stroke') => Math.max(1, Math.round(size * metrics(font).pen));
 
 /** Glyph polylines for `text` from (x0, base), y up in grid units turned to y down (no rounding). */
-function layout(text, size, x0, base, { mirror = false, slant = 0, mirrorAbout = null } = {}) {
-  const u = (size * CAP_RATIO) / CAP, adv = size * ADVANCE_RATIO;
+function layout(text, size, font, x0, base, { mirror = false, slant = 0, mirrorAbout = null } = {}) {
+  const f = metrics(font), u = (size * f.cap) / CAP, adv = size * f.advance;
   const out = [];
   [...String(text)].forEach((ch, i) => {
     for (const pl of glyph(ch)) {
@@ -72,27 +78,27 @@ function layout(text, size, x0, base, { mirror = false, slant = 0, mirrorAbout =
  * The polylines (board nm, +Y down) of `text` centred on `at` (the middle of the capital height).
  * `size` is the text height; `mirror` writes it as seen from the back (for B.SilkS).
  */
-export function strokeText(text, { at, size, mirror = false }) {
-  const w = strokeWidthOf(text, size), cap = size * CAP_RATIO;
-  return layout(text, size, at[0] - w / 2, at[1] + cap / 2, { mirror, mirrorAbout: at[0] })
+export function strokeText(text, { at, size, mirror = false, font = 'stroke' }) {
+  const w = strokeWidthOf(text, size, font), cap = size * metrics(font).cap;
+  return layout(text, size, font, at[0] - w / 2, at[1] + cap / 2, { mirror, mirrorAbout: at[0] })
     .map((pl) => pl.map(([x, y]) => [Math.round(x), Math.round(y)]));
 }
 
 // ---------------------------------------------------------------- the schematic's vector text (#79)
 
-/** Width of `text` (nm, or px) at text height `size`, in the vector font. */
-export const vectorWidth = (text, size) => strokeWidthOf(text, size);
+/** Width of `text` (nm, or px) at text height `size`, in `font` (the schematic uses 'vector'). */
+export const vectorWidth = (text, size, font = 'vector') => strokeWidthOf(text, size, font);
 
 /**
  * `text` laid out the way a canvas would place it, as polylines in the same units: `px` is the text
  * height (the canvas font size), `align` left|start|center|right|end, `baseline` middle|top|hanging|
  * bottom|alphabetic|ideographic, `italic` slants it. Returns { lines, pen } (pen: a line width).
  */
-export function vectorLayout(text, { x, y, px, align = 'left', baseline = 'alphabetic', italic = false, bold = false }) {
-  const cap = px * CAP_RATIO;
-  const w = strokeWidthOf(text, px);
+export function vectorLayout(text, { x, y, px, align = 'left', baseline = 'alphabetic', italic = false, bold = false, font = 'vector' }) {
+  const f = metrics(font), cap = px * f.cap;
+  const w = strokeWidthOf(text, px, font);
   const x0 = align === 'center' ? x - w / 2 : align === 'right' || align === 'end' ? x - w : x;
   // the y of the glyphs' baseline
   const base = baseline === 'middle' ? y + cap / 2 : baseline === 'top' || baseline === 'hanging' ? y + cap : baseline === 'bottom' || baseline === 'ideographic' ? y - cap * 0.3 : y;
-  return { lines: layout(text, px, x0, base, { slant: italic ? 0.2 : 0 }), pen: Math.max(0.5, px * PEN_RATIO * (bold ? 1.4 : 1)) };
+  return { lines: layout(text, px, font, x0, base, { slant: italic ? 0.2 : 0 }), pen: Math.max(0.5, px * f.pen * (bold ? 1.4 : 1)) };
 }

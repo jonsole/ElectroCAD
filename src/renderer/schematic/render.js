@@ -137,7 +137,7 @@ function bodyHalfHeight(unit) {
 }
 
 /** Schematic display options (Settings → Schematic display); app settings, not per Project. */
-export const DEFAULT_DISPLAY = { colorConnectedPins: false, markUnconnectedPins: true, wireHops: true, textStyle: 'vector' };
+export const DEFAULT_DISPLAY = { colorConnectedPins: false, markUnconnectedPins: true, wireHops: true };
 
 const WIRE = mm(0.15);
 const HOP = mm(0.5); // radius of the bridge where Wires cross without connecting
@@ -150,12 +150,15 @@ function strokeWire(ctx, view, a, b) {
 
 const FONT = '"Segoe UI", system-ui, sans-serif';
 
-// Schematic text (#79): ElectroCAD's vector font by default (the same glyphs as the board's silk,
-// sized and spaced as Eagle's), or the system sans font. Both the screen and print go through
-// fillText below, and the layout code measures with measureText, so all three always agree.
-let TEXT_STYLE = 'vector';
+// Schematic text (#79): the system sans font, or ElectroCAD's vector font (the board's glyphs, sized
+// and spaced as Eagle's), chosen per Project (schematic.textFont, Sheet setup). The app sets the
+// style from the open Project; both the screen and print go through fillText below, and the layout
+// code measures with measureText, so all three always agree.
+let TEXT_STYLE = 'sans';
 export const textStyle = () => TEXT_STYLE;
-export function setTextStyle(style) { TEXT_STYLE = style === 'sans' ? 'sans' : 'vector'; }
+export function setTextStyle(style) { TEXT_STYLE = style === 'vector' ? 'vector' : 'sans'; }
+/** The text style a Project's schematic uses: 'vector' or 'sans'. */
+export const projectTextStyle = (project) => (project?.schematic?.textFont === 'vector' ? 'vector' : 'sans');
 
 /** Draw text with the context's font, alignment, baseline and fill colour, in the chosen text style. */
 export function fillText(ctx, text, x, y) {

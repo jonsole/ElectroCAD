@@ -337,8 +337,12 @@ test('Eagle symbols carry Eagle\'s pin text: names 1.778 mm, 1.905 mm in from th
     assert.equal(u.pinNameSize, 1_778_000, part.name);
     assert.equal(u.pinNameOffset, 1_905_000, part.name);
   }
-  const { measureText, setTextStyle } = await import('../src/renderer/schematic/render.js');
+  // the import picks the vector font (Eagle's metrics) for both the schematic and the board
+  assert.equal(p.schematic.textFont, 'vector');
+  assert.equal(p.board.textFont, 'vector');
+  const { measureText, setTextStyle, projectTextStyle } = await import('../src/renderer/schematic/render.js');
   const { strokeWidthOf } = await import('../src/renderer/core/strokefont.js');
-  setTextStyle('vector');
-  assert.equal(measureText('PA05/SERCOM0_1', 1_778_000), Math.round(strokeWidthOf('PA05/SERCOM0_1', 1_778_000)));
+  setTextStyle(projectTextStyle(p));
+  try { assert.equal(measureText('PA05/SERCOM0_1', 1_778_000), Math.round(strokeWidthOf('PA05/SERCOM0_1', 1_778_000, 'vector'))); }
+  finally { setTextStyle('sans'); }
 });

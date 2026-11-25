@@ -16,7 +16,7 @@ import { resolveTheme, listThemes, MATCH_APP } from './core/themes.js';
 import { colorsSection } from './ui/themes.js';
 import { fieldStylesSection } from './ui/fieldStyles.js';
 import { setDefaultFieldStyle } from './core/fields.js';
-import { DEFAULT_DISPLAY, setTextStyle } from './schematic/render.js';
+import { DEFAULT_DISPLAY, setTextStyle, projectTextStyle } from './schematic/render.js';
 import { buildWorkspaces } from './workspaces/index.js';
 import { importEagle, eagleKind, importLog } from './io/eagle/index.js';
 import { runDrc, drcCounts } from './core/drc.js';
@@ -30,10 +30,10 @@ const BUILD_TITLE = `Commit ${BUILD.sha}${BUILD.branch ? `\nBranch ${BUILD.branc
 export class App {
   async init() {
     this.settings = await platform.getSettings();
-    setTextStyle(this.schematicDisplay().textStyle);
     this.applyTheme(this.settings.theme);
     this.applyHintBar();
     this.project = await this._startupProject();
+    setTextStyle(projectTextStyle(this.project));
     this.save = { dirty: false, saving: false, timer: null, pending: null };
     this.history = new History(() => this.project, (p) => { this.project = p; }, () => this._afterEdit());
     this.libraries = await this._loadLibraries();
@@ -208,6 +208,7 @@ export class App {
   }
 
   _afterEdit() {
+    setTextStyle(projectTextStyle(this.project)); // Sheet setup's Text font, or an undo of it
     this.markDirty();
     for (const w of this.workspaces) w.refresh();
   }
@@ -215,6 +216,7 @@ export class App {
   /** Replace the open Project. Workspaces are rebuilt around it. */
   setProject(project) {
     this.project = project;
+    setTextStyle(projectTextStyle(project));
     this.history.clear();
     this.save.dirty = false;
     this.nameInput.value = project.name;
@@ -541,11 +543,6 @@ export class App {
   setSchematicDisplay(patch) {
     this.settings.schematicDisplay = { ...this.schematicDisplay(), ...patch };
     platform.setSettings({ schematicDisplay: this.settings.schematicDisplay });
-    if ('textStyle' in patch) {
-      // text widths change: fields are placed again
-      setTextStyle(this.settings.schematicDisplay.textStyle);
-      for (const w of this.workspaces) w.refresh();
-    }
     this.recolor();
   }
 
@@ -559,14 +556,7 @@ export class App {
     return h('div', { class: 'colors-section' }, h('div', { class: 'set-group-title' }, 'Schematic display'),
       row('colorConnectedPins', 'Colour connected pins like wires', 'A pin with a wire on it is drawn in the wire colour.'),
       row('markUnconnectedPins', 'Mark unconnected pin ends', 'A small open circle at the tip of a pin with nothing on it.'),
-      row('wireHops', 'Hop where wires cross', 'A small bridge where wires cross without connecting.'),
-      (() => {
-        const sel = h('select', { class: 'select', 'aria-label': 'Schematic text', dataset: { display: 'textStyle' } },
-          h('option', { value: 'vector' }, 'Vector font (as Eagle draws it; also used on the board)'), h('option', { value: 'sans' }, 'System font'));
-        sel.value = d.textStyle === 'sans' ? 'sans' : 'vector';
-        sel.addEventListener('change', () => this.setSchematicDisplay({ textStyle: sel.value }));
-        return h('label', { class: 'field' }, h('span', {}, 'Text'), sel);
-      })());
+      row('wireHops', 'Hop where wires cross', 'A small bridge where wires cross without connecting.'));
   }
 
   // ---------------------------------------------------------------- Field styles (ADR-0012)

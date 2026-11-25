@@ -2,7 +2,7 @@
 // title block and a border, drawn by the same code as the editor into SVG or a multi-page PDF.
 // Print colours don't follow the editor's theme: ElectroCAD Light (default), Classic paper, or
 // black and white.
-import { drawSheet, DEFAULT_DISPLAY, textStyle, setTextStyle, measureText } from '../schematic/render.js';
+import { drawSheet, DEFAULT_DISPLAY, textStyle, setTextStyle, projectTextStyle, measureText } from '../schematic/render.js';
 import { paperRect } from '../core/drawings.js';
 import { placeFields } from '../core/fields.js';
 import { resolveTheme, MATCH_APP } from '../core/themes.js';
@@ -45,18 +45,18 @@ function drawPage(ctx, project, sheet, C, measure) {
 }
 
 /**
- * Draw with a text style for the duration (#79): 'vector' (the vector font, as on screen) or 'sans'
- * (real, searchable text in Helvetica), then put the screen's style back.
+ * Draw with a text style for the duration (#79): 'vector' (the vector font) or 'sans' (real,
+ * searchable text in Helvetica); by default the Project's own. Then put the screen's style back.
  */
-function withTextStyle(style, fn) {
+function withTextStyle(project, style, fn) {
   const was = textStyle();
-  setTextStyle(style || was);
+  setTextStyle(style || projectTextStyle(project));
   try { return fn(); } finally { setTextStyle(was); }
 }
 
 /** One Sheet as an SVG document (its paper size in mm). */
 export function sheetToSvg(project, sheet, { colours = 'light', measure, textStyle: style } = {}) {
-  return withTextStyle(style, () => {
+  return withTextStyle(project, style, () => {
     const r = paperRect(sheet);
     const ctx = new SvgContext(r.x1 * K, r.y1 * K);
     drawPage(ctx, project, sheet, printColors(colours), measure || measureText);
@@ -66,7 +66,7 @@ export function sheetToSvg(project, sheet, { colours = 'light', measure, textSty
 
 /** Sheets as one PDF, a page each at the Sheet's paper size. Returns an ASCII string. */
 export function sheetsToPdf(project, sheets, { colours = 'light', measure, textStyle: style } = {}) {
-  return withTextStyle(style, () => {
+  return withTextStyle(project, style, () => {
     const pages = sheets.map((sheet) => {
       const r = paperRect(sheet);
       const heightPt = (r.y1 / 1e6) * (72 / 25.4), widthPt = (r.x1 / 1e6) * (72 / 25.4);

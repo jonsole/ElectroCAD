@@ -64,7 +64,10 @@ export const ECAD_SCHEMA = {
       ],
       "additionalProperties": false,
       "properties": {
-
+        "textFont": {
+          "enum": ["system", "vector"],
+          "description": "How schematic text is drawn (Sheet setup): the system font (absent: the default) or the vector font with Eagle's metrics (#79; Eagle imports use it)."
+        },
         "sheets": {
           "type": "array",
           "minItems": 1,
@@ -886,6 +889,10 @@ export const ECAD_SCHEMA = {
               "$ref": "#/$defs/nm"
             }
           }
+        },
+        "textFont": {
+          "enum": ["stroke", "vector"],
+          "description": "The metrics of board text, on screen and in the silk Gerbers (Board setup): ElectroCAD's stroke font, size = capital height (absent: the default), or the vector font, size = full height as Eagle's (#79; Eagle imports use it)."
         },
         "preset": {
           "type": "string",

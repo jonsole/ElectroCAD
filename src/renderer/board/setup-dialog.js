@@ -63,6 +63,9 @@ export function openBoardSetup(app, { tab = 'rules' } = {}) {
     const units = stop(h('select', { class: 'select', 'aria-label': 'Drill file units' }, h('option', { value: 'mm' }, 'Millimetres'), h('option', { value: 'inch' }, 'Inches')));
     units.value = f.drillUnits;
     units.addEventListener('change', () => edit('Drill units', (pr) => { pr.board.fab = { ...fabSettings(pr.board), drillUnits: units.value }; }));
+    const font = stop(h('select', { class: 'select', 'aria-label': 'Text font' }, h('option', { value: 'stroke' }, 'ElectroCAD stroke (size = capital height)'), h('option', { value: 'vector' }, 'Eagle vector (size = full height)')));
+    font.value = b.textFont === 'vector' ? 'vector' : 'stroke';
+    font.addEventListener('change', () => edit('Board text font', (pr) => { if (font.value === 'vector') pr.board.textFont = 'vector'; else delete pr.board.textFont; }));
     return [
       h('div', { class: 'setup-group' }, h('div', { class: 'setup-head' }, 'Fab preset'),
         h('div', { class: 'preset-row' }, h('label', { class: 'field' }, h('span', {}, `Board house (${b.stack.copper}-layer)`), fabSel), apply),
@@ -75,6 +78,9 @@ export function openBoardSetup(app, { tab = 'rules' } = {}) {
       h('div', { class: 'setup-group' }, h('div', { class: 'setup-head' }, 'Fab output'),
         h('div', { class: 'setup-grid' }, h('label', { class: 'field' }, h('span', {}, 'Gerber file names'), naming), h('label', { class: 'field' }, h('span', {}, 'Drill file units'), units)),
         h('p', { class: 'side-note' }, 'Used when the Gerber tab generates the fab files (#26).')),
+      h('div', { class: 'setup-group' }, h('div', { class: 'setup-head' }, 'Text'),
+        h('div', { class: 'setup-grid' }, h('label', { class: 'field' }, h('span', {}, 'Font'), font)),
+        h('p', { class: 'side-note' }, 'How footprint text is drawn on the board and in the silk Gerbers. The vector font sizes and spaces text as Eagle does (Eagle imports use it): about 10% smaller and tighter than the stroke font at the same size.')),
     ];
   }
 

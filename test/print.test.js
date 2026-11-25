@@ -76,12 +76,17 @@ test('export file names are safe', () => {
 test('vector text (#79): print draws text as strokes in the vector font, the same as the screen', async () => {
   const { textStyle } = await import('../src/renderer/schematic/render.js');
   const p = sampleProject();
+  assert.equal(textStyle(), 'sans', 'a project without textFont: the system font');
   const svg = sheetToSvg(p, p.schematic.sheets[1], { textStyle: 'vector' });
   assert.equal(texts(svg).length, 0, 'no <text>: every letter is a stroke');
   assert.ok((svg.match(/<path /g) || []).length > 50, 'glyph strokes');
   assert.ok(!/NaN|undefined/.test(svg));
-  assert.equal(textStyle(), 'vector', 'the screen\'s style is put back');
+  assert.equal(textStyle(), 'sans', 'the screen\'s style is put back');
+  // with no textStyle given, print uses the Project's own font
+  assert.ok(texts(sheetToSvg(p, p.schematic.sheets[1])).includes('R1'));
+  p.schematic.textFont = 'vector';
+  assert.equal(texts(sheetToSvg(p, p.schematic.sheets[1])).length, 0, 'schematic.textFont vector: strokes');
   const sans = sheetToSvg(p, p.schematic.sheets[1], { textStyle: 'sans' });
   assert.ok(texts(sans).includes('R1'), 'searchable text when asked for');
-  assert.equal(textStyle(), 'vector');
+  assert.equal(textStyle(), 'sans');
 });

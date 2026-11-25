@@ -652,7 +652,7 @@ export class FootprintEditor {
     const T = (p) => p;
     const drawAll = (c, Cx, only = null) => {
       const gOnly = only ? new Set([...only].filter((s) => s.startsWith('g:')).map((s) => +s.slice(2))) : null;
-      drawFootprintGraphics(c, view, Cx, d, T, { only: gOnly });
+      drawFootprintGraphics(c, view, Cx, d, T, { only: gOnly, font: this.app?.project?.board?.textFont }); // text as the open board draws it
       d.pads.forEach((p, i) => { if (!only || only.has(`pad:${i}`)) drawPad(c, view, Cx, { ...p, rot: 0 }, 'F.Cu'); });
     };
     drawAll(ctx, C);

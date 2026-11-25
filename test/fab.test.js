@@ -210,7 +210,9 @@ test('a preset\'s naming and drill units follow through; the stroke font covers 
 });
 
 test('vector font metrics (#79): Eagle\'s text height, capital and advance; screen and Gerber agree', async () => {
-  const { strokeWidthOf, vectorLayout, strokeText, strokePen, CAP_RATIO, ADVANCE_RATIO, PEN_RATIO } = await import('../src/renderer/core/strokefont.js');
+  const { strokeWidthOf: sw, vectorLayout, strokeText: st, strokePen: sp, FONTS } = await import('../src/renderer/core/strokefont.js');
+  const font = 'vector', { cap: CAP_RATIO, advance: ADVANCE_RATIO, pen: PEN_RATIO } = FONTS.vector;
+  const strokeWidthOf = (t, s) => sw(t, s, font), strokePen = (s) => sp(s, font), strokeText = (t, o) => st(t, { ...o, font });
   // Eagle at size 1.778: a T 1.627 tall between stroke centres and 1.085 wide, pen 0.15, advance 1.397
   const size = 1_778_000, T = strokeText('T', { at: [0, 0], size });
   const ys = T.flat().map((q) => q[1]), xs = T.flat().map((q) => q[0]);
@@ -230,4 +232,20 @@ test('vector font metrics (#79): Eagle\'s text height, capital and advance; scre
   assert.ok(Math.abs(Math.min(...left.map((q) => q[0])) - 100) < 1e-9 && Math.abs(Math.max(...left.map((q) => q[1])) - 50) < 1e-9, 'left, on the baseline');
   const right = vectorLayout('AB', { x: 100, y: 50, px: 10, align: 'right', baseline: 'top' }).lines.flat();
   assert.ok(Math.abs(Math.max(...right.map((q) => q[0])) - 100) < 1e-9 && Math.abs(Math.min(...right.map((q) => q[1])) - 50) < 1e-9, 'right, hanging from the top');
+  // ElectroCAD's own 'stroke' metrics stay the default: the size is the capital height
+  const S = st('T', { at: [0, 0], size: mm(1) }).flat().map((q) => q[1]);
+  assert.equal(Math.max(...S) - Math.min(...S), mm(1));
+  assert.equal(sp(mm(1)), mm(0.15));
+});
+
+test('board.textFont (#79): silk text in the stroke font by default, Eagle\'s vector metrics when chosen', () => {
+  const { p, fills } = fixture();
+  const silk = (q) => fabFiles(q, { fills, date: 'd', version: 'v' }).find((f) => f.name.endsWith('.GTO')).text;
+  const stroke = silk(p);
+  p.board.textFont = 'vector';
+  const vector = silk(p);
+  assert.notEqual(vector, stroke);
+  // the pen: 0.15 of the size in the stroke font, 0.1 in the vector font (1 mm auto References)
+  assert.match(stroke, /C,0\.150*\*/);
+  assert.match(vector, /C,0\.10*\*/);
 });

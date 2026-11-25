@@ -198,7 +198,7 @@ function gerberLayer(project, { layer, fn, polarity }, { fills, date, version })
   } else if (/Paste$/.test(layer)) {
     for (const p of pads) if (p.layers.includes(layer) && !p.drill) plotPad(g, p, 0, null);
   } else if (/SilkS$/.test(layer)) {
-    const mirror = layer.startsWith('B.');
+    const mirror = layer.startsWith('B.'), font = board.textFont || 'stroke';
     for (const bf of board.footprints) {
       const fp = footprintOf(project, project.components[bf.componentId]);
       if (!fp) continue;
@@ -217,14 +217,14 @@ function gerberLayer(project, { layer, fn, polarity }, { fills, date, version })
         else if (gr.type === 'arc') g.stroke(w, arcPts(T(gr.start), T(gr.mid), T(gr.end)), null);
         else if (gr.type === 'text') {
           const str = String(gr.text).replace(/\$\{REF\}/g, ref).replace(/\$\{VALUE\}/g, value);
-          for (const pl of strokeText(str, { at: T(gr.at), size: gr.size, mirror })) g.stroke(strokePen(gr.size), pl, null);
+          for (const pl of strokeText(str, { at: T(gr.at), size: gr.size, mirror, font })) g.stroke(strokePen(gr.size, font), pl, null);
         }
       }
       // a Footprint without its own Reference text gets it above its courtyard, as on screen
       if (!ownRef && ref && flipLayer('F.SilkS', bf.side) === layer) {
         const crt = (fp.graphics || []).find((x) => /CrtYd$/.test(x.layer || '') && x.type === 'rect');
         const top = crt ? Math.min(crt.a[1], crt.b[1]) : -1_000_000;
-        for (const pl of strokeText(ref, { at: T([0, top - 800_000]), size: 1_000_000, mirror })) g.stroke(strokePen(1_000_000), pl, null);
+        for (const pl of strokeText(ref, { at: T([0, top - 800_000]), size: 1_000_000, mirror, font })) g.stroke(strokePen(1_000_000, font), pl, null);
       }
     }
   } else if (layer === 'Edge.Cuts') {
