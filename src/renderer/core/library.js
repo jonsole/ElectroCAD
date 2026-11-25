@@ -49,6 +49,25 @@ export function newPart(library, name = 'New part') {
 
 export const unitName = (i) => String.fromCharCode(65 + i);
 
+/** A Unit whose Pins are all power inputs (a 74xx or op-amp power gate). */
+export const isPowerUnit = (u) => !!u?.pins?.length && u.pins.every((p) => p.type === 'power_in');
+
+/**
+ * What follows a Reference for a Unit, on Parts with more than one Unit: the Unit's own name when
+ * it's a short label unique in the Part (A, B, P, -1… as Eagle names gates), else A, B… by position.
+ * Power-only Units don't count: a Part with one ordinary Unit and a power Unit shows a bare
+ * Reference on the ordinary one (IC9, not IC9A), and the power Unit keeps its tag (IC9P).
+ */
+export function unitLetter(part, unit = 0) {
+  if (!part || part.units.length <= 1) return '';
+  const i = unit || 0, u = part.units[i];
+  if (!isPowerUnit(u) && part.units.filter((x) => !isPowerUnit(x)).length <= 1) return '';
+  const name = String(u?.name ?? '');
+  const short = (n) => /^[^\s]{1,4}$/.test(n);
+  const names = part.units.map((x) => String(x.name ?? ''));
+  return short(name) && names.every(short) && new Set(names).size === names.length ? name : unitName(i);
+}
+
 export function newUnit(index) {
   return { name: unitName(index), hidePinNumbers: false, hidePinNames: false, graphics: [{ type: 'rect', a: [-4 * G, -4 * G], b: [4 * G, 4 * G], fill: 'background' }], pins: [] };
 }

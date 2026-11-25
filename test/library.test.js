@@ -98,3 +98,27 @@ test('the picker tree groups Parts by category or manufacturer', () => {
   placeSymbol(p, p.schematic.sheets[0], LM358, [0, 0]);
   assert.ok(!('manufacturer' in Object.values(p.parts)[0]), 'Library-only keys stay in the Library');
 });
+
+test('unit letters: power-only Units don\'t count (IC9, not IC9A) (#62)', async () => {
+  const { unitLetter, isPowerUnit } = await import('../src/renderer/core/library.js');
+  const pin = (type) => ({ number: '1', name: 'x', type });
+  const logic = { name: 'A', pins: [pin('input'), pin('output')] }, power = { name: 'P', pins: [pin('power_in'), pin('power_in')] };
+  assert.equal(isPowerUnit(power), true);
+  assert.equal(isPowerUnit(logic), false);
+  assert.equal(isPowerUnit({ pins: [] }), false);
+  // one ordinary Unit and a power Unit: a bare Reference on the ordinary one, a letter on the power one
+  const single = { units: [logic, power] };
+  assert.equal(unitLetter(single, 0), '');
+  assert.equal(unitLetter(single, 1), 'P', 'the power Unit by its own name');
+  // two ordinary Units and a power Unit: tags on all, by name
+  const dual = { units: [logic, { ...logic, name: 'B' }, power] };
+  assert.deepEqual([0, 1, 2].map((i) => unitLetter(dual, i)), ['A', 'B', 'P']);
+  // names that aren't short, distinct labels fall back to A, B… by position
+  assert.deepEqual([0, 1].map((i) => unitLetter({ units: [{ ...logic, name: 'Left half' }, { ...logic, name: 'Right half' }] }, i)), ['A', 'B']);
+  assert.deepEqual([0, 1].map((i) => unitLetter({ units: [{ ...logic, name: 'X' }, { ...logic, name: 'X' }] }, i)), ['A', 'B']);
+  // Eagle-style gate names
+  assert.deepEqual([0, 1].map((i) => unitLetter({ units: [{ ...logic, name: '-1' }, { ...logic, name: '-2' }] }, i)), ['-1', '-2']);
+  // one Unit: no letter
+  assert.equal(unitLetter({ units: [logic] }, 0), '');
+  assert.equal(unitLetter(null, 0), '');
+});

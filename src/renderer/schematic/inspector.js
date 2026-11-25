@@ -90,7 +90,7 @@ export class SchematicInspector {
   _one(sym, extraWires) {
     const comp = this.project.components[sym.componentId];
     const part = partOf(this.project, comp);
-    const unitTag = part.units.length > 1 ? String.fromCharCode(65 + (sym.unit || 0)) : '';
+    const unitTag = unitLetter(part, sym.unit || 0);
     const rows = [];
     rows.push(this._text('Reference', comp.ref, (v) => {
       const bad = validateRef(this.project, comp.id, v);

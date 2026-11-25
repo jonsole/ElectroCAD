@@ -12,6 +12,7 @@ import { place, unplace, shapePoints } from './geom.js';
 import { partOf, footprintOf } from './project.js';
 import { compareRefs } from './netlist.js';
 import { formatValue } from './values.js';
+import { unitLetter } from './library.js';
 
 export const FIELD_STYLE_FORMAT = 'electrocad-field-style';
 export const SLOTS = ['split', 'above', 'below', 'right', 'left'];
@@ -141,7 +142,7 @@ function symbolGeometry(project, sym) {
 /** The text lines a style shows for a Component, in order: [{ key, text }]. */
 export function fieldLines(project, comp, part, style, unitIndex = 0) {
   const lines = [];
-  const ref = comp.ref + (part.units.length > 1 ? String.fromCharCode(65 + unitIndex) : '');
+  const ref = comp.ref + unitLetter(part, unitIndex);
   if (style.show.reference) lines.push({ key: 'reference', text: ref });
   const hideValue = style.show.hideValueIfPartName && String(comp.value).trim().toLowerCase() === String(part.name).trim().toLowerCase();
   // resistors are the only parts whose Value is in ohms (RKM's 'R' decimal point)

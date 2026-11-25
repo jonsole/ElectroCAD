@@ -209,7 +209,7 @@ export function devicesetToPart(lib, ds, { report = new Report(), rules = DEFAUL
     });
   });
   // gate names as Unit names: A, B, C… when Eagle calls them G$1…
-  if (units.length > 1) units.forEach((u, i) => { if (/^G\$\d+$/.test(gates[i].attr('name'))) u.name = String.fromCharCode(65 + i); });
+  if (units.length > 1) units.forEach((u, i) => { if (/^G\$+\d+$/.test(gates[i].attr('name'))) u.name = String.fromCharCode(65 + i); });
   const footprints = {}, pinMap = {};
   for (const dev of withPkg) {
     const pkg = lib.packages.get(dev.attr('package'));

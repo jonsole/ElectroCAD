@@ -290,3 +290,12 @@ test('polygons: thermal gap from slThermalIsolate, outline grown by half the pen
   assert.equal(y.keepIslands, true);
   assert.equal(y.thermal.spoke, 400_000);
 });
+
+test('Eagle parts: a multi-gate op-amp keeps A, B; its power gate is P, as Eagle names it (#62)', async () => {
+  const { unitLetter } = await import('../src/renderer/core/library.js');
+  const p = importEagle({ sch: SCH, name: 'reg' }).project;
+  const u2 = Object.values(p.components).find((c) => c.ref === 'U2'), part = p.parts[u2.partId];
+  assert.deepEqual(part.units.map((_, i) => unitLetter(part, i)), ['A', 'B', 'P']);
+  const r1 = Object.values(p.components).find((c) => c.ref === 'R1');
+  assert.equal(unitLetter(p.parts[r1.partId], 0), '');
+});

@@ -18,7 +18,7 @@ export const noConnectBox = (n) => ({ x0: n.at[0] - SCH_GRID / 2, y0: n.at[1] - 
 // ------------------------------------------------------------------ Units (#10, ADR-0005)
 
 /** The letter of a Unit (A, B…), or '' for a single-Unit Part. */
-export const unitLetter = (part, unit) => (part && part.units.length > 1 ? String.fromCharCode(65 + (unit || 0)) : '');
+export { unitLetter } from './library.js';
 
 /** Unit indexes of a Component placed on any Sheet. */
 export function placedUnits(project, componentId) {
