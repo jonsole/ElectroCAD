@@ -451,3 +451,22 @@ test('part attributes (#71): technology attributes become fields; a part\'s own 
   // other parts are untouched
   assert.deepEqual(Object.values(project.components).find((c) => c.ref === 'R1').fields, {});
 });
+
+test('design rules (#68): each md* distance becomes its object-pair clearance; class clearances combine as in Eagle', () => {
+  const brd = BRD
+    .replace('<param name="mdWireWire" value="8mil"/>', '<param name="mdWireWire" value="6mil"/>')
+    .replace('<param name="mdPadPad" value="8mil"/>', '<param name="mdPadPad" value="10mil"/>')
+    .replace('<param name="mdViaVia" value="8mil"/>', '<param name="mdViaVia" value="7mil"/>')
+    .replace('<param name="mdCopperDimension"', '<param name="mdSmdSmd" value="4mil"/><param name="mdCopperDimension"')
+    .replace('<clearance class="0" value="0.2"/>', '<clearance class="0" value="0"/>')
+    .replace('<clearance class="1" value="0.3"/>', '<clearance class="1" value="0"/>');
+  const { project, report } = importEagle({ sch: SCH, brd, name: 'reg' });
+  const r = project.board.rules;
+  assert.deepEqual(r.pairs, { 'track-track': 152_400, 'track-pad': 203_200, 'track-via': 203_200, 'pad-pad': 254_000, 'pad-via': 203_200, 'via-via': 177_800 });
+  assert.equal(r.clearance, 254_000, 'the Default class: the largest, for anything a pair doesn\'t cover');
+  assert.equal(project.board.netClasses.Power.clearance, 0, 'a class with no clearance of its own adds nothing');
+  assert.ok(report.some((x) => /same-signal SMD clearances .* aren't checked/.test(x)));
+  // a Default class clearance raises every pair (Eagle keeps the larger)
+  const { project: p2 } = importEagle({ sch: SCH, brd: brd.replace('<clearance class="0" value="0"/>', '<clearance class="0" value="0.2"/>'), name: 'reg' });
+  assert.deepEqual(Object.values(p2.board.rules.pairs), [200_000, 203_200, 203_200, 254_000, 203_200, 200_000]);
+});

@@ -27,7 +27,11 @@ export function designRules(boardEl) {
   const R = (k, d) => (p.has(k) ? Number(p.get(k)) : d);
   return {
     params: p,
-    clearance: Math.max(L('mdWireWire', 203_200), L('mdWirePad', 203_200), L('mdWireVia', 203_200), L('mdPadPad', 203_200), L('mdPadVia', 203_200), L('mdViaVia', 203_200), L('mdSmdPad', 0), L('mdSmdVia', 0), L('mdSmdSmd', 0)),
+    // clearances between different signals per object pair (#68); Eagle's SMD values are for the
+    // same signal (between signals an SMD is a pad), which ElectroCAD doesn't check
+    pairs: { 'track-track': L('mdWireWire', 203_200), 'track-pad': L('mdWirePad', 203_200), 'track-via': L('mdWireVia', 203_200), 'pad-pad': L('mdPadPad', 203_200), 'pad-via': L('mdPadVia', 203_200), 'via-via': L('mdViaVia', 203_200) },
+    sameSignal: Math.max(L('mdSmdPad', 0), L('mdSmdVia', 0), L('mdSmdSmd', 0)),
+    clearance: Math.max(L('mdWireWire', 203_200), L('mdWirePad', 203_200), L('mdWireVia', 203_200), L('mdPadPad', 203_200), L('mdPadVia', 203_200), L('mdViaVia', 203_200)),
     minWidth: L('msWidth', 254_000),
     minDrill: L('msDrill', 609_600),
     edge: L('mdCopperDimension', 1_016_000),
@@ -74,10 +78,11 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
 
   // ---- rules and classes
   b.preset = 'Eagle design rules';
-  b.rules = { ...b.rules, clearance: rules.clearance, trackWidth: rules.minWidth, viaDrill: rules.minDrill, minHole: rules.minDrill,
+  b.rules = { ...b.rules, clearance: rules.clearance, pairs: { ...rules.pairs }, trackWidth: rules.minWidth, viaDrill: rules.minDrill, minHole: rules.minDrill,
     viaDiameter: rules.minDrill + 2 * restring(rules.minDrill, rules.restring.viaRatio, rules.restring.viaMin, rules.restring.viaMax),
     annularRing: Math.min(rules.restring.padMin, rules.restring.viaMin), edgeClearance: rules.edge };
 
+  if (rules.sameSignal) report.add(`Eagle's same-signal SMD clearances (mdSmdPad, mdSmdVia, mdSmdSmd, up to ${(rules.sameSignal / 1e6).toFixed(3)} mm) aren't checked: ElectroCAD's DRC checks clearance between different nets`);
   // ---- the Schematic side: a stub when there is none
   if (!eagle) stubSchematic(project, brd, libs, signals, elements, rules, report);
 
@@ -189,12 +194,18 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
     const w = len(cl.attr('width', '0')), d = len(cl.attr('drill', '0'));
     const self = cl.all('clearance').find((x) => x.attr('class') === cl.attr('number'));
     const clr = self ? len(self.attr('value')) : 0;
-    if (cl.attr('number') === '0') { if (w) b.rules.trackWidth = w; if (clr) b.rules.clearance = Math.max(b.rules.clearance, clr); continue; }
+    // the Default class's clearance: Eagle keeps the larger of it and each object-pair distance
+    if (cl.attr('number') === '0') {
+      if (w) b.rules.trackWidth = w;
+      if (clr) { b.rules.clearance = Math.max(b.rules.clearance, clr); for (const k of Object.keys(b.rules.pairs)) b.rules.pairs[k] = Math.max(b.rules.pairs[k], clr); }
+      continue;
+    }
     const members = signals.filter((s) => s.attr('class') === cl.attr('number')).map((s) => netOfSignal.get(s.attr('name'))).filter(Boolean);
     if (!members.length) continue;
     const drill = d || b.rules.viaDrill;
     b.netClasses[cl.attr('name') || `Class ${cl.attr('number')}`] = {
-      trackWidth: w || b.rules.trackWidth, clearance: clr || b.rules.clearance, viaDrill: drill,
+      // a class's own clearance only raises the object-pair distances (0: it adds nothing, as in Eagle)
+      trackWidth: w || b.rules.trackWidth, clearance: clr, viaDrill: drill,
       viaDiameter: drill + 2 * restring(drill, rules.restring.viaRatio, rules.restring.viaMin, rules.restring.viaMax), nets: [...new Set(members)],
     };
   }

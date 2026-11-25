@@ -10,6 +10,7 @@
 //   PCBWay  pcbway.com/capabilities.html
 //   OSH Park docs.oshpark.com/services (2-layer: 6/6 mil, 10 mil drill, 5 mil ring, 15 mil edge;
 //           4-layer: 5/5 mil, 8 mil drill, 4 mil ring)
+import { PAIR_KEYS } from './collision.js';
 import { mm } from './units.js';
 
 const mil = (n) => Math.round(n * 25_400);
@@ -62,6 +63,7 @@ export function applyPreset(project, id) {
   if (!p) throw new Error(`No fab preset "${id}".`);
   const b = project.board;
   b.rules = { ...b.rules, ...p.rules };
+  if (!p.rules.pairs) delete b.rules.pairs; // a preset's clearance is for every pair of objects (#68)
   b.fab = { ...(b.fab || {}), ...p.output };
   b.preset = p.id;
   return p;
@@ -77,6 +79,21 @@ export function presetState(board) {
   if (!p) return { preset: null, name: board.preset ? String(board.preset) : 'Custom', edited: [], mismatch: false };
   const edited = RULE_FIELDS.map(([k]) => k).filter((k) => board.rules[k] !== p.rules[k]);
   return { preset: p, name: p.name, edited, mismatch: p.copper !== board.stack.copper };
+}
+
+/**
+ * Set (nm, positive) or clear (null) the clearance between different nets for a pair of object
+ * kinds (#68): `key` 'track-track', 'track-pad', 'track-via', 'pad-pad', 'pad-via' or 'via-via'.
+ */
+export function setPairRule(project, key, nm) {
+  if (!PAIR_KEYS.includes(key)) throw new Error(`Unknown object pair "${key}".`);
+  const pairs = { ...(project.board.rules.pairs || {}) };
+  if (nm == null) delete pairs[key];
+  else if (!(nm > 0)) throw new Error('Clearances must be more than 0.');
+  else pairs[key] = Math.round(nm);
+  const rules = { ...project.board.rules, pairs };
+  if (!Object.keys(pairs).length) delete rules.pairs;
+  project.board.rules = rules;
 }
 
 /** Set one design rule (nm, positive). Checks the via keeps its annular ring sensible. */

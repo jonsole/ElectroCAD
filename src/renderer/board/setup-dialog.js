@@ -2,7 +2,8 @@
 // Every change is its own undo step and shows at once (the dialog redraws from the Project).
 import { h, button, icon, modal, toast } from '../ui/dom.js';
 import { toMm, mm } from '../core/units.js';
-import { FABS, presetFor, presetById, applyPreset, presetState, setRule, RULE_FIELDS, fabSettings } from '../core/presets.js';
+import { FABS, presetFor, presetById, applyPreset, presetState, setRule, setPairRule, RULE_FIELDS, fabSettings } from '../core/presets.js';
+import { PAIR_KEYS } from '../core/collision.js';
 import { addNetClass, renameNetClass, deleteNetClass, setNetClassRule, assignNet, netClassOf, boardNets, CLASS_FIELDS, DEFAULT_CLASS } from '../core/netclasses.js';
 
 const fmt = (nm) => String(+toMm(nm).toFixed(4));
@@ -56,6 +57,15 @@ export function openBoardSetup(app, { tab = 'rules' } = {}) {
       return h('label', { class: 'field rule-field' + (changed ? ' edited' : ''), title: tip + (changed ? ` · the preset has ${fmt(st.preset.rules[k])} mm` : '') },
         h('span', {}, label, changed ? h('b', { class: 'edited-dot', 'aria-label': 'edited' }, ' •') : ''), h('div', { class: 'unit-input' }, i, h('em', {}, 'mm')));
     };
+    // clearance between nets per pair of objects (#68): empty uses the Clearance above
+    const PAIR_NAME = { track: 'Track', pad: 'Pad', via: 'Via' };
+    const pairField = (k) => {
+      const label = k.split('-').map((x) => PAIR_NAME[x]).join('–');
+      const v = b.rules.pairs?.[k];
+      const i = stop(h('input', { class: 'input', type: 'number', step: '0.01', min: '0.001', value: v == null ? '' : fmt(v), placeholder: fmt(b.rules.clearance), 'aria-label': `${label} clearance` }));
+      i.addEventListener('change', () => { const t = i.value.trim(), n = parseFloat(t); if (!t) edit(`${label} clearance`, (pr) => setPairRule(pr, k, null)); else if (Number.isFinite(n)) edit(`${label} clearance`, (pr) => setPairRule(pr, k, mm(n))); else render(); });
+      return h('label', { class: 'field rule-field' + (v != null ? ' edited' : ''), title: `Clearance between ${label.toLowerCase().replace('–', ' and ')} copper of different nets. Empty: the Clearance above.` }, h('span', {}, label), h('div', { class: 'unit-input' }, i, h('em', {}, 'mm')));
+    };
     const f = fabSettings(b);
     const naming = stop(h('select', { class: 'select', 'aria-label': 'Gerber file names' }, h('option', { value: 'protel' }, 'Protel extensions (.GTL, .GBL, .GKO…)'), h('option', { value: 'kicad' }, 'Descriptive (board-F_Cu.gbr…)')));
     naming.value = f.naming;
@@ -75,6 +85,9 @@ export function openBoardSetup(app, { tab = 'rules' } = {}) {
         h('p', { class: 'side-note' }, 'A preset copies its values in; the board keeps its own copy, so edit any rule below. The preset name is kept for reference only. Check the house\'s current capabilities before ordering.')),
       h('div', { class: 'setup-group' }, h('div', { class: 'setup-head' }, 'Design rules (the Default net class)'),
         h('div', { class: 'rule-grid' }, ...RULE_FIELDS.map(rule))),
+      h('div', { class: 'setup-group' }, h('div', { class: 'setup-head' }, 'Clearance by object'),
+        h('div', { class: 'rule-grid' }, ...PAIR_KEYS.map(pairField)),
+        h('p', { class: 'side-note' }, 'Between copper of different nets, per pair of objects (Eagle\'s Wire–Pad, Pad–Via… distances). Zone fills and copper drawings count as tracks, and SMD pads as pads. Empty uses the Clearance above. A Net class with a larger clearance still wins. DRC, the router and Zone fills all use these.')),
       h('div', { class: 'setup-group' }, h('div', { class: 'setup-head' }, 'Fab output'),
         h('div', { class: 'setup-grid' }, h('label', { class: 'field' }, h('span', {}, 'Gerber file names'), naming), h('label', { class: 'field' }, h('span', {}, 'Drill file units'), units)),
         h('p', { class: 'side-note' }, 'Used when the Gerber tab generates the fab files (#26).')),

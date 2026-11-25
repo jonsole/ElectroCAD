@@ -10,7 +10,7 @@
 // need: the clearance or size the rule asks for; outlines / overlap: courtyard rings and their
 // overlap; wire: an unrouted connection [a, b]; label: a short note to draw (sizes).
 import ClipperLib from 'clipper-lib';
-import { copperIndex, shapeDistance, shapeBox, clearanceBetween, netRules, pointSeg2 } from './collision.js';
+import { copperIndex, shapeDistance, shapeBox, clearanceBetween, netRules, pointSeg2, pairKind, pairKey, maxClearance } from './collision.js';
 import { fpTransform, flipLayer, placedPads, padNets } from './footprint.js';
 import { footprintOf } from './project.js';
 import { checkOutline } from './board.js';
@@ -150,7 +150,7 @@ const sortDrc = (list) => {
 export function runDrc(project, fills = new Map(), { areas = null, rats = null } = {}) {
   const board = project.board;
   const rules = board.rules;
-  const maxC = Math.max(rules.clearance || 0, rules.edgeClearance || 0, ...Object.values(board.netClasses || {}).map((c) => c.clearance || 0));
+  const maxC = maxClearance(board);
   // the copper that can make a problem placed in the areas: within the largest clearance of them
   const reach = areas && areas.map((b) => grow(b, maxC + 1_000_000));
   const near = (b) => !reach || reach.some((r) => boxesMeet(b, r));
@@ -174,7 +174,7 @@ export function runDrc(project, fills = new Map(), { areas = null, rats = null }
   const local = reach ? index.items.filter((it) => near(it.box)) : index.items;
   for (const it of local) {
     for (const layer of it.layers) {
-      for (const other of index.collisions(board, it.shape, layer, it.net, new Set([it.id]))) {
+      for (const other of index.collisions(board, it.shape, layer, it.net, new Set([it.id]), pairKind(it))) {
         if (it.kind === 'zone' && other.kind === 'zone') continue; // zone against zone: their priorities decide
         if (it.kind === 'drawing' && other.kind === 'drawing') continue; // drawings may overlap one another
         const key = [it.id, other.id].sort().join('|') + '@' + layer;
@@ -185,9 +185,11 @@ export function runDrc(project, fills = new Map(), { areas = null, rats = null }
     }
   }
   for (const { a, b, d, layer } of pairs.values()) {
-    const need = clearanceBetween(board, a.net, b.net);
+    const need = clearanceBetween(board, a.net, b.net, pairKind(a), pairKind(b));
     const at = nearestPoint(a.shape, b.shape);
-    const cls = [...new Set([netClassOf(board, a.net), netClassOf(board, b.net)])].join('/');
+    // which rule asked for it: a pair rule (#68) when it's the one that set the clearance
+    const pk = pairKey(pairKind(a), pairKind(b)), pr = rules.pairs?.[pk];
+    const cls = pr != null && pr === need ? `${pk.replace('-', '–')} rule` : [...new Set([netClassOf(board, a.net), netClassOf(board, b.net)])].join('/');
     // the halo goes round the item that isn't a zone edge (or the first)
     const [h1, h2] = a.kind === 'zone' && b.kind !== 'zone' ? [b, a] : [a, b];
     const show = { shapes: [h1.shape, h2.shape], gap: closestPair(h1.shape, h2.shape), need };

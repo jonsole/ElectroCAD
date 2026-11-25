@@ -15,7 +15,7 @@ import ClipperLib from 'clipper-lib';
 import { placedPads, padNets, padByLayers } from './footprint.js';
 import { copperLayerNames, outlineLoops } from './board.js';
 import { arcCircle } from './geom.js';
-import { padShape, netRules } from './collision.js';
+import { padShape, netRules, clearanceBetween, maxClearance as boardMaxClearance } from './collision.js';
 import { uid } from './project.js';
 
 const CL = ClipperLib;
@@ -146,7 +146,8 @@ export function zoneInput(project, board = project.board, extraTracks = []) {
 }
 
 const boardOf = (input) => ({ rules: input.rules, netClasses: input.netClasses });
-const clearanceOf = (input, z, net) => Math.max(z.clearance || 0, netRules(boardOf(input), z.net).clearance, netRules(boardOf(input), net).clearance);
+// the fill is 'track' copper for the pair rules (#68), as Eagle treats a polygon's; `kind`: the other item's
+const clearanceOf = (input, z, net, kind = 'track') => Math.max(z.clearance || 0, clearanceBetween(boardOf(input), z.net, net, 'track', kind));
 
 function zoneBox(z, m = 0) {
   const xs = z.outline.map((p) => p[0]), ys = z.outline.map((p) => p[1]);
@@ -164,7 +165,7 @@ function above(input, z) {
   const b = zoneBox(z, maxClearance(input));
   return input.zones.filter((o) => o.id !== z.id && o.layer === z.layer && (o.priority > z.priority || (o.priority === z.priority && o.id < z.id)) && boxesMeet(b, zoneBox(o)));
 }
-const maxClearance = (input) => Math.max(input.rules.clearance || 0, input.rules.edgeClearance || 0, ...Object.values(input.netClasses).map((c) => c.clearance || 0), ...input.zones.map((z) => z.clearance || 0));
+const maxClearance = (input) => Math.max(boardMaxClearance(boardOf(input)), ...input.zones.map((z) => z.clearance || 0));
 
 /**
  * The fill with every part narrower than `w` taken away (#82): shrunk by half of it and grown back,
@@ -241,18 +242,18 @@ function fillZoneHere(input, z, higher) {
   }
   const near = (it) => onLayer(it) && boxesMeet(box, itemBox(it));
   for (const t of input.tracks) if (near(t) && foreign(t.net)) keepOut.push(...shapePaths({ type: 'capsule', a: t.a, b: t.b, r: t.width / 2 }, clearanceOf(input, z, t.net) + MARGIN));
-  for (const v of input.vias) if (boxesMeet(box, itemBox(v)) && foreign(v.net)) keepOut.push(...shapePaths({ type: 'capsule', a: v.at, b: v.at, r: v.diameter / 2 }, clearanceOf(input, z, v.net) + MARGIN));
+  for (const v of input.vias) if (boxesMeet(box, itemBox(v)) && foreign(v.net)) keepOut.push(...shapePaths({ type: 'capsule', a: v.at, b: v.at, r: v.diameter / 2 }, clearanceOf(input, z, v.net, 'via') + MARGIN));
   const own = [];
   // non-plated holes (a pad with a drill and no copper here): the fill keeps the clearance from the hole
   for (const pad of input.pads) {
     // (a pad with copper on other layers isn't one: since #82 a through-hole pad comes as an outer
     // and an inner entry, and the outer one must not count as a hole on the inner layers)
     if (!(pad.drill > 0) || pad.layers.length || !boxesMeet(box, itemBox(pad))) continue;
-    keepOut.push(...shapePaths({ type: 'capsule', a: pad.at, b: pad.at, r: pad.drill / 2 }, clearanceOf(input, z, '') + MARGIN));
+    keepOut.push(...shapePaths({ type: 'capsule', a: pad.at, b: pad.at, r: pad.drill / 2 }, clearanceOf(input, z, '', 'pad') + MARGIN));
   }
   for (const pad of input.pads) {
     if (!near(pad)) continue;
-    if (foreign(pad.net)) keepOut.push(...shapePaths(padShape(pad), clearanceOf(input, z, pad.net) + MARGIN));
+    if (foreign(pad.net)) keepOut.push(...shapePaths(padShape(pad), clearanceOf(input, z, pad.net, 'pad') + MARGIN));
     else own.push(pad);
   }
   const allowed = diff(region, union(keepOut));

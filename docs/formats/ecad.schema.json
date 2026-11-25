@@ -1654,6 +1654,31 @@
             },
             "edgeClearance": {
               "$ref": "#/$defs/nm"
+            },
+            "pairs": {
+              "type": "object",
+              "description": "Clearance between different nets per pair of object kinds (#68): track (and zone fills, copper drawings), pad (through-hole or SMD), via. A pair set here replaces the Default class's clearance for those two kinds; an explicit Net class can still ask for more. Unset pairs use the classes' clearances.",
+              "additionalProperties": false,
+              "properties": {
+                "track-track": {
+                  "$ref": "#/$defs/nm"
+                },
+                "track-pad": {
+                  "$ref": "#/$defs/nm"
+                },
+                "track-via": {
+                  "$ref": "#/$defs/nm"
+                },
+                "pad-pad": {
+                  "$ref": "#/$defs/nm"
+                },
+                "pad-via": {
+                  "$ref": "#/$defs/nm"
+                },
+                "via-via": {
+                  "$ref": "#/$defs/nm"
+                }
+              }
             }
           }
         },

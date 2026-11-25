@@ -591,6 +591,7 @@ Checked against a real board: a 4-layer design imported from Eagle and compared 
     - The board keeps its own copy, so every rule stays editable. The preset name is shown for reference only, with "edited" and the changed rules once they differ (an edited rule has an accent border and a dot; its tooltip gives the preset's value).
     - A preset for the other layer count is flagged, with a button for the right one.
   - **Rules** (mm): clearance, track width, via drill, via diameter, minimum hole, annular ring, edge clearance. These are the **Default** net class.
+  - **Clearance by object** (#68): the clearance between copper of different nets for each pair of objects: Track–Track, Track–Pad, Track–Via, Pad–Pad, Pad–Via, Via–Via (Eagle's Wire–Wire, Wire–Pad… distances). Zone fills and copper drawings count as tracks, SMD pads as pads. Empty (the default) uses the Clearance above. A pair that is set replaces the Default class's clearance for those objects; a Net class with a larger clearance still wins. DRC, the router and Zone fills all use them. Applying a fab preset clears them (its clearance is for every pair).
   - **Fab output:** Gerber file names (Protel extensions or descriptive) and drill file units, used by the Fab output (#26).
   - **Text** (#79): the metrics of footprint text on the board and in the silk Gerbers, kept with the Project. **ElectroCAD stroke** (the default): the size is the capital height, characters advance by the size, the pen is 0.15 of it. **Eagle vector** (Eagle imports use it): the size is the full height including the pen, capitals 0.915 of it, pen 0.1, proportional spacing (0.922 for most characters, less for i, l, t, r and punctuation), as Eagle's Gerbers have it.
 - **Net classes:**
@@ -602,7 +603,7 @@ Checked against a real board: a 4-layer design imported from Eagle and compared 
 ## DRC
 
 **DRC** (Board toolbar) checks the board against its Design rules and Net classes (#25). It first waits for any zone refill in progress, then lists the problems in the **DRC** card, errors first:
-- **Clearance** (error): copper of different nets closer than the larger of their classes' clearance. This covers pads, tracks, vias and zone fills, on each copper layer, using the collision engine.
+- **Clearance** (error): copper of different nets closer than the larger of their classes' clearance, or than the Clearance by object rule for that pair of objects (#68), when one is set. This covers pads, tracks, vias and zone fills, on each copper layer, using the collision engine. The message says which rule asked for it, e.g. `0.152 mm needed (track–via rule)` or `(Default)`.
 - **Edge clearance** (error): copper nearer the board edge than the edge clearance, or off the board.
 - **Track width** (error): a track narrower than its net class's width.
 - **Annular ring** (error): a via or plated pad whose copper ring round the drill is under the annular ring (on a 4-layer board, a pad's inner-layer size counts too).
@@ -656,7 +657,7 @@ Using the card:
 
 **Import → Eagle schematic and board (.sch, .brd)…** takes Eagle 6+ / Fusion Electronics XML files. Choose the `.sch`, the `.brd`, or both at once (one Open dialog, several files). It always makes a **new Project** named after the files; the open one is saved first and stays in the Projects list.
 
-- **Both files:** the Schematic comes over sheet by sheet, the Board is placed from it as Forward annotation would, then each Eagle element sets its position, rotation, side and lock. Tracks, vias, polygons (as Zones), the outline (arcs and circles included), Net classes and the Design rules come over too. The Fab preset reads "Eagle design rules" (Board setup can switch it to a fab's preset).
+- **Both files:** the Schematic comes over sheet by sheet, the Board is placed from it as Forward annotation would, then each Eagle element sets its position, rotation, side and lock. Tracks, vias, polygons (as Zones), the outline (arcs and circles included), Net classes and the Design rules come over too: each of Eagle's different-signal distances (`mdWireWire`, `mdWirePad`, `mdWireVia`, `mdPadPad`, `mdPadVia`, `mdViaVia`) sets its Clearance by object pair (#68), raised by the default class's clearance when that is larger, as Eagle keeps the larger. A Net class's own clearance only raises them (0 adds nothing, as in Eagle). Eagle's same-signal SMD distances aren't checked (the summary says so when they're set). The Fab preset reads "Eagle design rules" (Board setup can switch it to a fab's preset).
 - **Board only:** a stub Schematic is made, one symbol per part with net labels on its pins, so the Netlist still matches the copper.
 - **Schematic only:** the Board is left empty; Update from Schematic (F8) as usual.
 

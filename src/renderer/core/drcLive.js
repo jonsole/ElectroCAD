@@ -7,6 +7,7 @@ import { footprintOutline, placedPads, padNets } from './footprint.js';
 import { footprintOf } from './project.js';
 import { drawingBox } from './boardDrawings.js';
 import { copperLayerNames } from './board.js';
+import { maxClearance } from './collision.js';
 
 const box = (pts, m = 0) => {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -34,8 +35,7 @@ export function boardItems(project, board = project.board) {
   for (const d of board.drawings || []) if (copper.has(d.layer)) items.set(`d:${d.id}`, { sig: JSON.stringify(d), box: drawingBox(d, board.textFont || 'stroke') });
   const global = JSON.stringify([board.rules, board.netClasses, board.stack, board.outline, board.textFont, board.annotation]);
   // a problem is placed between its two items: re-check as far round a change as the largest clearance
-  const r = board.rules || {};
-  const margin = Math.max(r.clearance || 0, r.edgeClearance || 0, ...Object.values(board.netClasses || {}).map((c) => c.clearance || 0)) + 100_000;
+  const margin = maxClearance(board) + 100_000;
   return { items, global, margin };
 }
 

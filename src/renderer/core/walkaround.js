@@ -8,7 +8,7 @@
 // finishes the search when the ordinary corner path from it to the cursor is clear, so a free
 // cursor costs one check, and the corner style's own posture is kept wherever it fits. Every
 // segment is checked exactly (capsule against shape) with the collision engine. DOM-free.
-import { shapeDistance, shapeBox, clearanceBetween } from './collision.js';
+import { shapeDistance, shapeBox, clearanceBetween, pairKind } from './collision.js';
 import { arcCircle } from './geom.js';
 
 const low = (s) => String(s || '').toLowerCase();
@@ -62,7 +62,7 @@ export class Obstacles {
     for (const it of index?.items || []) {
       if (ignore.has(it.id) || !it.layers.has(layer)) continue;
       if (net && low(it.net) === low(net)) continue;
-      this._add({ id: it.id, kind: it.kind, shape: it.shape, need: clearanceBetween(board, net, it.net) + margin, item: it });
+      this._add({ id: it.id, kind: it.kind, shape: it.shape, need: clearanceBetween(board, net, it.net, 'track', pairKind(it)) + margin, item: it });
     }
     const edge = board.rules?.edgeClearance || 0;
     for (const [a, b] of outlineSegments(board.outline)) this._add({ id: `edge:${a.join(',')}:${b.join(',')}`, kind: 'edge', shape: { type: 'capsule', a, b, r: 0 }, need: edge + margin });

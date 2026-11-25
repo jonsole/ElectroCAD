@@ -112,8 +112,46 @@ export function netRules(board, net) {
   return { trackWidth: r.trackWidth, clearance: r.clearance, viaDrill: r.viaDrill, viaDiameter: r.viaDiameter };
 }
 
-/** Clearance two Nets must keep: the larger of their classes'. */
-export const clearanceBetween = (board, n1, n2) => Math.max(netRules(board, n1).clearance, netRules(board, n2).clearance);
+// ---------------------------------------------------------------- clearance per object pair (#68)
+
+/**
+ * The kinds of copper a clearance can depend on, as Eagle's rules for different signals have them
+ * (its SMD values are for the same signal; between nets an SMD pad is a pad).
+ */
+export const PAIR_KINDS = ['track', 'pad', 'via'];
+/** Every pair of kinds, as rules.pairs keys: 'track-track', 'track-pad'… (in PAIR_KINDS order). */
+export const PAIR_KEYS = PAIR_KINDS.flatMap((a, i) => PAIR_KINDS.slice(i).map((b) => `${a}-${b}`));
+export const pairKey = (k1, k2) => (PAIR_KINDS.indexOf(k1) <= PAIR_KINDS.indexOf(k2) ? `${k1}-${k2}` : `${k2}-${k1}`);
+/**
+ * An index item's kind for the pair rules: a pad (through-hole or SMD) 'pad', a Via 'via';
+ * Tracks, Zone fills and copper drawings 'track' (as Eagle treats a polygon's copper as wire).
+ */
+export const pairKind = (it) => (it.kind === 'via' ? 'via' : it.kind === 'pad' ? 'pad' : 'track');
+
+/** An explicit Net class's clearance for `net`, or 0 for a Net in the Default class. */
+function classClearance(board, net) {
+  for (const nc of Object.values(board.netClasses || {})) if ((nc.nets || []).some((n) => low(n) === low(net))) return nc.clearance || 0;
+  return 0;
+}
+
+/**
+ * Clearance two pieces of copper must keep. Without a pair rule: the larger of their Nets'
+ * classes' (the Design rules' clearance for the Default class). With one for their kinds
+ * (rules.pairs, #68): that, in place of the Default class's, unless an explicit Net class asks
+ * for more (as in Eagle: the larger of the class clearance and the object-pair distance).
+ * `k1`, `k2`: PAIR_KINDS (omitted: no pair rule applies).
+ */
+export function clearanceBetween(board, n1, n2, k1 = null, k2 = null) {
+  const pair = k1 && k2 ? board.rules?.pairs?.[pairKey(k1, k2)] : undefined;
+  if (pair == null) return Math.max(netRules(board, n1).clearance, netRules(board, n2).clearance);
+  return Math.max(pair, classClearance(board, n1), classClearance(board, n2));
+}
+
+/** The largest clearance anything on the Board can ask for (classes, pair rules, the edge). */
+export function maxClearance(board) {
+  const r = board.rules || {};
+  return Math.max(r.clearance || 0, r.edgeClearance || 0, ...Object.values(board.netClasses || {}).map((c) => c.clearance || 0), ...Object.values(r.pairs || {}).map((v) => v || 0));
+}
 
 // ---------------------------------------------------------------- the index
 
@@ -142,11 +180,12 @@ export class CopperIndex {
 
   /**
    * Copper on `layer` that `shape` (carrying `net`) comes too close to: other Nets' items nearer
-   * than their clearance. `board` gives the clearances; `ignore` is a Set of item ids.
+   * than their clearance. `board` gives the clearances; `ignore` is a Set of item ids; `kind`: what
+   * `shape` is, for the pair rules (#68): 'track' (default), 'pad' or 'via'.
    */
-  collisions(board, shape, layer, net, ignore = new Set()) {
-    const b = shapeBox(shape), maxC = Math.max(board.rules.clearance, ...Object.values(board.netClasses || {}).map((c) => c.clearance));
-    return this.near(b, maxC).filter((it) => !ignore.has(it.id) && it.layers.has(layer) && (low(it.net) !== low(net) || !net) && shapeDistance(shape, it.shape) < clearanceBetween(board, net, it.net));
+  collisions(board, shape, layer, net, ignore = new Set(), kind = 'track') {
+    const b = shapeBox(shape), maxC = maxClearance(board);
+    return this.near(b, maxC).filter((it) => !ignore.has(it.id) && it.layers.has(layer) && (low(it.net) !== low(net) || !net) && shapeDistance(shape, it.shape) < clearanceBetween(board, net, it.net, kind, pairKind(it)));
   }
 }
 
