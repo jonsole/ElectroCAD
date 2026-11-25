@@ -143,7 +143,7 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 ## Busses
 
 - **Bus (Shift+W)** in the tool palette draws a Bus like a Wire (click corners, double-click or click an existing Bus to finish), thicker and in the theme's **Bus** colour (#64). A run joined to an existing Bus takes its name. A new Bus with no name is selected and its Properties open on **Name**.
-- **The name lists its members**, as in Eagle: names and ranges separated by commas, `D[0..7]` for D0 to D7 (either way round), `A,B,~{WR}`, or both. KiCad's `{SDA SCL}` is read too. Properties list the members it gives. Renaming changes every segment of the Bus and its labels.
+- **The name lists its members**, as in Eagle: names and ranges separated by commas, `D[0..7]` for D0 to D7 (either way round), `A,B,~{WR}`, or both. Eagle's alias is read too: in `ATBUS:A[0..31],RESET`, ATBUS names the bus and the members are A0 to A31 and RESET. So is KiCad's `{SDA SCL}`. Properties list the members it gives. Renaming changes every segment of the Bus and its labels.
 - **Bus entries are Wires** ending on the Bus (often a short 45° stub). A Bus connects nothing itself: nets cross it by name, as in Eagle and KiCad. A Wire end on a Bus doesn't join a Wire that happens to cross the Bus at that point.
 - **Bus labels:** the Net label or Global label tool clicked on a named Bus puts down a label showing the Bus's name. It names no net, moves with the Bus and goes when the Bus is deleted.
 - **Editing:** Busses select, box-select, move (taking their entries' ends and labels along), copy, paste and delete like Wires, and print.

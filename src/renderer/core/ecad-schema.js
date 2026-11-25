@@ -854,7 +854,7 @@ export const ECAD_SCHEMA = {
         "id": { "$ref": "#/$defs/id" },
         "a": { "$ref": "#/$defs/point" },
         "b": { "$ref": "#/$defs/point" },
-        "name": { "type": "string", "description": "Its members, Eagle's notation: names and ranges separated by commas, D[0..7] (D0…D7), A,B,~{WR}; KiCad's {SIG1 SIG2} is read too. Empty: not named yet." }
+        "name": { "type": "string", "description": "Its members, Eagle's notation: names and ranges separated by commas, D[0..7] (D0…D7), A,B,~{WR}; Eagle's alias ATBUS:A[0..31] (ATBUS names the Bus) and KiCad's {SIG1 SIG2} are read too. Empty: not named yet." }
       }
     },
     "label": {

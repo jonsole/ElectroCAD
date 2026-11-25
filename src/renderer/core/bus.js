@@ -5,14 +5,15 @@
 // A Sheet's `busses` are segments { id, a, b, name }; segments that touch are one Bus and share
 // its name. The name lists the members, Eagle's notation: names and ranges separated by commas,
 // `D[0..7]` (D0…D7, either way round), `A,B,~{WR}` (overbar markup kept, #63); KiCad's group
-// `{SIG1 SIG2}` is read too. DOM-free.
+// `{SIG1 SIG2}` is read too, and Eagle's alias `ATBUS:A[0..31]` (ATBUS names the Bus; the members
+// are A0…A31). DOM-free.
 import { onSegment } from './geom.js';
 
 /** The Net names a Bus name lists, in order, without repeats. */
 export function busMembers(name) {
   const out = [];
   const add = (n) => { if (n && !out.includes(n)) out.push(n); };
-  for (const item of splitTop(String(name ?? ''))) {
+  for (const item of splitTop(busBody(name))) {
     // a KiCad group {A B}, maybe with a prefix (PRE{A B} -> PRE.A, PRE.B as KiCad names them)
     const g = /^([^~{}]*)\{([^{}]*)\}$/.exec(item);
     if (g && !item.startsWith('~{')) { for (const x of g[2].split(/\s+/)) if (x) add(g[1] ? `${g[1]}.${x}` : x); continue; }
@@ -27,6 +28,17 @@ export function busMembers(name) {
   }
   return out;
 }
+
+/**
+ * Eagle's alias (`ATBUS:A[0..31],RESET`): the name before the colon names the Bus; it is not a
+ * prefix of the members. Returns { alias, body }.
+ */
+export function busAlias(name) {
+  const s = String(name ?? '');
+  const m = /^([^,\[\]{}:\s]+):(.*)$/.exec(s);
+  return m ? { alias: m[1], body: m[2] } : { alias: '', body: s };
+}
+const busBody = (name) => busAlias(name).body;
 
 /** Split at commas and spaces that aren't inside braces (overbar markup, KiCad groups). */
 function splitTop(s) {

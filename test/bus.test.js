@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newProject, pinPositions, serialize, deserialize } from '../src/renderer/core/project.js';
 import { placeSymbol, addWire, addBus, addLabel, renameBus, moveSelection, deleteItems, copySelection, pasteClip, itemsInRect } from '../src/renderer/core/schematic.js';
-import { busMembers, busGroups } from '../src/renderer/core/bus.js';
+import { busMembers, busGroups, busAlias } from '../src/renderer/core/bus.js';
 import { buildNetlist, junctions } from '../src/renderer/core/netlist.js';
 import { runErc } from '../src/renderer/core/erc.js';
 import { RESISTOR } from '../src/renderer/library/mini.js';
@@ -18,6 +18,10 @@ test('bus names list their members: ranges, lists, overbars, KiCad groups', () =
   assert.deepEqual(busMembers('I2C{SDA SCL}'), ['I2C.SDA', 'I2C.SCL']);
   assert.deepEqual(busMembers('A, B,,A'), ['A', 'B']);
   assert.deepEqual(busMembers(''), []);
+  // Eagle's alias names the bus; it isn't a prefix of the members
+  assert.deepEqual(busMembers('ATBUS:A[0..2],RESET'), ['A0', 'A1', 'A2', 'RESET']);
+  assert.deepEqual(busAlias('ATBUS:A[0..2],RESET'), { alias: 'ATBUS', body: 'A[0..2],RESET' });
+  assert.deepEqual(busAlias('D[0..7]'), { alias: '', body: 'D[0..7]' });
 });
 
 // R1 pin 1 enters a bus with a slanted stub, at the point where R2's wire crosses the bus

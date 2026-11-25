@@ -144,7 +144,7 @@ Courtyard rectangles and circles may carry `generated: true` (#67): an importer 
 
 **Wire:** `{ id, a, b }`. A straight run between two grid points (the editor only draws horizontal and vertical runs). Wires connect where an end touches another Wire's end or runs into its middle (a T), or touches a Pin tip. Crossing Wires don't connect. A Wire end on a Bus (a bus entry) joins only its own Wire there, not a Wire crossing the Bus at that point (#64).
 
-**Bus** (#64): `{ id, a, b, name }`, a straight run drawn like a thick Wire. Segments that touch are one Bus and share its `name`, which lists its members in Eagle's notation: names and ranges separated by commas, `D[0..7]` (D0 to D7, either way round), `A,B,~{WR}`; KiCad's group `{SDA SCL}` is read too. A Bus connects nothing: Nets cross it by name, and ERC warns when a Net entering it isn't a member or when it has no name.
+**Bus** (#64): `{ id, a, b, name }`, a straight run drawn like a thick Wire. Segments that touch are one Bus and share its `name`, which lists its members in Eagle's notation: names and ranges separated by commas, `D[0..7]` (D0 to D7, either way round), `A,B,~{WR}`; Eagle's alias (`ATBUS:A[0..31],RESET`: ATBUS names the Bus, the members are A0…A31 and RESET) and KiCad's group `{SDA SCL}` are read too. A Bus connects nothing: Nets cross it by name, and ERC warns when a Net entering it isn't a member or when it has no name.
 
 **Label:**
 
