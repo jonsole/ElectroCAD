@@ -129,10 +129,13 @@ export function addWire(project, sheet, points) {
  * Add a Net label, Global label or Power symbol at a grid point. `scope` is 'local' or 'global';
  * Power symbols (style 'power' / 'gnd') are always global. Returns the label.
  */
-export function addLabel(project, sheet, { at, net, rot = 0, scope = 'local', style = 'label' }) {
+export function addLabel(project, sheet, { at, net, rot = 0, scope = 'local', style = 'label', shape = null, size = null }) {
   sheet.labels ||= [];
   const power = style === 'power' || style === 'gnd';
   const l = { id: uid('l'), at: snapPt(at, SCH_GRID), rot, net: String(net).trim(), scope: power ? 'global' : scope, style };
+  // a look other than the scope's own (#81), and a text size other than the default
+  if (!power && (shape === 'text' || shape === 'flag') && shape !== (l.scope === 'global' ? 'flag' : 'text')) l.shape = shape;
+  if (size > 0) l.size = size;
   sheet.labels.push(l);
   return l;
 }

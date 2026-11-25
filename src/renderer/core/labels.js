@@ -2,8 +2,11 @@
 // used for drawing, hit testing and keeping fields clear of them. DOM-free; text width comes
 // from a `measure(text, sizeNm)` function.
 //
-// A label is { id, at, rot, net, scope: 'local' | 'global', style: 'label' | 'power' | 'gnd' }.
-// `at` is its connection point. Power symbols (+5V, GND) are always global.
+// A label is { id, at, rot, net, scope: 'local' | 'global', style: 'label' | 'power' | 'gnd',
+// shape?: 'text' | 'flag', size? }. `at` is its connection point. Power symbols (+5V, GND) are always
+// global. How a Net or Global label looks is its `shape` (#81): 'text', the name written on the
+// wire, or 'flag', the pointed box; with no shape it follows the scope (local: text, global:
+// flag). Scope alone decides what it joins. `size` is its text height (default LABEL_TEXT).
 import { mm, SCH_GRID as G } from './units.js';
 import { rot90 } from './geom.js';
 import { estimateWidth } from './fields.js';
@@ -15,6 +18,10 @@ export const POWER_NAMES = ['+3V3', '+5V', '+12V', 'VCC', 'VDD', 'VBAT', '+1V8',
 
 export const isPower = (l) => l.style === 'power' || l.style === 'gnd';
 export const labelKind = (l) => (isPower(l) ? 'power' : l.scope === 'global' ? 'global' : 'local');
+/** How a label is drawn: 'power' | 'gnd' | 'text' | 'flag' (#81). */
+export const labelLook = (l) => (isPower(l) ? l.style : l.shape === 'text' || l.shape === 'flag' ? l.shape : l.scope === 'global' ? 'flag' : 'text');
+/** A label's text height (nm). */
+export const labelSize = (l) => (l.size > 0 ? l.size : LABEL_TEXT);
 
 /**
  * The shape of a label in its local frame (rotation 0: a label reads to the right of its point,
@@ -22,7 +29,7 @@ export const labelKind = (l) => (isPower(l) ? 'power' : l.scope === 'global' ? '
  * text: { at, align, base } , box } where coordinates are nm relative to `at`.
  */
 export function labelShape(label, measure = estimateWidth) {
-  const T = LABEL_TEXT;
+  const T = labelSize(label);
   const w = measure(label.net || '?', T);
   if (label.style === 'power') {
     const top = -1.6 * G;
@@ -41,18 +48,18 @@ export function labelShape(label, measure = estimateWidth) {
       box: { x0: Math.min(-G, -w / 2), y0: 0, x1: Math.max(G, w / 2), y1: 1.8 * G + T * 1.5 },
     };
   }
-  if (label.scope === 'global') {
+  if (labelLook(label) === 'flag') {
     const hh = T * 0.8, pad = T * 0.35;
     const x1 = hh + pad * 2 + w;
     const flag = [[0, 0], [hh, -hh], [x1, -hh], [x1, hh], [hh, hh], [0, 0]];
     return { lines: [], polys: [flag], text: { at: [hh + pad, 0], align: 'left' }, box: { x0: 0, y0: -hh, x1, y1: hh } };
   }
-  // a local Net label: text sitting just above its point, with a short tick under it
+  // text on the wire: the name sitting just above its point, with a short tick under it
   return {
     lines: [[[0, 0], [Math.min(w, G * 0.6), 0]]],
     polys: [],
-    text: { at: [mm(0.3), -T * 0.55], align: 'left' },
-    box: { x0: 0, y0: -T * 1.2, x1: w + mm(0.4), y1: mm(0.2) },
+    text: { at: [mm(0.3) * T / LABEL_TEXT, -T * 0.55], align: 'left' },
+    box: { x0: 0, y0: -T * 1.2, x1: w + mm(0.4) * T / LABEL_TEXT, y1: mm(0.2) },
   };
 }
 

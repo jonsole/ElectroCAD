@@ -346,3 +346,14 @@ test('Eagle symbols carry Eagle\'s pin text: names 1.778 mm, 1.905 mm in from th
   try { assert.equal(measureText('PA05/SERCOM0_1', 1_778_000), Math.round(strokeWidthOf('PA05/SERCOM0_1', 1_778_000, 'vector'))); }
   finally { setTextStyle('sans'); }
 });
+
+test('plain Eagle labels come over as text on the wire, xref labels as flags, both at Eagle\'s size (#81)', () => {
+  const sch = SCH.replace('<label x="81.28" y="83.82" size="1.778" layer="95"/>', '<label x="81.28" y="83.82" size="1.27" layer="95" xref="yes"/>');
+  const { project, check } = importEagle({ sch, name: 'reg' });
+  const ls = project.schematic.sheets.flatMap((s) => s.labels).filter((l) => l.style === 'label');
+  const look = (l) => l.shape || (l.scope === 'global' ? 'flag' : 'text');
+  assert.ok(ls.some((l) => look(l) === 'flag' && !l.size), 'the xref label: a flag at 1.27 mm (the default)');
+  assert.ok(ls.filter((l) => look(l) === 'text').every((l) => l.size === 1_778_000 || !l.size));
+  assert.ok(ls.some((l) => look(l) === 'text' && l.size === 1_778_000), 'plain labels keep 1.778 mm');
+  assert.ok(check.schematic.ok, JSON.stringify(check.schematic.mismatches));
+});

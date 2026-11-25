@@ -9,7 +9,7 @@ import { moveSelection, rotateSymbols, mirrorSymbols, cleanupWires, placedUnits,
 import { setComponentFieldStyle, styleFor, hasPinnedFields } from '../core/fields.js';
 import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { partOf } from '../core/project.js';
-import { validateLabelName, isPower, netNameChoices, canonicalNetName } from '../core/labels.js';
+import { validateLabelName, isPower, netNameChoices, canonicalNetName, labelLook, labelSize, LABEL_TEXT } from '../core/labels.js';
 import { snap, SCH_GRID, mm } from '../core/units.js';
 import { buildNetlist } from '../core/netlist.js';
 import { netClassOf, assignNet, DEFAULT_CLASS } from '../core/netclasses.js';
@@ -233,6 +233,23 @@ export class SchematicInspector {
       sel.value = l.scope === 'global' ? 'global' : 'local';
       sel.addEventListener('change', () => this._edit(sel.value === 'global' ? `Make ${l.net} global` : `Make ${l.net} local`, (p) => { this._find(p, l.id).scope = sel.value; }));
       rows.push(h('div', { class: 'param param-wide' }, h('label', {}, 'Joins'), sel));
+      // how it looks, whatever it joins (#81)
+      const look = h('select', { class: 'select', 'aria-label': 'Label look' },
+        h('option', { value: 'text' }, 'Text on the wire'), h('option', { value: 'flag' }, 'Flag (pointed box)'));
+      look.value = labelLook(l);
+      look.addEventListener('change', () => this._edit(`${l.net}: ${look.value === 'flag' ? 'flag' : 'text'}`, (p) => {
+        const x = this._find(p, l.id);
+        if (look.value === (x.scope === 'global' ? 'flag' : 'text')) delete x.shape; else x.shape = look.value;
+      }));
+      rows.push(h('div', { class: 'param param-wide' }, h('label', {}, 'Look'), look));
+      const size = h('input', { class: 'input', type: 'number', step: '0.1', min: '0.3', value: String(+(labelSize(l) / 1e6).toFixed(3)), 'aria-label': 'Label text size' });
+      size.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') size.blur(); });
+      size.addEventListener('change', () => {
+        const v = parseFloat(size.value);
+        if (!(v > 0)) { size.value = String(+(labelSize(l) / 1e6).toFixed(3)); return; }
+        this._edit(`${l.net}: text ${v} mm`, (p) => { const x = this._find(p, l.id); const nm = Math.round(v * 1e6); if (nm === LABEL_TEXT) delete x.size; else x.size = nm; });
+      });
+      rows.push(h('div', { class: 'param' }, h('label', {}, 'Text size (mm)'), size));
     } else {
       rows.push(h('div', { class: 'insp-note' }, 'Power symbols join every pin with the same name, on every sheet.'));
     }

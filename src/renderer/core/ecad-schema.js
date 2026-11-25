@@ -834,6 +834,14 @@ export const ECAD_SCHEMA = {
             "power",
             "gnd"
           ]
+        },
+        "shape": {
+          "enum": ["text", "flag"],
+          "description": "How a Net or Global label looks (#81): the name written on the wire, or a pointed flag. Absent: by scope (local text, global flag). Scope alone decides what it joins."
+        },
+        "size": {
+          "$ref": "#/$defs/nm",
+          "description": "Text height. Absent: 1.27 mm."
         }
       }
     },

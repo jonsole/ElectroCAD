@@ -8,7 +8,7 @@
 // After the import the Netlist is compared with Eagle's nets, pin by pin (verify()).
 import { newProject, newSheet, uid, pinPositions } from '../../core/project.js';
 import { symbolBounds } from '../../core/schematic.js';
-import { labelBounds } from '../../core/labels.js';
+import { labelBounds, LABEL_TEXT } from '../../core/labels.js';
 import { buildNetlist } from '../../core/netlist.js';
 import { PAPER_SIZES } from '../../core/drawings.js';
 import { rot90 as r90geom } from '../../core/geom.js';
@@ -189,8 +189,9 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
       if (!needsLabel || seg.all('pinref').some((pr) => parts.get(pr.attr('part'))?.supply)) continue;
       // where a label sits: Eagle's labels, moved onto their wire; else the first wire's start, or the first pin
       const spots = [];
-      for (const l of seg.all('label')) spots.push({ at: nearestOnWires(T(l.attr('x'), l.attr('y')), wires), rot: labelRot(l.attr('rot')) });
-      for (const s of spots) if (s.at) sheet.labels.push({ id: uid('l'), at: s.at, rot: s.rot, net: netName, scope, style: 'label' });
+      // a plain Eagle label is the name written on the wire; xref="yes" is the flag (#81); both keep Eagle's size
+      for (const l of seg.all('label')) spots.push({ at: nearestOnWires(T(l.attr('x'), l.attr('y')), wires), rot: labelRot(l.attr('rot')), shape: l.attr('xref') === 'yes' ? 'flag' : 'text', size: nm(l.attr('size', 1.778)) });
+      for (const s of spots) if (s.at) sheet.labels.push(eagleLabel({ at: s.at, rot: s.rot, net: netName, scope, shape: s.shape, size: s.size }));
       // Eagle named the net without drawing a label: one is needed here, placed once Eagle's own are down
       if (!spots.length) invented.push({ sheet, wires, seg, net: netName, scope });
     }
@@ -334,7 +335,7 @@ function placeInventedLabels(project, parts, invented) {
   const dirRot = (dx, dy) => (Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? 0 : 180) : (dy < 0 ? 90 : 270));
   for (const { sheet, wires, seg, net, scope } of invented) {
     const B = blockers(sheet);
-    const make = (at, rot) => ({ id: uid('l'), at, rot, net, scope, style: 'label' });
+    const make = (at, rot) => eagleLabel({ at, rot, net, scope, shape: 'text' }); // the name on the wire, as a plain Eagle label
     // a label joins every wire through its point: never where another net's wire crosses this one
     const foreignWires = sheet.wires.filter((w) => !wires.includes(w));
     const onForeign = (q) => foreignWires.some((w) => onWire(q, w));
@@ -348,7 +349,9 @@ function placeInventedLabels(project, parts, invented) {
       const shrunk = { x0: b.x0 + e, y0: b.y0 + e, x1: b.x1 - e, y1: b.y1 - e };
       const area = Math.max(1, (shrunk.x1 - shrunk.x0) * (shrunk.y1 - shrunk.y0));
       let c = 0;
-      for (const q of B.pins) if (has(shrunk, q) && (q[0] !== l.at[0] || q[1] !== l.at[1])) c += 10;
+      // pins: 0.1 mm in is covered (a text label's box is short, #81, so the 0.25 mm slack would miss them)
+      const pinBox = { x0: b.x0 + 100_000, y0: b.y0 + 100_000, x1: b.x1 - 100_000, y1: b.y1 - 100_000 };
+      for (const q of B.pins) if (has(pinBox, q) && (q[0] !== l.at[0] || q[1] !== l.at[1])) c += 10;
       for (const x of B.boxes) if (meets(shrunk, x)) c += 1 + overlap(shrunk, x) / area;
       for (const x of B.labels) if (meets(shrunk, x)) c += 3 + overlap(shrunk, x) / area;
       return c;
@@ -452,4 +455,12 @@ export function verifySchematic(project, parts, netsByName, report = new Report(
   }
   for (const m of mismatches) report.add(m);
   return { ok: !mismatches.length, mismatches, netlist: nl };
+}
+
+/** A Net or Global label made by the import: `shape` and `size` stored only where they differ from the defaults (#81). */
+function eagleLabel({ at, rot, net, scope, shape, size = 0 }) {
+  const l = { id: uid('l'), at, rot, net, scope, style: 'label' };
+  if (shape && shape !== (scope === 'global' ? 'flag' : 'text')) l.shape = shape;
+  if (size > 0 && size !== LABEL_TEXT) l.size = size;
+  return l;
 }

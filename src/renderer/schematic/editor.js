@@ -15,7 +15,7 @@ import { snapToGrid, gridLabel, SCHEMATIC_GRIDS, setGridStep } from '../core/gri
 import { watchAlt } from '../ui/grid.js';
 import { RULER } from '../view/canvas2d.js';
 import { GridCard } from '../ui/gridCard.js';
-import { ContextStrip, stripLabel, stripSep, stripButton, stripProps } from '../ui/contextStrip.js';
+import { ContextStrip, stripLabel, stripSep, stripButton, stripProps, stripSegmented } from '../ui/contextStrip.js';
 import { cardHead } from '../ui/cards.js';
 import { highlight, screenBox, revealBox } from '../view/highlight.js';
 import { probeFromSchematic, schematicTargets, sheetForProbe } from '../core/probe.js';
@@ -24,13 +24,12 @@ import { pinPositions, nextRef, partOf } from '../core/project.js';
 import { onSegment, eq } from '../core/geom.js';
 import { SCH_GRID, mm } from '../core/units.js';
 
-const mm127 = mm(1.27);
 import { drawSheet, symbolThumbnail, measureText, drawFootprintPreview } from './render.js';
 import { SchematicInspector } from './inspector.js';
 import { makeDraggable } from '../ui/draggable.js';
 import { placeFields, fieldWarnings, setDefaultFieldStyle, setComponentFieldStyle, hitField, styleFor, pinField, unpinFields, hasPinnedFields } from '../core/fields.js';
 import { validateRef, updateComponent } from '../core/components.js';
-import { hitLabel, labelBounds, labelShape, labelFrame, validateLabelName, isPower, netNameChoices, filterNetNames, canonicalNetName } from '../core/labels.js';
+import { hitLabel, labelBounds, labelShape, labelFrame, validateLabelName, isPower, netNameChoices, filterNetNames, canonicalNetName, labelSize } from '../core/labels.js';
 
 /** The label tools: what each one places. */
 const LABEL_TOOLS = {
@@ -117,6 +116,7 @@ export class SchematicEditor {
     this.fpHover = null;       // a tile under the pointer (previews its row)
     this.sheetId = null;  // the Sheet being edited
     this.labelRot = 0;    // rotation of the label tool's ghost
+    this.labelShapes = { netLabel: 'text', globalLabel: 'flag' }; // what each label tool places (#81)
     this.nextName = { label: 'NET1', power: null }; // what the label tools offer next
     this.sheetsOpen = false;
   }
@@ -819,7 +819,7 @@ export class SchematicEditor {
     }
     const t = LABEL_TOOLS[this.tool];
     const ghostLabel = t && this.cursor && !this.labelEdit
-      ? { id: 'ghost', at: this.cursor, rot: this.labelRot, style: t.style, scope: t.scope, net: this.tool === 'ground' ? 'GND' : this.tool === 'power' ? this._powerName() : this.nextName.label }
+      ? { id: 'ghost', at: this.cursor, rot: this.labelRot, style: t.style, scope: t.scope, ...(this.labelShapes[this.tool] ? { shape: this.labelShapes[this.tool] } : {}), net: this.tool === 'ground' ? 'GND' : this.tool === 'power' ? this._powerName() : this.nextName.label }
       : null;
     const proj = this.preview || this.project;
     const sheet = this._S(proj);
@@ -1510,8 +1510,11 @@ export class SchematicEditor {
       return;
     }
     if (LABEL_TOOLS[this.tool]) {
-      s.show(`label|${this.tool}|${this.labelRot}`, () => [stripLabel(LABEL_TOOLS[this.tool].what, this.tool), stripSep(),
-        stripButton({ icon: 'rotate', title: `Rotate 90° (R) · now ${this.labelRot}°`, onClick: () => { this.rotate(); this.refresh(); } })]);
+      const look = this.labelShapes[this.tool];
+      s.show(`label|${this.tool}|${this.labelRot}|${look}`, () => [stripLabel(LABEL_TOOLS[this.tool].what, this.tool), stripSep(),
+        stripButton({ icon: 'rotate', title: `Rotate 90° (R) · now ${this.labelRot}°`, onClick: () => { this.rotate(); this.refresh(); } }),
+        look ? stripSep() : null,
+        look ? stripSegmented({ label: 'Look', value: look, items: [['text', 'Text', 'The name written on the wire'], ['flag', 'Flag', 'The name in a pointed box']], onPick: (id) => { this.labelShapes[this.tool] = id; this.refresh(); } }) : null]);
       return;
     }
     if (this.tool !== 'select' || !this.selection.size) { s.hide(); return; }
@@ -1700,7 +1703,7 @@ export class SchematicEditor {
   _labelClick(at) {
     if (this.labelEdit) { this.labelEdit.commit(); return; }
     const t = LABEL_TOOLS[this.tool];
-    const spec = { at, rot: this.labelRot, style: t.style, scope: t.scope };
+    const spec = { at, rot: this.labelRot, style: t.style, scope: t.scope, ...(this.labelShapes[this.tool] ? { shape: this.labelShapes[this.tool] } : {}) };
     // Ground and Power symbols go down at once: GND, or the last power net used (double-click to change it)
     if (this.tool === 'ground' || this.tool === 'power') {
       const net = this.tool === 'ground' ? 'GND' : this._powerName();
@@ -1733,13 +1736,13 @@ export class SchematicEditor {
     const f = labelFrame(l);
     const t = f.apply(sh.text.at);
     const [cx, cy] = v.toScreen([l.at[0] + t[0], l.at[1] + t[1]]);
-    const px = Math.max(12, mm127 * v.scale);
+    const px = Math.max(12, labelSize(l) * v.scale);
     // our own drop-down, not a <datalist>: a datalist hides every choice that doesn't match the
     // text already in the box, so a power symbol showing +5V would offer only +5V
     const names = netNameChoices(this.project, l);
     const list = h('div', { class: 'net-pick', role: 'listbox', 'aria-label': 'Nets' });
     const input = h('input', { class: 'field-edit label-edit', type: 'text', value: original, spellcheck: false, autocomplete: 'off', role: 'combobox', 'aria-label': label ? 'Rename net' : 'Net name' });
-    const w = Math.max(110, measureText(original || 'NET', mm127) * v.scale + 40);
+    const w = Math.max(110, measureText(original || 'NET', labelSize(l)) * v.scale + 40);
     const leftAligned = !(f.flip && !isPower(l)) && sh.text.align === 'left';
     Object.assign(input.style, { left: `${leftAligned ? cx - 6 : cx - w / 2}px`, top: `${cy - px * 0.85}px`, width: `${w}px`, height: `${px * 1.7}px`, fontSize: `${px}px` });
     const tip = h('div', { class: 'field-edit-tip' });

@@ -90,3 +90,20 @@ test('vector text (#79): print draws text as strokes in the vector font, the sam
   assert.ok(texts(sans).includes('R1'), 'searchable text when asked for');
   assert.equal(textStyle(), 'sans');
 });
+
+test('labels print in their own look (#81): a global label as text has no flag box, a local one as a flag has one', async () => {
+  const { addLabel } = await import('../src/renderer/core/schematic.js');
+  const p = sampleProject(), s = p.schematic.sheets[1];
+  s.labels = [];
+  addLabel(p, s, { at: [20_320_000, 20_320_000], net: 'GTEXT', scope: 'global', shape: 'text', size: 1_778_000 });
+  const plain = sheetToSvg(p, s, { textStyle: 'sans' });
+  s.labels = [];
+  addLabel(p, s, { at: [20_320_000, 20_320_000], net: 'LFLAG', scope: 'local', shape: 'flag' });
+  const flag = sheetToSvg(p, s, { textStyle: 'sans' });
+  assert.ok(texts(plain).includes('GTEXT') && texts(flag).includes('LFLAG'));
+  assert.ok(!/NaN/.test(plain + flag));
+  // the outline drawn just before the name: the flag's five sides, or the text label's short tick
+  const sides = (svg, name) => { const before = svg.slice(0, svg.indexOf(`>${name}<`)); const d = [...before.matchAll(/<path [^>]*d="([^"]*)"/g)].at(-1)[1]; return (d.match(/L/g) || []).length; };
+  assert.equal(sides(flag, 'LFLAG'), 5);
+  assert.equal(sides(plain, 'GTEXT'), 1);
+});

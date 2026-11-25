@@ -198,3 +198,39 @@ test('ADR-0013: a typed name takes the spelling of a Net that already exists', (
   const choices = netNameChoices(p, keep);
   assert.ok(choices.includes('+3v3') && !choices.includes('+3V3'));
 });
+
+test('label look is separate from scope (#81): text or flag, any size; scope alone joins', async () => {
+  const { labelShape, labelLook, labelSize, LABEL_TEXT } = await import('../src/renderer/core/labels.js');
+  const { p, s1, s2 } = twoSheets();
+  // no shape: follows the scope, as before
+  const loc = addLabel(p, s1, { at: [0, 0], net: 'A' }), glob = addLabel(p, s1, { at: [0, G * 4], net: 'B', scope: 'global' });
+  assert.equal(labelLook(loc), 'text'); assert.equal(labelLook(glob), 'flag');
+  assert.ok(!('shape' in loc) && !('shape' in glob) && !('size' in loc), 'old projects load as they were');
+  // a global label written as text, a local one as a flag
+  const gt = addLabel(p, s1, { at: [0, G * 8], net: 'SDA', scope: 'global', shape: 'text' });
+  const lf = addLabel(p, s1, { at: [0, G * 12], net: 'SCL', scope: 'local', shape: 'flag' });
+  assert.equal(gt.shape, 'text'); assert.equal(lf.shape, 'flag');
+  assert.equal(addLabel(p, s1, { at: [0, G * 16], net: 'X', scope: 'global', shape: 'flag' }).shape, undefined, 'the scope\'s own look is not stored');
+  assert.equal(labelShape(gt).polys.length, 0, 'text: no box');
+  assert.equal(labelShape(lf).polys.length, 1, 'flag: the pointed box');
+  // bounds and hit testing follow the shape: the flag is centred on the wire, text sits above it
+  const bt = labelBounds({ ...gt, at: [0, 0] }), bf = labelBounds({ ...gt, shape: 'flag', at: [0, 0] });
+  assert.ok(bt.y1 < bf.y1 && bt.y0 < 0, `text above the wire: ${JSON.stringify(bt)} vs ${JSON.stringify(bf)}`);
+  assert.equal(hitLabel({ labels: [{ ...gt, at: [0, 0] }] }, [G, Math.round(bf.y1 - 50_000)]), null, 'below a text label is empty');
+  assert.ok(hitLabel({ labels: [{ ...gt, shape: 'flag', at: [0, 0] }] }, [G, Math.round(bf.y1 - 50_000)]), 'the same point is inside a flag');
+  // text size scales the shape
+  const big = addLabel(p, s1, { at: [0, G * 20], net: 'BIG', size: 1_778_000 });
+  assert.equal(labelSize(big), 1_778_000); assert.equal(labelSize(loc), LABEL_TEXT);
+  assert.ok(labelBounds({ ...big, at: [0, 0] }).y0 < labelBounds({ ...loc, net: 'BIG', at: [0, 0] }).y0);
+  // turned and mirrored like the others: all four rotations give a box round the point
+  for (const rot of [0, 90, 180, 270]) for (const l of [gt, lf]) {
+    const b = labelBounds({ ...l, rot, at: [0, 0] });
+    assert.ok(b.x0 <= 0 && b.x1 >= 0 && b.y0 <= 0 && b.y1 >= 0, `${l.shape} at ${rot}°`);
+  }
+  // scope still decides what joins: a global text label joins across sheets
+  const a = placeSymbol(p, s1, RESISTOR, [G * 40, G * 10]).sym, b = placeSymbol(p, s2, RESISTOR, [G * 40, G * 10]).sym;
+  addLabel(p, s1, { at: pinAt(p, a, '1'), net: 'BUS', scope: 'global', shape: 'text' });
+  addLabel(p, s2, { at: pinAt(p, b, '1'), net: 'BUS', scope: 'global', shape: 'text' });
+  const n = buildNetlist(p).nets.find((x) => x.name === 'BUS');
+  assert.equal(n.pins.length, 2);
+});

@@ -7,7 +7,7 @@ import { partOf } from '../core/project.js';
 import { mm } from '../core/units.js';
 import { junctions, connectedPins, wireCrossings } from '../core/netlist.js';
 import { placeFields, styleFor } from '../core/fields.js';
-import { labelShape, labelFrame, labelBounds, isPower, LABEL_TEXT } from '../core/labels.js';
+import { labelShape, labelFrame, labelBounds, isPower, labelLook, labelSize } from '../core/labels.js';
 import { textLayout, drawingBounds, expandVariables, titleBlockLayout } from '../core/drawings.js';
 
 const LINE = mm(0.2);      // symbol body line width
@@ -246,10 +246,10 @@ export function drawLabels(ctx, view, C, labels, { selection = new Set(), alpha 
     ctx.beginPath();
     for (const pts of [...shape.lines, ...shape.polys]) pts.map(W).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
     ctx.stroke();
-    const px = LABEL_TEXT * view.scale;
+    const px = labelSize(l) * view.scale;
     if (px < 4) continue;
     ctx.fillStyle = color;
-    ctx.font = `${isPower(l) || l.scope === 'global' ? '600 ' : ''}${px}px ${FONT}`;
+    ctx.font = `${isPower(l) || labelLook(l) === 'flag' ? '600 ' : ''}${px}px ${FONT}`;
     ctx.textBaseline = 'middle';
     const [tx, ty] = W(shape.text.at);
     ctx.save();

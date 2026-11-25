@@ -45,7 +45,7 @@ A Project is one JSON file, the Native format ([ADR-0004](../adr/0004-native-for
 | `parts` | `{ [partKey]: Part }` | A frozen copy of every Part in use ([ADR-0004](../adr/0004-native-format-is-json-foreign-formats-are-lossy-converters.md)), keyed by Library origin `library/partId@version` so Parts from different Libraries never clash. A Part with no origin (made in the Project) uses its own id. Parts nothing uses are removed. |
 | `components` | `{ [componentId]: Component }` | The Components: one per Reference designator. |
 | `footprints` | `{ [fpKey]: { library, footprint } }` | Footprints Components use that are not one of their Part's Preferred footprints, each stored once (`library/name`, with `~2`… if two differ). Unused ones are removed. |
-| `schematic` | `{ sheets: [Sheet] }` | At least one Sheet, in display order. |
+| `schematic` | `{ sheets: [Sheet], textFont? }` | At least one Sheet, in display order. `textFont`: `system` (absent: the default) or `vector`, how schematic text is drawn (#79). |
 | `board` | Board | The PCB: the layer stack, the Outline and rules today. |
 | `fieldStyles` | `{ default, styles }` | `default` is a key in `styles`; `styles` holds every Field style the Project uses ([ADR-0012](../adr/0012-fields-are-placed-automatically-by-field-styles.md)). |
 | `titleBlock` | `{ title, company, author, revision, date, comment }` | The title block on every Sheet (#59); an empty title shows the Project name. Sheet name and number are filled in per Sheet. |
@@ -147,6 +147,8 @@ Every shape may have `fill` (`none`, `background` = the theme's symbol fill, `ou
 | `net` | string | Net name, stored **as typed**; names match regardless of case ([ADR-0013](../adr/0013-net-names-match-regardless-of-case.md)). |
 | `scope` | `local` / `global` | `local` joins Pins with the same name on this Sheet; `global` on every Sheet. |
 | `style` | `label` / `power` / `gnd` | `power` and `gnd` are Power symbols and always have `scope: "global"`. |
+| `shape` | `text` / `flag`? | How a Net or Global label looks (#81): the name on the wire, or a pointed flag. Absent: by scope (`local` text, `global` flag). It never changes what the label joins. |
+| `size` | nm? | Text height. Absent: 1.27 mm. |
 
 How Nets are built from these (not stored): see [DESIGN.md §4](../DESIGN.md#4-connectivity-netlist) and `core/netlist.js`. In short: a Net's name comes from its labels (Power symbol before Global label before Net label), or is generated as `Net-(R1-Pad2)` from its lowest Reference designator.
 
@@ -176,6 +178,8 @@ The shapes are fixed by [ADR-0015](../adr/0015-board-objects-in-the-native-forma
 | `vias` | `[{ id, at, drill, diameter, from, to, net }]` | v1 has through vias only: `from: "F.Cu"`, `to: "B.Cu"` (#21). |
 | `zones` | `[{ id, layer, net, outline, priority, clearance, connect?, thermal: { gap, spoke } }]` | Copper pours (#23). `outline` has at least 3 points. `priority`: higher fills first and wins overlaps with other Nets. `clearance`: the least gap to other Nets' copper (the Net classes' clearance applies when larger; 0 for just the classes'). `connect`: `thermal` (default) or `solid`, how same-Net pads join. `thermal.gap` and `thermal.spoke`: the relief's gap round a pad and its spoke width. The fill is **not stored**; it is recomputed. |
 | `netClasses` | `{ [name]: { trackWidth, clearance, viaDrill, viaDiameter, nets } }` | `nets` is a list of Net names (#24). |
+| `drawings` | `[BoardDrawing]`? | The Board's own text and graphics (#66) on any silk, fab, courtyard, mask, paste or copper layer: `{ id, type, layer, … }` with `text { text, at (centre), size, rot }`, `line { pts }`, `arc { start, mid, end }`, `rect { a, b }`, `circle { c, r }`, `poly { pts }`. Shapes have an optional `width` (pen, nm; absent: the layer's default) and `fill: "outline"`. Text is mirrored on `B.*` layers. Copper drawings have no Net. Absent: none. |
+| `textFont` | `stroke` / `vector`? | Board text metrics, on screen and in the silk Gerbers (#79): ElectroCAD's stroke font, size = capital height (absent: the default), or Eagle's vector font, size = full height. |
 | `grid` | `{ main, alt }` | Snap grids in nm (default 0.5 and 0.1 mm). |
 | `origin` | point | The grid origin (default `[0, 0]`). |
 | `annotation` | `{ components: { [componentId]: { ref, value } }, nets: { [netName]: ["componentId:pad"] } }` | What the Board was last told by Forward annotation (#16). The Board draws References, Values and Pad nets from here; the next annotation lists the differences against the Schematic. |
