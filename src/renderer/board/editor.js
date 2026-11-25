@@ -1538,7 +1538,8 @@ export class BoardEditor {
     const shown = this._drcShown();
     const label = Object.fromEntries(DRC_RULES);
     const row = (v) => h('div', { class: `erc-row erc-${v.severity}` + (v.id === this.drcFocus ? ' on' : ''), role: 'button', tabindex: '0', dataset: { rule: v.rule }, title: v.at ? 'Show it on the board' : v.rule === 'annotation' ? 'Update from Schematic' : '',
-      onClick: () => this.gotoViolation(v), onKeydown: (e) => { if (e.key === 'Enter') this.gotoViolation(v); } },
+      onClick: () => this.gotoViolation(v), onKeydown: (e) => { if (e.key === 'Enter') this.gotoViolation(v); },
+      onMouseenter: () => { this.drcHover = v.id; this.ws?.view.invalidate(); }, onMouseleave: () => { if (this.drcHover === v.id) { this.drcHover = null; this.ws?.view.invalidate(); } } },
       h('span', { class: 'erc-dot', 'aria-label': v.severity }),
       h('span', { class: 'erc-msg' }, h('b', { class: 'drc-rule' }, `${label[v.rule]}${v.layer ? ` · ${v.layer}` : ''}`), ' ', v.message));
     const empty = this.drcRunning || !this.drc ? null : !list.length ? 'Every rule is met, everything is routed and the Board matches the Schematic.' : !shown.length ? 'Everything is filtered out.' : null;
@@ -1733,20 +1734,25 @@ export class BoardEditor {
   _drawDrc(ctx, view, C) {
     if (!this.drc || !this.drcCard?.isOpen) return;
     const shown = this._drcShown();
+    const lit = shown.find((v) => v.id === this.drcHover) || shown.find((v) => v.id === this.drcFocus);
     ctx.save();
+    // every shown problem: its items lightly outlined, and a badge
     for (const v of shown) {
+      const col = v.severity === 'error' ? (C.drcError || '#ff3b6b') : (C.ercWarning || '#ffb74d');
+      if (v.show && v !== lit) drawDrcShow(ctx, view, C, v, col, false);
       if (!v.at) continue;
       const [x, y] = view.toScreen(v.at);
-      const col = v.severity === 'error' ? (C.drcError || '#ff3b6b') : (C.ercWarning || '#ffb74d');
       ctx.fillStyle = col; ctx.strokeStyle = C.background || '#000'; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.95;
       const r = 6;
       ctx.beginPath(); ctx.moveTo(x, y - r * 1.7); ctx.lineTo(x + r, y); ctx.lineTo(x - r, y); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.fillStyle = '#fff'; ctx.font = '700 9px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', x, y - r * 0.55);
-      if (v.id === this.drcFocus) {
-        ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
-        if (v.box) { const [x0, y0] = view.toScreen([v.box.x0, v.box.y0]), [x1, y1] = view.toScreen([v.box.x1, v.box.y1]); ctx.beginPath(); ctx.arc(x, y, Math.max(12, Math.min(40, Math.hypot(x1 - x0, y1 - y0) / 8)), 0, Math.PI * 2); ctx.stroke(); }
-        ctx.setLineDash([]);
-      }
+    }
+    // the focused (or hovered) one (#80): the rest dimmed, its items, the gap and the clearance needed
+    if (lit?.show) {
+      ctx.globalAlpha = 0.55; ctx.fillStyle = C.background || '#000';
+      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      ctx.globalAlpha = 1;
+      drawDrcShow(ctx, view, C, lit, lit.severity === 'error' ? (C.drcError || '#ff3b6b') : (C.ercWarning || '#ffb74d'), true);
     }
     ctx.restore();
   }
@@ -1864,4 +1870,74 @@ export class BoardEditor {
     for (const [id, t] of Object.entries(BOARD_TOOLS)) if (k === t.key) { this.setTool(id); return true; }
     return false;
   }
+}
+
+// ---------------------------------------------------------------- DRC highlight (#80)
+
+/** A collision shape's outline on screen: a capsule (round-ended segment, or circle) or a polygon. */
+function shapePathDrc(ctx, view, sh, grow = 0) {
+  ctx.beginPath();
+  if (sh.type === 'capsule') {
+    const [ax, ay] = view.toScreen(sh.a), [bx, by] = view.toScreen(sh.b), r = Math.max(0.5, (sh.r + grow) * view.scale);
+    const ang = Math.atan2(by - ay, bx - ax);
+    ctx.arc(ax, ay, r, ang + Math.PI / 2, ang + (3 * Math.PI) / 2);
+    ctx.arc(bx, by, r, ang - Math.PI / 2, ang + Math.PI / 2);
+    ctx.closePath();
+  } else {
+    sh.pts.forEach((q, i) => { const [x, y] = view.toScreen(q); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+    ctx.closePath();
+  }
+}
+
+/** Draw what a DRC result shows: its items (filled when `strong`), the needed clearance, the gap and any note. */
+function drawDrcShow(ctx, view, C, v, col, strong) {
+  const s = v.show;
+  ctx.save();
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  // the needed clearance: a translucent halo round the first item
+  if (strong && s.need && s.shapes?.[0]) {
+    const sh = s.shapes[0];
+    ctx.fillStyle = col; ctx.globalAlpha = 0.18;
+    if (sh.type === 'capsule') { shapePathDrc(ctx, view, sh, s.need); ctx.fill(); }
+    else { shapePathDrc(ctx, view, sh); ctx.lineWidth = 2 * s.need * view.scale; ctx.strokeStyle = col; ctx.stroke(); ctx.fill(); }
+  }
+  for (const sh of s.shapes || []) {
+    shapePathDrc(ctx, view, sh);
+    if (strong) { ctx.globalAlpha = 0.45; ctx.fillStyle = col; ctx.fill(); }
+    ctx.globalAlpha = strong ? 1 : 0.5; ctx.strokeStyle = col; ctx.lineWidth = strong ? 2 : 1.2; ctx.stroke();
+  }
+  // courtyards: both outlines, the overlap filled
+  if (s.outlines) {
+    ctx.globalAlpha = strong ? 1 : 0.5; ctx.strokeStyle = col; ctx.lineWidth = strong ? 2 : 1.2; ctx.setLineDash([5, 3]);
+    for (const ring of s.outlines) { shapePathDrc(ctx, view, { type: 'poly', pts: ring }); ctx.stroke(); }
+    ctx.setLineDash([]);
+    ctx.globalAlpha = strong ? 0.5 : 0.25; ctx.fillStyle = col;
+    for (const ring of s.overlap || []) { shapePathDrc(ctx, view, { type: 'poly', pts: ring }); ctx.fill(); }
+  }
+  // an unrouted connection: its airwire, thicker
+  if (s.wire) {
+    const [a, b] = s.wire.map((q) => view.toScreen(q));
+    ctx.globalAlpha = strong ? 1 : 0.6; ctx.strokeStyle = col; ctx.lineWidth = strong ? 3 : 2;
+    ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke();
+  }
+  // the gap: the closest points joined, with the distance
+  const note = (at, text) => {
+    const [x, y] = view.toScreen(at);
+    ctx.globalAlpha = 1; ctx.font = '600 12px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    const w = ctx.measureText(text).width + 10;
+    ctx.fillStyle = C.background || '#000'; ctx.globalAlpha = 0.9; ctx.fillRect(x + 10, y - 20, w, 18);
+    ctx.globalAlpha = 1; ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.strokeRect(x + 10.5, y - 19.5, w, 18);
+    ctx.fillStyle = col; ctx.fillText(text, x + 15, y - 11);
+  };
+  if (strong && s.gap) {
+    const [ax, ay] = view.toScreen(s.gap.a), [bx, by] = view.toScreen(s.gap.b);
+    ctx.globalAlpha = 1; ctx.strokeStyle = C.text || '#fff'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+    ctx.fillStyle = C.text || '#fff';
+    for (const [x, y] of [[ax, ay], [bx, by]]) { ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.fill(); }
+    const mm3 = (n) => `${+(Math.max(0, n) / 1e6).toFixed(3)} mm`;
+    note([(s.gap.a[0] + s.gap.b[0]) / 2, (s.gap.a[1] + s.gap.b[1]) / 2], `${s.gap.d <= 0 ? 'touching' : mm3(s.gap.d)}${s.need ? ` · ${mm3(s.need)} needed` : ''}`);
+  }
+  if (strong && s.label && s.labelAt) note(s.labelAt, s.label);
+  ctx.restore();
 }

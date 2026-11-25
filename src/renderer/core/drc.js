@@ -2,9 +2,13 @@
 // places where the Board breaks its Design rules (board.rules and the Net classes) or isn't
 // finished. Uses the collision engine for copper clearance. DOM-free.
 //
-//   runDrc(project, fills?) -> [{ id, rule, severity: 'error' | 'warning', message, at, box, layer?, items }]
+//   runDrc(project, fills?) -> [{ id, rule, severity: 'error' | 'warning', message, at, box, layer?, items, show? }]
 //
 // at: [x, y] where to look (null when there's no one place); box: the area to zoom to.
+// show (#80): what to draw for it. shapes: the items' copper (collision shapes: capsule | poly);
+// gap: { a, b, d }, the closest points of the two shapes' edges and the distance between them;
+// need: the clearance or size the rule asks for; outlines / overlap: courtyard rings and their
+// overlap; wire: an unrouted connection [a, b]; label: a short note to draw (sizes).
 import ClipperLib from 'clipper-lib';
 import { copperIndex, shapeDistance, shapeBox, clearanceBetween, netRules, pointSeg2 } from './collision.js';
 import { fpTransform, flipLayer, placedPads, padNets } from './footprint.js';
@@ -65,6 +69,24 @@ function nearestPoint(s, t) {
     if (dd < bd) { bd = dd; best = mid(p, q); }
   }
   return best;
+}
+
+/**
+ * The closest points of two shapes' edges (capsules include their radius) and the distance between
+ * them (0 or less when they touch or overlap): { a, b, d }.
+ */
+export function closestPair(s, t) {
+  let best = null, bd = Infinity;
+  for (const [a, b] of edges(s)) for (const [c, d] of edges(t)) {
+    const [p, q] = closestSegs(a, b, c, d);
+    const dd = (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2;
+    if (dd < bd) { bd = dd; best = [p, q]; }
+  }
+  const [p, q] = best, L = Math.sqrt(bd);
+  const rs = s.type === 'capsule' ? s.r : 0, rt = t.type === 'capsule' ? t.r : 0;
+  const ux = L ? (q[0] - p[0]) / L : 1, uy = L ? (q[1] - p[1]) / L : 0;
+  const r2 = (v) => Math.round(v);
+  return { a: [r2(p[0] + ux * rs), r2(p[1] + uy * rs)], b: [r2(q[0] - ux * rt), r2(q[1] - uy * rt)], d: Math.round(shapeDistance(s, t)) };
 }
 
 function inRings(p, rings) {
@@ -131,7 +153,10 @@ export function runDrc(project, fills = new Map()) {
     const need = clearanceBetween(board, a.net, b.net);
     const at = nearestPoint(a.shape, b.shape);
     const cls = [...new Set([netClassOf(board, a.net), netClassOf(board, b.net)])].join('/');
-    add({ rule: 'clearance', severity: 'error', layer, at, box: boxAround(at, Math.max(need * 6, 1_500_000)), items: [a.id, b.id],
+    // the halo goes round the item that isn't a zone edge (or the first)
+    const [h1, h2] = a.kind === 'zone' && b.kind !== 'zone' ? [b, a] : [a, b];
+    const show = { shapes: [h1.shape, h2.shape], gap: closestPair(h1.shape, h2.shape), need };
+    add({ rule: 'clearance', severity: 'error', layer, at, box: boxAround(at, Math.max(need * 6, 1_500_000)), items: [a.id, b.id], show,
       message: `${name(a)} and ${name(b)} ${d <= 0 ? 'touch' : `are ${mmText(Math.max(0, d))} apart`}; ${mmText(need)} needed (${cls}).` });
   }
 
@@ -151,7 +176,7 @@ export function runDrc(project, fills = new Map()) {
     const probe = it.shape.type === 'capsule' ? it.shape.a : it.shape.pts[0];
     if (rings && !inRings(probe, rings)) {
       edgeSeen.add(it.id);
-      add({ rule: 'edge', severity: 'error', at: probe, box: boxAround(probe, 2_000_000), items: [it.id], layer: [...it.layers][0], message: `${name(it)} is off the board.` });
+      add({ rule: 'edge', severity: 'error', at: probe, box: boxAround(probe, 2_000_000), items: [it.id], layer: [...it.layers][0], show: { shapes: [it.shape] }, message: `${name(it)} is off the board.` });
       continue;
     }
     let worst = null;
@@ -163,14 +188,14 @@ export function runDrc(project, fills = new Map()) {
     if (worst) {
       const at = nearestPoint(it.shape, worst.e);
       edgeSeen.add(it.id);
-      add({ rule: 'edge', severity: 'error', at, box: boxAround(at, Math.max(edge * 6, 1_500_000)), items: [it.id], layer: [...it.layers][0], message: `${name(it)} is ${mmText(Math.max(0, worst.d))} from the board edge; ${mmText(edge)} needed.` });
+      add({ rule: 'edge', severity: 'error', at, box: boxAround(at, Math.max(edge * 6, 1_500_000)), items: [it.id], layer: [...it.layers][0], show: { shapes: [it.shape, worst.e], gap: closestPair(it.shape, worst.e), need: edge }, message: `${name(it)} is ${mmText(Math.max(0, worst.d))} from the board edge; ${mmText(edge)} needed.` });
     }
   }
 
   // track width (narrower than its Net class's), annular ring and hole size
   for (const t of board.tracks || []) {
     const need = netRules(board, t.net).trackWidth;
-    if (t.width < need) { const at = mid(t.a, t.b); add({ rule: 'width', severity: 'error', at, box: merge(boxAround(t.a, 1_000_000), boxAround(t.b, 1_000_000)), items: [t.id], layer: t.layer, message: `Track (${t.net || 'no net'}) is ${mmText(t.width)} wide; its ${netClassOf(board, t.net)} class needs ${mmText(need)}.` }); }
+    if (t.width < need) { const at = mid(t.a, t.b); add({ rule: 'width', severity: 'error', at, box: merge(boxAround(t.a, 1_000_000), boxAround(t.b, 1_000_000)), items: [t.id], layer: t.layer, show: { shapes: [{ type: 'capsule', a: t.a, b: t.b, r: t.width / 2 }], label: `${mmText(t.width)} wide · ${mmText(need)} needed`, labelAt: at }, message: `Track (${t.net || 'no net'}) is ${mmText(t.width)} wide; its ${netClassOf(board, t.net)} class needs ${mmText(need)}.` }); }
   }
   const holes = [];
   for (const v of board.vias || []) holes.push({ id: v.id, at: v.at, drill: v.drill, copper: v.diameter, what: `Via (${v.net || 'no net'})` });
@@ -183,10 +208,11 @@ export function runDrc(project, fills = new Map()) {
     }
   }
   for (const hl of holes) {
-    if (hl.drill < rules.minHole) add({ rule: 'hole', severity: 'error', at: hl.at, box: boxAround(hl.at, 2_000_000), items: [hl.id], message: `${hl.what}: ${mmText(hl.drill)} drill is under the ${mmText(rules.minHole)} minimum hole.` });
+    const drillShape = { type: 'capsule', a: hl.at, b: hl.at, r: hl.drill / 2 };
+    if (hl.drill < rules.minHole) add({ rule: 'hole', severity: 'error', at: hl.at, box: boxAround(hl.at, 2_000_000), items: [hl.id], show: { shapes: [drillShape], label: `${mmText(hl.drill)} drill · ${mmText(rules.minHole)} minimum`, labelAt: hl.at }, message: `${hl.what}: ${mmText(hl.drill)} drill is under the ${mmText(rules.minHole)} minimum hole.` });
     if (hl.copper != null) {
       const ring = (hl.copper - hl.drill) / 2;
-      if (ring < rules.annularRing) add({ rule: 'ring', severity: 'error', at: hl.at, box: boxAround(hl.at, 2_000_000), items: [hl.id], message: `${hl.what}: annular ring ${mmText(Math.max(0, ring))}; ${mmText(rules.annularRing)} needed.` });
+      if (ring < rules.annularRing) add({ rule: 'ring', severity: 'error', at: hl.at, box: boxAround(hl.at, 2_000_000), items: [hl.id], show: { shapes: [{ type: 'capsule', a: hl.at, b: hl.at, r: hl.copper / 2 }, drillShape], label: `ring ${mmText(Math.max(0, ring))} · ${mmText(rules.annularRing)} needed`, labelAt: hl.at }, message: `${hl.what}: annular ring ${mmText(Math.max(0, ring))}; ${mmText(rules.annularRing)} needed.` });
     }
   }
 
@@ -220,14 +246,15 @@ export function runDrc(project, fills = new Map()) {
     const ob = shapeBox({ type: 'poly', pts: sol.flat().map((q) => [q.X, q.Y]) });
     const at = [Math.round((ob.x0 + ob.x1) / 2), Math.round((ob.y0 + ob.y1) / 2)];
     const ref = (bf) => board.annotation?.components?.[bf.componentId]?.ref || project.components[bf.componentId]?.ref || '?';
-    add({ rule: 'courtyard', severity: 'error', at, box: merge(a.box, b.box), items: [a.bf.id, b.bf.id], layer: `${a.side}.CrtYd`, message: `${ref(a.bf)} and ${ref(b.bf)} courtyards overlap (${a.side === 'B' ? 'back' : 'front'}).` });
+    const ring = (p) => p.map((q) => [q.X, q.Y]);
+    add({ rule: 'courtyard', severity: 'error', at, box: merge(a.box, b.box), items: [a.bf.id, b.bf.id], layer: `${a.side}.CrtYd`, show: { outlines: [...a.paths.map(ring), ...b.paths.map(ring)], overlap: sol.map(ring) }, message: `${ref(a.bf)} and ${ref(b.bf)} courtyards overlap (${a.side === 'B' ? 'back' : 'front'}).` });
   }
 
   // unrouted connections
   const rats = ratsnest(project, board, fills);
   for (const w of rats.wires) {
     const at = mid(w.a, w.b);
-    add({ rule: 'unrouted', severity: 'warning', at, box: merge(boxAround(w.a, 1_500_000), boxAround(w.b, 1_500_000)), items: [w.net], message: `${w.net} is not routed here (${mmText(Math.round(Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1])))}).` });
+    add({ rule: 'unrouted', severity: 'warning', at, box: merge(boxAround(w.a, 1_500_000), boxAround(w.b, 1_500_000)), items: [w.net], show: { wire: [w.a, w.b] }, message: `${w.net} is not routed here (${mmText(Math.round(Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1])))}).` });
   }
 
   // the Schematic has changes the Board hasn't had (Forward annotation pending)

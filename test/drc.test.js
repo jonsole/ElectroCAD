@@ -134,3 +134,33 @@ test('unrouted connections, the board outline, and a pending forward annotation'
   assert.equal(v[0].at, null);
   assert.deepEqual(drcCounts(v), { error: 0, warning: 1 });
 });
+
+test('what to draw (#80): the two shapes, the gap between their edges and the clearance needed', async () => {
+  const { closestPair } = await import('../src/renderer/core/drc.js');
+  const { p, b, f2 } = clean();
+  const nets = padNets(b);
+  const pad = placedPads(p, f2, nets).find((x) => x.number === '2');
+  // a via of another net 0.1 mm from the pad's right edge, level with its centre
+  const right = pad.at[0] + pad.size[0] / 2;
+  b.vias.push({ id: 'v', at: [right + mm(0.1) + mm(0.3), pad.at[1]], drill: mm(0.3), diameter: mm(0.6), from: 'F.Cu', to: 'B.Cu', net: 'OTHER' });
+  const v = runDrc(p).filter((x) => x.rule === 'clearance' && x.items.includes('v'));
+  assert.equal(v.length, 1);
+  const s = v[0].show;
+  assert.equal(s.shapes.length, 2);
+  assert.equal(s.need, b.rules.clearance);
+  assert.ok(Math.abs(s.gap.d - mm(0.1)) <= 2, `gap ${s.gap.d}`);
+  // the closest points: on the pad's right edge and on the via's ring, level with the pad's centre
+  const [onPad, onVia] = s.shapes[0].type === 'capsule' && s.shapes[0].r === mm(0.3) ? [s.gap.b, s.gap.a] : [s.gap.a, s.gap.b];
+  assert.ok(Math.abs(onPad[0] - right) <= 2 && Math.abs(onPad[1] - pad.at[1]) <= 2, `pad point ${onPad}`);
+  assert.ok(Math.abs(onVia[0] - (right + mm(0.1))) <= 2 && Math.abs(onVia[1] - pad.at[1]) <= 2, `via point ${onVia}`);
+  // closestPair directly: two parallel capsules 1 mm apart edge to edge
+  const g = closestPair({ type: 'capsule', a: [0, 0], b: [mm(5), 0], r: mm(0.5) }, { type: 'capsule', a: [mm(1), mm(2)], b: [mm(4), mm(2)], r: mm(0.5) });
+  assert.equal(g.d, mm(1)); assert.equal(g.a[1], mm(0.5)); assert.equal(g.b[1], mm(1.5));
+  // the other checks carry their own: width, courtyard, unrouted
+  b.tracks[0].width = mm(0.1);
+  const w = runDrc(p).find((x) => x.rule === 'width');
+  assert.equal(w.show.shapes[0].r, mm(0.05)); assert.match(w.show.label, /0\.1 mm wide/);
+  b.tracks.length = 0;
+  const u = runDrc(p).find((x) => x.rule === 'unrouted');
+  assert.equal(u.show.wire.length, 2);
+});
