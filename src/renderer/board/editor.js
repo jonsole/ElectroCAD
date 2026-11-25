@@ -31,6 +31,7 @@ import { ZoneFiller } from './zoneFiller.js';
 import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { watchAlt } from '../ui/grid.js';
 import { GridCard } from '../ui/gridCard.js';
+import { ContextStrip, stripLabel, stripSep, stripButton, stripNumber, stripSelect, stripSegmented } from '../ui/contextStrip.js';
 import { CardSet } from '../ui/cards.js';
 import { highlight, screenBox, revealBox } from '../view/highlight.js';
 import { probeFromBoard, boardTargets } from '../core/probe.js';
@@ -75,6 +76,9 @@ export class BoardEditor {
     this.routeMode = pref.get('boardRouteMode', 'walkaround'); // 'walkaround' | 'free' (Shove: #29)
     this.corner = pref.get('boardCorner', '45');            // track bends: '90' | '45' | 'any'
     this.chamfer = mm(pref.get('boardChamfer', 0));         // Eagle-style auto chamfer of 90° bends
+    this.rotStep = pref.get('boardRotStep', 90);           // degrees R and the strip's rotate buttons turn by
+    this.zoneNet = 'auto';                                 // the Zone tool's net: 'auto' (from the first corner), '' or a name
+    this.strip = new ContextStrip('Tool options and selection actions');
     this.route = null;          // the track being routed (router state), its copper index and proposal
     this.pts = null;            // points clicked so far by the drawing tools
     this.arcNext = false;       // polygon: the next side is an arc (a mid point, then the end)
@@ -117,10 +121,6 @@ export class BoardEditor {
     this.btn = {
       undo: button({ icon: 'undo', title: 'Undo (Ctrl+Z)', onClick: () => this.app.undo() }),
       redo: button({ icon: 'redo', title: 'Redo (Ctrl+Shift+Z)', onClick: () => this.app.redo() }),
-      del: button({ icon: 'trash', title: 'Delete (Del)', onClick: () => this.deleteSelection() }),
-      rotate: button({ icon: 'rotate', title: 'Rotate the selected Footprints 90° (R; Shift+R the other way)', onClick: () => this.rotateSel(90) }),
-      flip: button({ icon: 'flip', title: 'Flip the selected Footprints to the other side (F)', onClick: () => this.flipSel() }),
-      lock: button({ icon: 'lock', title: 'Lock or unlock the selected Footprints (L)', onClick: () => this.lockSel() }),
     };
     this.gridCard = new GridCard({
       key: 'board-grid', choices: GRID_CHOICES,
@@ -144,8 +144,9 @@ export class BoardEditor {
     this.pairSel.addEventListener('keydown', (e) => e.stopPropagation());
     this.pairBox = h('label', { class: 'chamfer-box pair-box' }, h('span', {}, 'V switches'), this.pairSel);
     this.routeStrip = h('div', { class: 'tool-strip route-strip', role: 'toolbar', 'aria-label': 'Routing options', hidden: true },
-      h('span', { class: 'tool-strip-label' }, 'Corners'), this.cornerSeg, h('span', { class: 'sep' }), chamfer, h('span', { class: 'sep pair-sep' }), this.pairBox);
-    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.del, this.btn.rotate, this.btn.flip, this.btn.lock, h('span', { class: 'sep' }), ...this.cards.buttons(), this.gridCard.button];
+      stripLabel('Route', 'route'), stripSep(), h('span', { class: 'tool-strip-label strip-sub' }, 'Corners'), this.cornerSeg, h('span', { class: 'sep' }), chamfer, h('span', { class: 'sep pair-sep' }), this.pairBox);
+    // delete, rotate, flip and lock live on the context strip over the canvas, with what they act on
+    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), ...this.cards.buttons(), this.gridCard.button];
   }
 
   /** The routing mode switcher for the toolbar: Shove (#29, later), Walkaround, Free. */
@@ -247,9 +248,6 @@ export class BoardEditor {
     if (fps.length === 1 && !sel.length) parts.push(...this.footprintProps(fps[0]));
     else if (fps.length > 1) parts.push(h('div', { class: 'prop-title' }, `${fps.length} footprints${sel.length ? ` and ${sel.length} outline shape${sel.length === 1 ? '' : 's'}` : ''}`),
       h('p', { class: 'side-note' }, 'R rotates them 90° about their middle, F flips them to the other side, L locks them. Drag to move.'));
-    if (['outline', 'polygon', 'circle'].includes(this.tool) || (!sel.length && this.tool === 'select')) {
-      if (this.tool === 'outline') parts.push(field('Corner radius', fmt(this.radius), (v) => { this.radius = mm(Math.max(0, v)); pref.set('boardCornerRadius', toMm(this.radius)); this.ws?.view.invalidate(); }));
-    }
     if (sel.length === 1) {
       const s = sel[0], i = [...this.selection][0];
       const label = { rect: 'Rectangle', circle: 'Circle', line: 'Line', arc: 'Arc' }[s.type] || s.type;
@@ -446,11 +444,7 @@ export class BoardEditor {
     if (this.btn) {
       this.btn.undo.disabled = !this.app.history.canUndo;
       this.btn.redo.disabled = !this.app.history.canRedo;
-      this.btn.del.disabled = !this.selection.size && !this.trackSel.size && !this.zoneSel.size;
-      const anyFp = this.fpSel.size > 0;
-      for (const k of ['rotate', 'flip', 'lock']) this.btn[k].disabled = !anyFp;
-      const fs = this.board.footprints.filter((f) => this.fpSel.has(f.id));
-      this.btn.lock.replaceChildren(icon(fs.length && fs.every((f) => f.locked) ? 'unlock' : 'lock', 20));
+
     }
     if (this.toolBtn) for (const [id, b] of Object.entries(this.toolBtn)) b.classList.toggle('active', this.tool === id);
     if (this.routeStrip) {
@@ -463,6 +457,7 @@ export class BoardEditor {
       this.pairSel.value = cur;
     }
     if (this.stackEl) { this.renderStack(); this.renderLayers(); this.renderProps(); this.renderDrc(); }
+    this._updateStrip();
     this._home();
     if (this.ws) { this.ws.view.grid = this.gridStep; this.ws.view.origin = this.board.origin; }
     this.gridCard?.render();
@@ -769,6 +764,7 @@ export class BoardEditor {
     this.gridCard.mount(ws);
     this.cards.mount(ws);
     ws.view.el.append(this.routeStrip);
+    this.strip.mount(ws.view.el);
     this.routeStrip.addEventListener('pointerdown', (e) => e.stopPropagation());
     c.addEventListener('pointercancel', up);
     c.addEventListener('pointerleave', () => { if (this.tool !== 'select') { this.cursor = null; ws.view.invalidate(); } });
@@ -826,7 +822,7 @@ export class BoardEditor {
     this.pts = null;
     if (!pts || pts.length < 3) { this.refresh(); return; }
     const layer = copperLayerNames(this.board.stack.copper).includes(this.activeLayer) ? this.activeLayer : 'F.Cu';
-    const z = newZone(layer, this._zoneNet(pts[0], layer), pts);
+    const z = newZone(layer, this.zoneNet === 'auto' || this.zoneNet == null ? this._zoneNet(pts[0], layer) : this.zoneNet, pts);
     this.app.edit('Add zone', (p) => { p.board.zones.push(z); });
     this.tool = 'select';
     if (this.ws) this.ws.view.canvas.style.cursor = '';
@@ -994,6 +990,93 @@ export class BoardEditor {
     if (!this.trackSel.size) return;
     this.trackSel = connection(this.board, [...this.trackSel]);
     this.refresh();
+  }
+
+  // ---------------------------------------------------------------- the context strip
+
+  /** Show the context strip for the tool in use or what is selected (the routing strip has its own). */
+  _updateStrip() {
+    const s = this.strip, t = this.tool;
+    if (!this.ws || t === 'route') { s.hide(); return; }
+    const copper = copperLayerNames(this.board.stack.copper);
+    if (t === 'outline') {
+      s.show(`outline|${this.radius}`, () => [stripLabel('Rectangle', 'outline'), stripSep(),
+        stripNumber({ label: 'Corner radius', value: fmt(this.radius), unit: 'mm', onSet: (v) => { this.radius = mm(Math.max(0, v)); pref.set('boardCornerRadius', toMm(this.radius)); this.refresh(); }, title: 'Round the corners of new rectangles (0 for square)' })]);
+      return;
+    }
+    if (t === 'polygon') {
+      s.show(`polygon|${this.arcNext}|${this.pts ? this.pts.steps.length : -1}`, () => [stripLabel('Polygon', 'lpolygon'), stripSep(),
+        stripSegmented({ label: 'Next side', value: this.arcNext ? 'arc' : 'line', items: [['line', 'Straight', 'The next side is straight'], ['arc', 'Arc', 'The next side is an arc through a point you click (A)']], onPick: (id) => { if (!this.pts?.mid) this.arcNext = id === 'arc'; this.refresh(); } }),
+        this.pts ? stripButton({ icon: 'undo', label: 'Undo corner', title: 'Take back the last corner (Backspace)', onClick: () => this.onKey({ key: 'Backspace' }) }) : null]);
+      return;
+    }
+    if (t === 'zone') {
+      const nets = [...new Set([...padNets(this.board).values()].filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      const n = this.pts?.zone?.length || 0;
+      s.show(`zone|${this.activeLayer}|${this.zoneNet}|${n}|${nets.join()}`, () => [stripLabel('Zone', 'zone'), stripSep(),
+        stripSelect({ label: 'Layer', value: copper.includes(this.activeLayer) ? this.activeLayer : 'F.Cu', options: copper.map((l) => [l, l]), onSet: (v) => this.setActiveLayer(v) }),
+        stripSelect({ label: 'Net', value: this.zoneNet ?? 'auto', options: [['auto', 'From the first corner'], ['', '(no net)'], ...nets.map((x) => [x, x])], onSet: (v) => { this.zoneNet = v; this.refresh(); }, title: 'The new zone\'s net: from the pad or track under its first corner (else GND), or pick one' }),
+        n >= 3 ? stripButton({ icon: 'check', label: 'Close', title: 'Close the zone (Enter)', onClick: () => this.closeZone() }) : null]);
+      return;
+    }
+    if (t !== 'select') { s.hide(); return; }
+    const fps = this.board.footprints.filter((f) => this.fpSel.has(f.id));
+    const tracks = (this.board.tracks || []).filter((x) => this.trackSel.has(x.id)), vias = (this.board.vias || []).filter((x) => this.trackSel.has(x.id));
+    const zones = (this.board.zones || []).filter((z) => this.zoneSel.has(z.id));
+    const shapes = [...this.selection].map((i) => this.board.outline[i]).filter(Boolean);
+    const del = (title) => stripButton({ icon: 'trash', title: `${title} (Del)`, danger: true, onClick: () => this.deleteSelection() });
+    if (fps.length) {
+      const one = fps.length === 1 ? fps[0] : null;
+      const ref = (f) => this.board.annotation?.components?.[f.componentId]?.ref || this.project.components[f.componentId]?.ref || '?';
+      const locked = fps.every((f) => f.locked);
+      const props = this.cards?.card('props');
+      s.show(`fp|${fps.map((f) => `${f.id}:${f.rot}:${f.side}:${!!f.locked}`).join(';')}|${this.rotStep}|${shapes.length}`, () => [
+        stripLabel(one ? `${ref(one)}${one.side === 'B' ? ' (back)' : ''}` : `${fps.length} footprints`, 'pad'), stripSep(),
+        stripButton({ icon: 'rotateLeft', title: `Rotate ${this.rotStep}° anticlockwise (R)`, onClick: () => this.rotateSel(this.rotStep) }),
+        stripButton({ icon: 'rotateRight', title: `Rotate ${this.rotStep}° clockwise (Shift+R)`, onClick: () => this.rotateSel(-this.rotStep) }),
+        stripSelect({ label: 'Rotation step', showLabel: false, value: this.rotStep, options: [90, 45, 30, 15, 10, 5, 1].map((d) => [d, `${d}°`]), title: 'How far R and the rotate buttons turn', onSet: (v) => { this.rotStep = +v; pref.set('boardRotStep', this.rotStep); this.refresh(); } }),
+        one ? stripNumber({ label: 'Angle', value: +one.rot.toFixed(2), unit: '°', step: '1', min: '-360', max: '360', width: 62, title: 'The exact rotation (anticlockwise)', onSet: (v) => this.app.edit(`Rotate ${ref(one)} to ${v}°`, (p) => setFootprintRotation(p, one.id, v)) }) : null,
+        stripSep(),
+        stripButton({ icon: 'flip', label: 'Flip', title: `Flip to the ${one?.side === 'B' ? 'front' : 'other side'} (F)`, onClick: () => this.flipSel() }),
+        stripButton({ icon: locked ? 'unlock' : 'lock', label: locked ? 'Unlock' : 'Lock', active: locked, title: `${locked ? 'Unlock' : 'Lock'}: a locked footprint doesn't move (L)`, onClick: () => this.lockSel() }),
+        props ? stripButton({ icon: 'sliders', title: 'Properties: Reference, Value, Footprint, position', active: props.isOpen, onClick: () => { props.toggle(true); this.refresh(); } }) : null]);
+      return;
+    }
+    if (tracks.length || vias.length) {
+      const one = (xs, k) => (xs.length && xs.every((x) => x[k] === xs[0][k]) ? xs[0][k] : null);
+      const ids = tracks.map((x) => x.id), vids = vias.map((x) => x.id);
+      const w = one(tracks, 'width'), lay = one(tracks, 'layer');
+      s.show(`copper|${[...this.trackSel].join()}|${w}|${lay}|${one(vias, 'drill')}|${one(vias, 'diameter')}`, () => [
+        stripLabel([tracks.length ? `${tracks.length} track${tracks.length === 1 ? '' : 's'}` : '', vias.length ? `${vias.length} via${vias.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(', '), tracks.length ? 'route' : 'via'), stripSep(),
+        tracks.length ? stripNumber({ label: 'Width', value: w == null ? null : fmt(w), placeholder: 'mixed', unit: 'mm', step: '0.01', min: '0.01', onSet: (v) => { try { this.app.edit('Track width', (p) => setTrackWidth(p, ids, mm(v))); } catch (e) { toast(e.message, 'error', 3000); } } }) : null,
+        tracks.length ? stripSelect({ label: 'Layer', value: lay || '', options: [...(lay ? [] : [['', 'Mixed']]), ...copper.map((l) => [l, l])], onSet: (v) => { if (v) this.app.edit(`Tracks to ${v}`, (p) => setTrackLayer(p, ids, v)); } }) : null,
+        vias.length ? stripNumber({ label: 'Via', value: one(vias, 'drill') == null ? null : fmt(one(vias, 'drill')), placeholder: 'mixed', unit: '/', step: '0.05', min: '0.05', width: 56, title: 'Via drill (mm)', onSet: (v) => { try { this.app.edit('Via drill', (p) => setViaSize(p, vids, { drill: mm(v) })); } catch (e) { toast(e.message, 'error', 3000); } } }) : null,
+        vias.length ? stripNumber({ label: '', value: one(vias, 'diameter') == null ? null : fmt(one(vias, 'diameter')), placeholder: 'mixed', unit: 'mm', step: '0.05', min: '0.1', width: 56, title: 'Via diameter (mm)', onSet: (v) => { try { this.app.edit('Via diameter', (p) => setViaSize(p, vids, { diameter: mm(v) })); } catch (e) { toast(e.message, 'error', 3000); } } }) : null,
+        stripSep(),
+        stripButton({ icon: 'wire', label: 'Connection', title: 'Select the whole connection: every track and via joined to these (U)', onClick: () => this.selectConnection() }),
+        del('Delete')]);
+      return;
+    }
+    if (zones.length) {
+      const z = zones.length === 1 ? zones[0] : null;
+      const nets = [...new Set([...padNets(this.board).values()].filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      if (z?.net && !nets.some((n) => n.toLowerCase() === z.net.toLowerCase())) nets.unshift(z.net);
+      const set = (label, fn) => this.app.edit(label, (p) => fn(p.board.zones.find((q) => q.id === z.id)));
+      s.show(`zone-sel|${zones.map((q) => `${q.id}:${q.net}:${q.layer}:${q.priority}:${q.connect}`).join(';')}`, () => [
+        stripLabel(z ? `Zone on ${z.layer}` : `${zones.length} zones`, 'zone'), stripSep(),
+        z ? stripSelect({ label: 'Net', value: nets.find((n) => n.toLowerCase() === (z.net || '').toLowerCase()) || '', options: [['', '(no net)'], ...nets.map((n) => [n, n])], onSet: (v) => set(`Zone net ${v || '(none)'}`, (q) => { q.net = v; }) }) : null,
+        z ? stripSelect({ label: 'Layer', value: z.layer, options: copper.map((l) => [l, l]), onSet: (v) => set(`Zone to ${v}`, (q) => { q.layer = v; }) }) : null,
+        z ? stripNumber({ label: 'Priority', value: z.priority, step: '1', min: '0', width: 48, onSet: (v) => set('Zone priority', (q) => { q.priority = Math.max(0, Math.round(v)); }) }) : null,
+        z ? stripSegmented({ label: 'Pads', value: z.connect === 'solid' ? 'solid' : 'thermal', items: [['thermal', 'Thermal', 'Same-net pads join through thermal reliefs'], ['solid', 'Solid', 'Same-net pads are joined solid']], onPick: (id) => set(`Pads ${id}`, (q) => { q.connect = id; }) }) : null,
+        stripSep(), del(zones.length === 1 ? 'Delete the zone' : 'Delete the zones')]);
+      return;
+    }
+    if (shapes.length) {
+      const kind = { rect: 'Rectangle', circle: 'Circle', line: 'Line', arc: 'Arc' };
+      s.show(`outline-sel|${[...this.selection].join()}`, () => [stripLabel(shapes.length === 1 ? `${kind[shapes[0].type] || 'Shape'} on Edge.Cuts` : `${shapes.length} outline shapes`, 'outline'), stripSep(), del('Delete')]);
+      return;
+    }
+    s.hide();
   }
 
   // ---------------------------------------------------------------- DRC (#25)
@@ -1292,7 +1375,7 @@ export class BoardEditor {
     if (arrows[e.key] && (this.selection.size || this.fpSel.size || this.zoneSel.size)) { const [dx, dy] = arrows[e.key]; this.nudge(dx * this.board.grid.main, dy * this.board.grid.main); return true; }
     if (this.trackSel.size && this.tool === 'select' && e.key.toLowerCase() === 'u') { this.selectConnection(); return true; }
     if (this.fpSel.size && this.tool === 'select') {
-      if (k === 'r') { this.rotateSel(e.shiftKey ? -90 : 90); return true; }
+      if (k === 'r') { this.rotateSel(e.shiftKey ? -this.rotStep : this.rotStep); return true; }
       if (k === 'f') { this.flipSel(); return true; }
       if (k === 'l') { this.lockSel(); return true; }
     }

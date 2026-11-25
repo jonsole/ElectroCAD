@@ -54,8 +54,10 @@ check('stored-unchanged', Object.values(app.project.components).some((c) => c.va
 // Per-part override through the Fields menu on a selection.
 const r2 = app.project.schematic.sheets[0].symbols.find((y) => app.project.components[y.componentId].ref === 'R2');
 ed.selection = new Set([r2.id]); ed.refresh();
-check('fields-button-enabled', !ed.btn.fields.disabled);
-ed.btn.fields.click();
+// the Fields button is on the selection's context strip
+const fieldsBtn = [...document.querySelectorAll('[data-ws="schematic"] .context-strip button')].find((b) => b.textContent.includes('Fields'));
+check('fields-button-shown', !!fieldsBtn && !fieldsBtn.closest('.context-strip').hidden);
+fieldsBtn.click();
 const item = [...document.querySelectorAll('.menu-item')].find((m) => m.textContent.trim() === 'Compact');
 check('menu', !!item);
 item.click();

@@ -49,7 +49,7 @@ This is a full-window page over the app, ported from the fork's "Your designs" d
 | Area | Schematic | Board |
 |---|---|---|
 | **Tool palette** (left, icon buttons, active = accent) | Select, Wire, Net label, Global label, Power, No-connect, Text, Measure | Select, Route, Drag track, Via, Zone, Outline, Text, Measure |
-| **Toolbar** | Import/Export, undo/redo, copy/paste/duplicate/delete, Rotate, Mirror, Annotate, ERC, Print | Import/Export, undo/redo, clipboard, Forward annotation, DRC, Fab output, plus the **Routing mode** `.mode-group` (Shove / Walkaround / Free) |
+| **Toolbar** | Undo/redo, paste, the cards (Parts, Grid, Sheets, Netlist, ERC), Print; selection actions (rotate, mirror, Fields, duplicate, copy, delete) are on the **context strip** | Undo/redo, the cards, Grid, Update from Schematic, Board setup, DRC, plus the **Routing mode** `.mode-group` (Shove / Walkaround / Free); tool options and selection actions are on the **context strip** |
 | **Right side panel** | **Part picker**, modelled on the fork's 3D Design shape panel (see below) | Collapsible uppercase sections like the Laser workspace's LAYERS / LASER: LAYERS (rows with a coloured chip, name, visibility, active), PROPERTIES, NET CLASSES, DRC |
 | **Inspector** | Floating card at the top-right of the canvas, like the 3D Design inspector ("Box" card). It shows the selected Component's Reference designator, Value, MPN, Footprint and fields, and hides when nothing is selected | PROPERTIES section: the same Component fields, including **Footprint**, plus position, rotation, side and lock. A Footprint change from either inspector swaps the Footprint in place on the Board at once (ADR-0008) |
 | **Bottom chips** (like the Laser workspace's colour palette) | One chip per Sheet; click to switch | One chip per Copper layer (and silk/mask); click to set the active layer |
@@ -411,6 +411,29 @@ Selecting something in one editor highlights the same thing in the other (#18). 
   - With one view, switching tabs shows the highlight, scrolled into view.
   - The choice is remembered.
 - Clearing the selection clears the highlight.
+
+## Context strips
+
+A small floating toolbar at the top of the canvas (`ui/contextStrip.js`, styled like the routing strip) shows the options for the tool in use or the actions for what is selected. The main toolbar keeps only what always applies: undo and redo, paste, the cards, the grid, and the workspace's own commands. Delete, rotate, flip, lock, mirror and Fields are off it now.
+- **Board:**
+  - **Route** (X): the routing strip (corners, chamfer, the via layer pair).
+  - **Rectangle** (B): corner radius.
+  - **Polygon** (P): straight or arc for the next side, and undo corner.
+  - **Zone** (Z): the layer, and the new zone's net (from the first corner, none, or a chosen net). **Close** appears once there are three corners.
+  - **Footprints selected:**
+    - Rotate anticlockwise and clockwise by the **step** (90°, 45°, 30°, 15°, 10°, 5° or 1°, remembered; R and Shift+R use it too).
+    - The exact **angle** (one footprint).
+    - **Flip**, **Lock** or Unlock, and Properties.
+  - **Tracks or vias selected:** width, layer, via drill and diameter, **Connection** (U) and delete.
+  - **Zone selected:** net, layer, priority, Thermal or Solid pads, and delete.
+  - **Outline shapes selected:** delete.
+- **Schematic:**
+  - **Placing a part:** rotate, mirror, and stop.
+  - **Label, power and ground tools:** rotate.
+  - **A selection:** rotate, mirror and **Fields** (parts), duplicate, copy, delete.
+- **Library** (Symbol and Footprint editors): the selection's turn (pins or pads) and delete.
+
+The strip rebuilds only when its context changes, so a field being typed in keeps its focus. Clicks on it don't reach the canvas.
 
 ## Routing tracks
 

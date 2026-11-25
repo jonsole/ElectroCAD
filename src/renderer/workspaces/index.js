@@ -116,6 +116,7 @@ function library(app) {
       ws.editor = cur();
       ws.view.canvas.style.cursor = '';
       ws.refresh(); ws.recolor();
+      sym._updateStrip?.(); fpe._updateStrip?.(); // only the shown editor's context strip shows
       if (f && !fpe.draft) ws.view.fitHome();
     }
   }

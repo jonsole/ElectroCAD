@@ -15,6 +15,7 @@ import { snapToGrid, gridLabel, SCHEMATIC_GRIDS, setGridStep } from '../core/gri
 import { watchAlt } from '../ui/grid.js';
 import { RULER } from '../view/canvas2d.js';
 import { GridCard } from '../ui/gridCard.js';
+import { ContextStrip, stripLabel, stripSep, stripButton } from '../ui/contextStrip.js';
 import { cardHead } from '../ui/cards.js';
 import { highlight, screenBox, revealBox } from '../view/highlight.js';
 import { probeFromSchematic, schematicTargets, sheetForProbe } from '../core/probe.js';
@@ -441,13 +442,7 @@ export class SchematicEditor {
     this.btn = {
       undo: button({ icon: 'undo', title: 'Undo (Ctrl+Z)', onClick: () => this.app.undo() }),
       redo: button({ icon: 'redo', title: 'Redo (Ctrl+Shift+Z)', onClick: () => this.app.redo() }),
-      del: button({ icon: 'trash', title: 'Delete (Del)', onClick: () => this.deleteSelection() }),
-      copy: button({ icon: 'copy', title: 'Copy (Ctrl+C)', onClick: () => this.copy() }),
       paste: button({ icon: 'paste', title: 'Paste (Ctrl+V)', onClick: () => this.paste() }),
-      dup: button({ icon: 'duplicate', title: 'Duplicate (Ctrl+D)', onClick: () => this.duplicate() }),
-      rotate: button({ icon: 'rotate', title: 'Rotate (R)', onClick: () => this.rotate() }),
-      mirror: button({ icon: 'mirror', title: 'Mirror (X)', onClick: () => this.mirror() }),
-      fields: button({ label: 'Fields', icon: 'ltext', title: 'Field style for the selected parts', onClick: (e) => this.fieldsMenu(e.currentTarget) }),
     };
     // the cards over the canvas: Sheets, Netlist and ERC; icons only, lit while open
     this.sheetsBtn = button({ icon: 'sheets', title: 'Sheets: add, rename, reorder and delete', onClick: () => this.toggleSheets() });
@@ -462,9 +457,9 @@ export class SchematicEditor {
       onOrigin: (at) => this.app.edit(`${this.sheet.name}: grid origin`, (p) => { this._S(p).origin = at; }),
       onPick: () => this.setTool('origin'),
     });
-    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }),
-      this.btn.copy, this.btn.paste, this.btn.dup, this.btn.del, h('span', { class: 'sep' }),
-      this.btn.rotate, this.btn.mirror, h('span', { class: 'sep' }), this.btn.fields, h('span', { class: 'sep' }),
+    // copy, duplicate, delete, rotate, mirror and Fields live on the context strip over the canvas
+    this.strip = new ContextStrip('Selection actions and tool options');
+    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.paste, h('span', { class: 'sep' }),
       this.partsBtn, this.gridCard.button, this.sheetsBtn, this.netlistBtn, erc];
   }
 
@@ -508,14 +503,6 @@ export class SchematicEditor {
     if (this.btn) {
       this.btn.undo.disabled = !this.app.history.canUndo;
       this.btn.redo.disabled = !this.app.history.canRedo;
-      for (const k of ['del', 'rotate', 'mirror']) this.btn[k].disabled = this.selection.size === 0 && !this.placing;
-      this.btn.del.disabled = this.selection.size === 0;
-      const anySym = this.sheet.symbols.some((y) => this.selection.has(y.id));
-      const anyLabel = (this.sheet.labels || []).some((l) => this.selection.has(l.id)) || (this.sheet.drawings || []).some((d) => this.selection.has(d.id));
-      if (!this.placing) { this.btn.rotate.disabled = !anySym && !anyLabel && !LABEL_TOOLS[this.tool]; this.btn.mirror.disabled = !anySym; }
-      this.btn.fields.disabled = !anySym;
-      this.btn.copy.disabled = this.selection.size === 0;
-      this.btn.dup.disabled = this.selection.size === 0;
       this.btn.paste.disabled = !this.clipboard;
     }
     if (this.toolBtn) for (const [t, b] of Object.entries(this.toolBtn)) b.classList.toggle('active', this.tool === t && !this.placing);
@@ -529,6 +516,7 @@ export class SchematicEditor {
     this.renderStyleFoot();
     this.ws?.renderBar();
     this.inspector?.render();
+    this._updateStrip();
     this._avoidInspector();
     this._hint();
     this._publishProbe();
@@ -579,6 +567,7 @@ export class SchematicEditor {
 
   attach(ws) {
     this.ws = ws;
+    this.strip.mount(ws.view.el);
     const c = ws.view.canvas;
     c.addEventListener('pointerdown', (e) => {
       this.lastPointer = [e.clientX, e.clientY];
@@ -1443,6 +1432,40 @@ export class SchematicEditor {
 
   /** Every selectable item on the current Sheet. */
   _allIds() { return [...this.sheet.symbols.map((y) => y.id), ...this.sheet.wires.map((w) => w.id), ...(this.sheet.labels || []).map((l) => l.id), ...(this.sheet.noConnects || []).map((n) => n.id), ...(this.sheet.drawings || []).map((d) => d.id)]; }
+
+  /** The context strip: what's being placed, the label tool's options, or actions for the selection. */
+  _updateStrip() {
+    const s = this.strip;
+    if (!s || !this.ws) return;
+    if (this.placing) {
+      const pl = this.placing;
+      s.show(`place|${pl.part.name}|${pl.rot}|${pl.mirror}|${pl.unit ?? ''}`, () => [stripLabel(`Placing ${pl.part.units?.length > 1 ? this._placingName(pl) : pl.part.name}`, 'parts'), stripSep(),
+        stripButton({ icon: 'rotate', title: `Rotate 90° (R) · now ${pl.rot}°`, onClick: () => { this.rotate(); this.refresh(); } }),
+        stripButton({ icon: 'mirror', title: 'Mirror (X)', active: !!pl.mirror, onClick: () => { this.mirror(); this.refresh(); } }),
+        stripSep(), stripButton({ icon: 'close', label: pl.drag ? 'Cancel' : 'Stop', title: 'Stop placing (Esc)', onClick: () => { this.endPlace(); this.refresh(); } })]);
+      return;
+    }
+    if (LABEL_TOOLS[this.tool]) {
+      s.show(`label|${this.tool}|${this.labelRot}`, () => [stripLabel(LABEL_TOOLS[this.tool].what, this.tool), stripSep(),
+        stripButton({ icon: 'rotate', title: `Rotate 90° (R) · now ${this.labelRot}°`, onClick: () => { this.rotate(); this.refresh(); } })]);
+      return;
+    }
+    if (this.tool !== 'select' || !this.selection.size) { s.hide(); return; }
+    const sh = this.sheet, sel = this.selection;
+    const n = (xs) => xs.filter((x) => sel.has(x.id)).length;
+    const syms = n(sh.symbols), wires = n(sh.wires), labels = n(sh.labels || []), drawings = n(sh.drawings || []), ncs = n(sh.noConnects || []);
+    const parts = [[syms, 'part'], [wires, 'wire'], [labels, 'label'], [drawings, 'drawing'], [ncs, 'no-connect']].filter(([k]) => k).map(([k, w]) => `${k} ${w}${k === 1 ? '' : 's'}`);
+    let title = parts.join(', ');
+    if (syms === 1 && sel.size === 1) { const y = sh.symbols.find((q) => sel.has(q.id)); title = this.project.components[y.componentId]?.ref || title; }
+    s.show(`sel|${[...sel].sort().join()}`, () => [stripLabel(title, syms ? 'parts' : wires ? 'wire' : labels ? 'netLabel' : 'select'), stripSep(),
+      syms || labels || drawings ? stripButton({ icon: 'rotate', title: 'Rotate 90° (R)', onClick: () => this.rotate() }) : null,
+      syms ? stripButton({ icon: 'mirror', title: 'Mirror (X)', onClick: () => this.mirror() }) : null,
+      syms ? stripButton({ icon: 'ltext', label: 'Fields', title: 'Field style for the selected parts', onClick: (e) => this.fieldsMenu(e.currentTarget) }) : null,
+      stripSep(),
+      stripButton({ icon: 'duplicate', title: 'Duplicate (Ctrl+D)', onClick: () => this.duplicate() }),
+      stripButton({ icon: 'copy', title: 'Copy (Ctrl+C)', onClick: () => { this.copy(); this.refresh(); } }),
+      stripButton({ icon: 'trash', title: 'Delete (Del)', danger: true, onClick: () => this.deleteSelection() })]);
+  }
 
   rotate() {
     if (this.placing) { this.placing.rot = (this.placing.rot + 90) % 360; this.ws.view.invalidate(); return; }

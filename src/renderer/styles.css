@@ -693,7 +693,7 @@ body.resizing iframe, body.resizing canvas { pointer-events: none; }
 .chamfer-box .input { width: 64px; height: 30px; padding: 0 6px; }
 .chamfer-box em { font-style: normal; }
 /* a tool's options, popped up at the top of the canvas while the tool is in use (Route) */
-.tool-strip { position: absolute; top: 34px; left: 50%; transform: translateX(-50%); z-index: 12; display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+.tool-strip { position: absolute; top: 34px; left: 40px; max-width: calc(100% - 52px); z-index: 12; display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
 .tool-strip[hidden] { display: none; }
 .tool-strip-label { font-size: 12.5px; color: var(--muted); }
 .tool-strip .sep { width: 1px; height: 22px; background: var(--border); margin: 0 2px; }
@@ -737,3 +737,16 @@ body.resizing iframe, body.resizing canvas { pointer-events: none; }
 .drc-stale { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .drc-rule { font-weight: 600; margin-right: 2px; }
 .drc-list { max-height: 360px; overflow: auto; }
+
+/* ---------- context strips (tool options, selection actions) ---------- */
+.context-strip { gap: 6px; padding: 4px 6px 4px 12px; flex-wrap: wrap; }
+.context-strip .tool-strip-label { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--text); white-space: nowrap; }
+.context-strip .tool-strip-label .icon { opacity: .75; }
+.strip-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.strip-field .input, .strip-field .select { height: 28px; padding: 0 6px; }
+.strip-field .select { max-width: 180px; }
+.strip-field em { font-style: normal; font-size: 11px; color: var(--muted); }
+.strip-btn { height: 30px; padding: 0 8px; }
+.strip-btn.active { background: var(--accent-soft); color: var(--accent); }
+.strip-btn.strip-danger:hover { color: var(--danger); }
+.strip-seg .btn { height: 28px; }

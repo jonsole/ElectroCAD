@@ -18,6 +18,7 @@ import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { SCHEMATIC_GRIDS, DEFAULT_SCHEMATIC_GRID, gridLabel, setGridStep, snapToGrid } from '../core/grid.js';
 import { watchAlt } from '../ui/grid.js';
 import { GridCard } from '../ui/gridCard.js';
+import { ContextStrip, stripLabel, stripSep, stripButton } from '../ui/contextStrip.js';
 import { CardSet } from '../ui/cards.js';
 import { highlight, screenBox } from '../view/highlight.js';
 
@@ -135,18 +136,18 @@ export class LibraryEditor {
     this.btn = {
       undo: button({ icon: 'undo', title: 'Undo (Ctrl+Z)', onClick: () => this.undo() }),
       redo: button({ icon: 'redo', title: 'Redo (Ctrl+Shift+Z)', onClick: () => this.redo() }),
-      del: button({ icon: 'trash', title: 'Delete (Del)', onClick: () => this.deleteSelection() }),
-      rotate: button({ icon: 'rotate', title: 'Turn the selected Pins (R)', onClick: () => this.rotatePins() }),
       newPart: button({ label: 'New part', icon: 'plus', title: 'A new Part in this Library', onClick: () => this.createPart() }),
       save: button({ label: 'Save', icon: 'check', cls: 'btn-primary', title: 'Save the Part to its Library (Ctrl+S)', onClick: () => this.save() }),
     };
+    // delete and turn live on the context strip over the canvas
+    this.strip = new ContextStrip('Selection actions');
     this.gridCard = new GridCard({
       key: 'library-grid', choices: SCHEMATIC_GRIDS,
       state: () => ({ grid: this.grid, origin: [0, 0], scope: 'Symbol editor', originEditable: false, originNote: 'The Symbol\'s anchor: pick a point and the Part moves so that point is the anchor.' }),
       onGrid: (which, nm) => this.setGrid(which, nm),
       onPick: () => { if (this.draft) this.setTool('origin'); },
     });
-    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.del, this.btn.rotate, h('span', { class: 'sep' }), this.gridCard.button, h('span', { class: 'sep' }), this.btn.newPart, this.btn.save];
+    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.gridCard.button, h('span', { class: 'sep' }), this.btn.newPart, this.btn.save];
   }
 
   tools() {
@@ -366,8 +367,6 @@ export class LibraryEditor {
     if (this.btn) {
       this.btn.undo.disabled = !this.history.canUndo;
       this.btn.redo.disabled = !this.history.canRedo;
-      this.btn.del.disabled = !this.selection.size;
-      this.btn.rotate.disabled = ![...this.selection].some((s) => s.startsWith('pin:'));
       this.btn.save.disabled = !this.draft;
     }
     if (this.toolBtn) for (const [id, b] of Object.entries(this.toolBtn)) { b.classList.toggle('active', this.tool === id); b.disabled = !this.draft && id !== 'select'; }
@@ -375,6 +374,7 @@ export class LibraryEditor {
     this.renderPart();
     this.renderProps();
     this.gridCard?.render();
+    this._updateStrip();
     if (!this.active) return;
     if (this.ws) { this.ws.view.grid = this.gridStep; this.ws.view.origin = [0, 0]; }
     this.ws?.renderBar();
@@ -402,6 +402,7 @@ export class LibraryEditor {
 
   attach(ws) {
     this.ws = ws;
+    this.strip.mount(ws.view.el);
     const c = ws.view.canvas;
     const world = (e) => ws.view.view.toWorld(ws.view.local(e));
     watchAlt(ws, (on) => this.setAlt(on));
@@ -665,6 +666,19 @@ export class LibraryEditor {
     const i = this.unit;
     this.edit(`Delete unit ${unitName(i)}`, (p) => removeUnit(p, i));
     this.setUnit(Math.max(0, i - 1));
+  }
+
+  /** The context strip: actions for the selection (only while this editor is the one shown). */
+  _updateStrip() {
+    const s = this.strip;
+    if (!s || !this.ws) return;
+    if (!this.active || this.tool !== 'select' || !this.selection.size) { s.hide(); return; }
+    const sel = [...this.selection];
+    const nK = sel.filter((x) => x.startsWith('pin:')).length, nG = sel.length - nK;
+    const what = [[nK, 'pin'], [nG, 'shape']].filter(([k]) => k).map(([k, w]) => `${k} ${w}${k === 1 ? '' : 's'}`).join(', ');
+    s.show(`sel|${sel.sort().join()}`, () => [stripLabel(what, nK ? 'pin' : 'select'), stripSep(),
+      nK ? stripButton({ icon: 'rotate', title: 'Turn the selected pins (R)', onClick: () => this.rotatePins() }) : null,
+      stripButton({ icon: 'trash', title: 'Delete (Del)', danger: true, onClick: () => this.deleteSelection() })]);
   }
 
   deleteSelection() {

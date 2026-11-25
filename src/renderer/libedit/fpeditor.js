@@ -21,6 +21,7 @@ import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { highlight, screenBox } from '../view/highlight.js';
 import { watchAlt } from '../ui/grid.js';
 import { GridCard } from '../ui/gridCard.js';
+import { ContextStrip, stripLabel, stripSep, stripButton } from '../ui/contextStrip.js';
 import { CardSet } from '../ui/cards.js';
 
 export const FP_TOOLS = {
@@ -69,18 +70,18 @@ export class FootprintEditor {
     this.btn = {
       undo: button({ icon: 'undo', title: 'Undo (Ctrl+Z)', onClick: () => this.undo() }),
       redo: button({ icon: 'redo', title: 'Redo (Ctrl+Shift+Z)', onClick: () => this.redo() }),
-      del: button({ icon: 'trash', title: 'Delete (Del)', onClick: () => this.deleteSelection() }),
-      rotate: button({ icon: 'rotate', title: 'Turn the selected pads 90° (R)', onClick: () => this.rotatePads() }),
       gen: button({ label: 'Generator…', icon: 'wand', title: 'Make a standard package from parameters (chip, SOIC, pin header, DIP)', onClick: () => this.generator() }),
       newFp: button({ label: 'New footprint', icon: 'plus', title: 'An empty footprint', onClick: () => this.createFootprint() }),
       save: button({ label: 'Save', icon: 'check', cls: 'btn-primary', title: 'Save the footprint to its Library (Ctrl+S)', onClick: () => this.save() }),
     };
+    // delete and turn live on the context strip over the canvas
+    this.strip = new ContextStrip('Selection actions');
     this.gridCard = new GridCard({
       key: 'footprint-grid', choices: BOARD_GRIDS,
       state: () => ({ grid: this.grid, origin: [0, 0], scope: 'Footprint editor', originEditable: false, originNote: 'The footprint\'s origin is where the board places it from.' }),
       onGrid: (which, nm) => { setGridStep(this.grid, which, nm); try { localStorage.setItem(GRID_KEY, JSON.stringify(this.grid)); } catch { /* private */ } this.refresh(); },
     });
-    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.del, this.btn.rotate, h('span', { class: 'sep' }), this.gridCard.button, h('span', { class: 'sep' }), this.btn.gen, this.btn.newFp, this.btn.save];
+    return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.gridCard.button, h('span', { class: 'sep' }), this.btn.gen, this.btn.newFp, this.btn.save];
   }
 
   tools() {
@@ -237,12 +238,11 @@ export class FootprintEditor {
     if (this.btn) {
       this.btn.undo.disabled = !this.history.canUndo;
       this.btn.redo.disabled = !this.history.canRedo;
-      this.btn.del.disabled = !this.selection.size;
-      this.btn.rotate.disabled = ![...this.selection].some((s) => s.startsWith('pad:'));
       this.btn.save.disabled = !d;
     }
     if (this.toolBtn) for (const [id, b] of Object.entries(this.toolBtn)) { b.classList.toggle('active', this.tool === id); b.disabled = !d && id !== 'select'; }
     this.renderList(); this.renderFootprint(); this.renderProps();
+    this._updateStrip();
     if (this.ws && this.active) { this.ws.view.grid = this.gridStep; this.ws.view.origin = [0, 0]; this.ws.renderBar(); this._hint(); this.ws.view.invalidate(); }
     this.gridCard?.render();
   }
@@ -381,6 +381,19 @@ export class FootprintEditor {
     return m;
   }
 
+  /** The context strip: actions for the selection (only while this editor is the one shown). */
+  _updateStrip() {
+    const s = this.strip;
+    if (!s || !this.ws) return;
+    if (!this.active || this.tool !== 'select' || !this.selection.size) { s.hide(); return; }
+    const sel = [...this.selection];
+    const nK = sel.filter((x) => x.startsWith('pad:')).length, nG = sel.length - nK;
+    const what = [[nK, 'pad'], [nG, 'shape']].filter(([k]) => k).map(([k, w]) => `${k} ${w}${k === 1 ? '' : 's'}`).join(', ');
+    s.show(`sel|${sel.sort().join()}`, () => [stripLabel(what, nK ? 'pad' : 'select'), stripSep(),
+      nK ? stripButton({ icon: 'rotate', title: 'Turn the selected pads 90° (R)', onClick: () => this.rotatePads() }) : null,
+      stripButton({ icon: 'trash', title: 'Delete (Del)', danger: true, onClick: () => this.deleteSelection() })]);
+  }
+
   deleteSelection() {
     if (!this.selection.size) return;
     const pads = new Set([...this.selection].filter((s) => s.startsWith('pad:')).map((s) => +s.slice(4)));
@@ -453,6 +466,7 @@ export class FootprintEditor {
 
   attach(ws) {
     this.ws = ws;
+    this.strip.mount(ws.view.el);
     const c = ws.view.canvas;
     const world = (e) => ws.view.view.toWorld(ws.view.local(e));
     watchAlt(ws, (on) => { if (!this.active || !!on === !!this.alt) return; this.alt = !!on; this.refresh(); });
