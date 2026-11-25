@@ -9,6 +9,7 @@ import { presetState, fabSettings } from '../core/presets.js';
 import { fabFiles, fabBaseName } from '../core/fab.js';
 import { makeZip, unzip } from '../core/zip.js';
 import { runDrc, drcCounts } from '../core/drc.js';
+import { markApproved, unapproved } from '../core/drcApprovals.js';
 import { checkOutline } from '../core/board.js';
 import { readFabFiles, FAB_LAYERS } from '../core/gerber/compare.js';
 import { platform } from '../platform.js';
@@ -315,7 +316,8 @@ export class GerberPanel {
       this.files = files;
       this.zip = makeZip(files, date);
       this.made = { rev: this._rev(), date: date.getTime() };
-      this.drc = runDrc(this.project, fills);
+      // approved problems (#69) don't count
+      this.drc = unapproved(markApproved(this.project, runDrc(this.project, fills)));
       this.generated = readFabFiles(files.map((f) => ({ name: f.name, text: f.text })));
       this.zipBtn.disabled = false;
       const first = !this.viewer.layers.length;

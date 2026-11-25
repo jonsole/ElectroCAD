@@ -413,7 +413,7 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .erc-clean { color: var(--muted); }
 /* ERC filter bar: severity chips with counts, and a search for parts and nets */
 .erc-filter { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 6px; border-bottom: 1px solid var(--border); }
-.erc-chips { display: flex; gap: 6px; }
+.erc-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .erc-chip { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 14px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }
 .erc-chip:hover { border-color: var(--muted); }
 .erc-chip.on { background: var(--panel-2); color: var(--text); border-color: var(--border); }
@@ -738,6 +738,14 @@ body.resizing iframe, body.resizing canvas { pointer-events: none; }
 .drc-stale { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .drc-rule { font-weight: 600; margin-right: 2px; }
 .drc-list { max-height: 360px; overflow: auto; }
+/* DRC approvals (#69): the toggle, the approve button on each row, approved rows dimmed */
+.erc-chip.erc-chip-approved { flex: 0 0 auto; white-space: nowrap; }
+.drc-list .erc-row { align-items: flex-start; }
+.drc-list .drc-approve { flex: 0 0 auto; margin-left: auto; opacity: 0.5; }
+.drc-list .erc-row:hover .drc-approve, .drc-list .erc-row.approved .drc-approve { opacity: 1; }
+.drc-list .erc-row.approved .erc-msg { opacity: 0.55; }
+.drc-list .erc-row.approved .erc-dot { opacity: 0.35; }
+.drc-note { color: var(--muted); }
 
 /* ---------- context strips (tool options, selection actions) ---------- */
 .context-strip { gap: 6px; padding: 4px 6px 4px 12px; flex-wrap: wrap; }

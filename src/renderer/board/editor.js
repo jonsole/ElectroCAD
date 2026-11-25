@@ -4,7 +4,7 @@
 //
 // Layer visibility and the corner radius for new rectangles are per-browser preferences, like the
 // picker's view; the stack and the Outline are saved in the Project.
-import { h, button, icon, toast, popupMenu } from '../ui/dom.js';
+import { h, button, icon, toast, popupMenu, modal } from '../ui/dom.js';
 import { section } from '../workspaces/workspace.js';
 import { mm, toMm } from '../core/units.js';
 import {
@@ -17,6 +17,7 @@ import { openAnnotateDialog } from './annotate-dialog.js';
 import { openBoardSetup } from './setup-dialog.js';
 import { netClassOf } from '../core/netclasses.js';
 import { runDrc, drcCounts, DRC_RULES, mergeDrc } from '../core/drc.js';
+import { markApproved, unapproved, approve, unapprove, pruneApprovals } from '../core/drcApprovals.js';
 import { boardItems, changedAreas } from '../core/drcLive.js';
 import { hitPad, footprintOutline, insidePolygon, placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation } from '../core/footprint.js';
 import { ratsnest } from '../core/ratsnest.js';
@@ -110,6 +111,7 @@ export class BoardEditor {
     this.drc = null;            // the last DRC run: { list, rev } (#25)
     this.drcFocus = null;       // the violation last jumped to
     this.drcFilter = { error: true, warning: true };
+    this.drcShowApproved = false; // approved problems (#69) are hidden behind a toggle
   }
 
   get project() { return this.app.project; }
@@ -670,17 +672,17 @@ export class BoardEditor {
   deleteSelection() {
     if (this.drawSel.size) {
       const del = new Set(this.drawSel); this.drawSel.clear();
-      this.app.edit(del.size === 1 ? 'Delete drawing' : `Delete ${del.size} drawings`, (p) => { p.board.drawings = (p.board.drawings || []).filter((d) => !del.has(d.id)); });
+      this.app.edit(del.size === 1 ? 'Delete drawing' : `Delete ${del.size} drawings`, (p) => { p.board.drawings = (p.board.drawings || []).filter((d) => !del.has(d.id)); pruneApprovals(p); });
       if (!this.selection.size && !this.zoneSel.size && !this.trackSel.size) return;
     }
     if (this.zoneSel.size) {
       const del = new Set(this.zoneSel); this.zoneSel.clear();
-      this.app.edit(del.size === 1 ? 'Delete zone' : `Delete ${del.size} zones`, (p) => { p.board.zones = p.board.zones.filter((z) => !del.has(z.id)); });
+      this.app.edit(del.size === 1 ? 'Delete zone' : `Delete ${del.size} zones`, (p) => { p.board.zones = p.board.zones.filter((z) => !del.has(z.id)); pruneApprovals(p); });
       return;
     }
     if (this.trackSel.size) {
       const del = new Set(this.trackSel); this.trackSel.clear();
-      this.app.edit(del.size === 1 ? 'Delete track' : `Delete ${del.size} tracks and vias`, (p) => { p.board.tracks = p.board.tracks.filter((t) => !del.has(t.id)); p.board.vias = p.board.vias.filter((v) => !del.has(v.id)); });
+      this.app.edit(del.size === 1 ? 'Delete track' : `Delete ${del.size} tracks and vias`, (p) => { p.board.tracks = p.board.tracks.filter((t) => !del.has(t.id)); p.board.vias = p.board.vias.filter((v) => !del.has(v.id)); pruneApprovals(p); });
       return;
     }
     if (this.fpSel.size && !this.selection.size) { toast('Footprints come from the Schematic: delete the part there, then Update from Schematic (F8).', 'info', 3500); return; }
@@ -1514,7 +1516,7 @@ export class BoardEditor {
     this.drcFocus = null;
     this.renderDrc();
     this.ws?.view.invalidate();
-    const c = drcCounts(this.drc.list);
+    const c = drcCounts(unapproved(this._drcList()));
     toast(c.error || c.warning ? `DRC: ${[c.error ? `${c.error} error${c.error === 1 ? '' : 's'}` : '', c.warning ? `${c.warning} warning${c.warning === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')}.` : 'DRC: no problems.', c.error ? 'error' : 'info', 2200);
     return this.drc.list;
   }
@@ -1605,12 +1607,38 @@ export class BoardEditor {
   _rev() { const hs = this.app.history; return [hs.undoStack[hs.undoStack.length - 1] || null, hs.redoStack?.[hs.redoStack.length - 1] || null, this.project.id]; }
   _drcStale() { const r = this._rev(); return !!this.drc && this.drc.rev.some((x, i) => x !== r[i]); }
 
-  _drcShown() { return (this.drc?.list || []).filter((v) => this.drcFilter[v.severity]); }
+  /** The DRC results, each approved one marked (#69); worked out again when the list or the Board changes. */
+  _drcList() {
+    const list = this.drc?.list || [], rev = this._rev();
+    if (this._drcMarked?.list !== list || this._drcMarked.rev !== rev) this._drcMarked = { list, rev, marked: markApproved(this.project, list) };
+    return this._drcMarked.marked;
+  }
+
+  _drcShown() { return this._drcList().filter((v) => this.drcFilter[v.severity] && (!v.approval || this.drcShowApproved)); }
+
+  /** Approve a DRC problem (#69), asking for an optional note. */
+  approveViolation(v) {
+    const m = modal({ title: 'Approve this problem', width: 440 });
+    const note = h('textarea', { class: 'input', rows: 3, placeholder: 'Why it\'s fine (optional), e.g. "Built and tested; JLCPCB made it as drawn"', 'aria-label': 'Note' });
+    note.addEventListener('keydown', (e) => e.stopPropagation());
+    const ok = () => { m.close(); this.app.edit('Approve DRC problem', (p) => approve(p, v, note.value)); this.drcFocus = null; this.renderDrc(); this.ws?.view.invalidate(); };
+    m.body.append(h('p', { class: 'side-note' }, v.message),
+      h('label', { class: 'field' }, h('span', {}, 'Note'), note),
+      h('p', { class: 'side-note' }, 'Approved problems are hidden and don\'t count. Moving, resizing or re-netting what it\'s about brings it back.'),
+      h('div', { class: 'modal-actions' }, button({ label: 'Cancel', cls: 'btn-ghost', onClick: () => m.close() }), button({ label: 'Approve', icon: 'check', cls: 'btn-primary', onClick: ok })));
+    note.focus();
+  }
+
+  unapproveViolation(v) {
+    this.app.edit('Unapprove DRC problem', (p) => unapprove(p, v.approval.key));
+    this.renderDrc(); this.ws?.view.invalidate();
+  }
 
   renderDrc() {
     const el = this.drcEl;
     if (!el || !this.drcCard?.isOpen) return;
-    const list = this.drc?.list || [];
+    const all = this._drcList(), list = unapproved(all);
+    const nApproved = all.length - list.length;
     const c = drcCounts(list);
     const chip = (sev, label) => h('button', { class: `erc-chip erc-chip-${sev}` + (this.drcFilter[sev] ? ' on' : ''), type: 'button', 'aria-pressed': String(this.drcFilter[sev]), title: `Show ${label.toLowerCase()}`, dataset: { severity: sev },
       onClick: () => { this.drcFilter[sev] = !this.drcFilter[sev]; this.renderDrc(); this.ws?.view.invalidate(); } }, h('span', { class: 'erc-dot' }), label, h('span', { class: 'erc-n' }, String(c[sev])));
@@ -1620,15 +1648,20 @@ export class BoardEditor {
         h('span', { class: 'drc-sum' }, this.drcRunning ? 'Running… (waiting for zone fills)' : !this.drc ? 'Not run yet' : c.error || c.warning ? `${c.error} error${c.error === 1 ? '' : 's'} · ${c.warning} warning${c.warning === 1 ? '' : 's'}` : 'No problems'),
         button({ label: this.drc ? 'Run again' : 'Run', icon: 'play', cls: 'btn-outline btn-xs', title: 'Run DRC again (clears the old markers)', onClick: () => this.runDrc() })),
       stale ? h('div', { class: 'drc-stale' }, icon('info', 14), h('span', {}, this._drcNeedsFull ? 'Re-checking the whole board…' : 'Re-checking near the zones as they refill…')) : null,
-      h('div', { class: 'erc-chips', role: 'group', 'aria-label': 'Show' }, chip('error', 'Errors'), chip('warning', 'Warnings')));
+      h('div', { class: 'erc-chips', role: 'group', 'aria-label': 'Show' }, chip('error', 'Errors'), chip('warning', 'Warnings'),
+        nApproved ? h('button', { class: 'erc-chip erc-chip-approved' + (this.drcShowApproved ? ' on' : ''), type: 'button', 'aria-pressed': String(this.drcShowApproved), title: 'Show the problems approved as fine (they don\'t count)', onClick: () => { this.drcShowApproved = !this.drcShowApproved; this.renderDrc(); this.ws?.view.invalidate(); } }, icon('check', 12), `${nApproved} approved`) : null));
     const shown = this._drcShown();
     const label = Object.fromEntries(DRC_RULES);
-    const row = (v) => h('div', { class: `erc-row erc-${v.severity}` + (v.id === this.drcFocus ? ' on' : ''), role: 'button', tabindex: '0', dataset: { rule: v.rule }, title: v.at ? 'Show it on the board' : v.rule === 'annotation' ? 'Update from Schematic' : '',
+    const act = (v) => (v.rule === 'annotation' ? null : v.approval
+      ? button({ label: 'Unapprove', cls: 'btn-ghost btn-xs drc-approve', title: 'Count this problem again', onClick: (e) => { e.stopPropagation(); this.unapproveViolation(v); } })
+      : button({ icon: 'check', cls: 'btn-ghost btn-xs drc-approve', title: 'Approve: it\'s fine as it is (hidden, not counted)', 'aria-label': 'Approve', onClick: (e) => { e.stopPropagation(); this.approveViolation(v); } }));
+    const row = (v) => h('div', { class: `erc-row erc-${v.severity}` + (v.id === this.drcFocus ? ' on' : '') + (v.approval ? ' approved' : ''), role: 'button', tabindex: '0', dataset: { rule: v.rule }, title: v.at ? 'Show it on the board' : v.rule === 'annotation' ? 'Update from Schematic' : '',
       onClick: () => this.gotoViolation(v), onKeydown: (e) => { if (e.key === 'Enter') this.gotoViolation(v); },
       onMouseenter: () => { this.drcHover = v.id; this.ws?.view.invalidate(); }, onMouseleave: () => { if (this.drcHover === v.id) { this.drcHover = null; this.ws?.view.invalidate(); } } },
       h('span', { class: 'erc-dot', 'aria-label': v.severity }),
-      h('span', { class: 'erc-msg' }, h('b', { class: 'drc-rule' }, `${label[v.rule]}${v.layer ? ` · ${v.layer}` : ''}`), ' ', v.message));
-    const empty = this.drcRunning || !this.drc ? null : !list.length ? 'Every rule is met, everything is routed and the Board matches the Schematic.' : !shown.length ? 'Everything is filtered out.' : null;
+      h('span', { class: 'erc-msg' }, h('b', { class: 'drc-rule' }, `${v.approval ? 'Approved · ' : ''}${label[v.rule]}${v.layer ? ` · ${v.layer}` : ''}`), ' ', v.message, v.approval?.note ? h('em', { class: 'drc-note' }, ` “${v.approval.note}”`) : ''),
+      act(v));
+    const empty = this.drcRunning || !this.drc ? null : !list.length && !nApproved ? 'Every rule is met, everything is routed and the Board matches the Schematic.' : !shown.length ? (nApproved && !list.length ? `No problems left: ${nApproved} approved.` : 'Everything is filtered out.') : null;
     // the list is rebuilt on every refresh: keep where it was scrolled to, and the focused row in view
     const old = el.querySelector('.drc-list'), top = old ? old.scrollTop : 0;
     const box = h('div', { class: 'fp-body drc-list' }, empty ? h('p', { class: 'side-note erc-clean' }, empty) : '', ...shown.map(row));

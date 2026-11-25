@@ -82,6 +82,9 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
     viaDiameter: rules.minDrill + 2 * restring(rules.minDrill, rules.restring.viaRatio, rules.restring.viaMin, rules.restring.viaMax),
     annularRing: Math.min(rules.restring.padMin, rules.restring.viaMin), edgeClearance: rules.edge };
 
+  // Eagle's approved DRC errors (#69): kept as hashes of its own, which don't map to our problems
+  const approved = brd.path('errors')?.all('approved')?.length || 0;
+  if (approved) report.add(`Eagle had ${approved} approved DRC error${approved === 1 ? '' : 's'}; they show here until you approve them (Approve in the DRC card)`);
   if (rules.sameSignal) report.add(`Eagle's same-signal SMD clearances (mdSmdPad, mdSmdVia, mdSmdSmd, up to ${(rules.sameSignal / 1e6).toFixed(3)} mm) aren't checked: ElectroCAD's DRC checks clearance between different nets`);
   // ---- the Schematic side: a stub when there is none
   if (!eagle) stubSchematic(project, brd, libs, signals, elements, rules, report);

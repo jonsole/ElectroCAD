@@ -1139,6 +1139,22 @@ export const ECAD_SCHEMA = {
             }
           }
         },
+        "drcApprovals": {
+          "type": "array",
+          "description": "DRC problems approved as fine (#69). Each matches a DRC result by key: its rule, items and their current geometry and net, so moving or re-netting one of the items lapses it.",
+          "items": {
+            "type": "object",
+            "required": ["key", "rule", "items"],
+            "additionalProperties": false,
+            "properties": {
+              "key": { "type": "string" },
+              "rule": { "type": "string" },
+              "items": { "type": "array", "items": { "type": "string" } },
+              "note": { "type": "string" },
+              "at": { "$ref": "#/$defs/point" }
+            }
+          }
+        },
         "netClasses": {
           "type": "object",
           "description": "Net classes by name (#24).",

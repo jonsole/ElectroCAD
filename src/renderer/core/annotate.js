@@ -8,6 +8,7 @@
 // from that record, so Schematic edits reach the Board only when annotated. The change list is the
 // difference between that record (plus which Components have a Footprint on the Board) and the
 // Schematic now. Footprint swaps are not in it: they apply at once (ADR-0008).
+import { pruneApprovals } from './drcApprovals.js';
 import { buildNetlist, compareRefs } from './netlist.js';
 import { footprintOf, uid } from './project.js';
 import { mm } from './units.js';
@@ -120,6 +121,7 @@ export function applyChanges(project, list) {
   const adds = list.changes.filter((c) => c.kind === 'add');
   if (adds.length) placeGroup(project, adds.map((c) => c.componentId));
   board.annotation = structuredClone(list.target);
+  pruneApprovals(project); // approvals of removed footprints go too (#69)
   return board;
 }
 
