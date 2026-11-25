@@ -105,6 +105,9 @@ export class App {
   // ---------------------------------------------------------------- Project store (ADR-0011)
 
   async _startupProject() {
+    let skip = false;
+    try { skip = sessionStorage.getItem('electrocad.skipLast') === '1'; sessionStorage.removeItem('electrocad.skipLast'); } catch { /* private mode */ }
+    if (skip) { this._firstSave = true; return newProject('Untitled'); } // "Start with a new project" from the boot screen
     const last = this.settings.lastProject;
     if (last) {
       try { return deserialize(await platform.store.load(last)); } catch (err) { console.warn('Could not reopen the last project', err); }

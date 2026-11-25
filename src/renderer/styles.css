@@ -51,6 +51,9 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .boot { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--bg); z-index: 1000; gap: 6px; }
 .boot-logo { font-size: 30px; font-weight: 700; letter-spacing: -0.5px; }
 .boot-sub { color: var(--muted); }
+.boot-sub { max-width: 560px; text-align: center; line-height: 1.5; padding: 0 16px; }
+.boot.boot-error .boot-sub { color: var(--danger, #e5484d); }
+.boot-actions { display: flex; gap: 8px; margin-top: 12px; }
 
 #app { height: 100%; display: flex; flex-direction: column; }
 

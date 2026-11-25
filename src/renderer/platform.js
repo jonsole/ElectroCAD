@@ -20,6 +20,8 @@ const version = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '0.0.0';
 // ---------------------------------------------------------------- browser Project store (IndexedDB)
 // Two object stores keyed by Project id: 'projects' holds the .ecad text, 'meta' the card metadata.
 let dbPromise = null;
+/** Hooks for the app: onBlocked (another tab holds an older store open), onReplaced (a newer tab upgraded it). */
+export const storageEvents = { onBlocked: null, onReplaced: null };
 function db() {
   if (!dbPromise) {
     dbPromise = new Promise((resolve, reject) => {
@@ -30,8 +32,15 @@ function db() {
         if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta');
         if (!d.objectStoreNames.contains('libraries')) d.createObjectStore('libraries');
       };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error || new Error('Browser storage is not available'));
+      req.onsuccess = () => {
+        const d = req.result;
+        // a newer ElectroCAD in another tab wants to upgrade the store: let it, and ask for a reload
+        d.onversionchange = () => { d.close(); dbPromise = null; storageEvents.onReplaced?.(); };
+        resolve(d);
+      };
+      req.onerror = () => { dbPromise = null; reject(req.error || new Error('Browser storage is not available')); };
+      // another tab still has an older version of the store open: this one waits until it closes
+      req.onblocked = () => storageEvents.onBlocked?.();
     });
   }
   return dbPromise;
