@@ -477,7 +477,7 @@ A small floating toolbar at the top of the canvas (`ui/contextStrip.js`, styled 
   - **Placing a part:** rotate, mirror, and stop.
   - **Label, power and ground tools:** rotate.
   - **A selection:** rotate, mirror and **Fields** (parts), duplicate, copy, delete.
-- **Library** (Symbol and Footprint editors): the selection's turn (pins or pads), delete and Properties; the Pad tool's **New pads** (shape, size, SMD or through-hole, drill). A through-hole pad's Properties also have **Inner size** (#82): its diameter on the inner copper layers, where it is round (0: as on top and bottom).
+- **Library** (Symbol and Footprint editors): the selection's turn (pins or pads), delete and Properties; the Pad tool's **New pads** (shape, size, SMD or through-hole, drill). Pad shapes include **Chamfered (octagon)** (#70): a rectangle with its corners cut by **Chamfer** (a fraction of the shorter side; 0.293 makes a square a regular octagon, Eagle's octagon pads). A through-hole pad's Properties also have **Inner size** (#82): its diameter on the inner copper layers, where it is round (0: as on top and bottom).
 
 The strip rebuilds only when its context changes, so a field being typed in keeps its focus. Clicks on it don't reach the canvas.
 
@@ -648,7 +648,7 @@ Using the card:
 - **Board only:** a stub Schematic is made, one symbol per part with net labels on its pins, so the Netlist still matches the copper.
 - **Schematic only:** the Board is left empty; Update from Schematic (F8) as usual.
 
-The import then shows a summary: what came in, whether the **Netlist matches Eagle's nets pin for pin**, whether **every board signal matches the Schematic**, and a list of what wasn't carried over or was changed (octagonal pads become round, curved tracks become short straight segments, inner layers past two, blind vias become through vias, and so on). Nothing is dropped without being listed there.
+The import then shows a summary: what came in, whether the **Netlist matches Eagle's nets pin for pin**, whether **every board signal matches the Schematic**, and a list of what wasn't carried over or was changed (curved tracks become short straight segments, inner layers past two, blind vias become through vias, and so on). Nothing is dropped without being listed there.
 
 Some of Eagle's implicit connections are made visible, because ElectroCAD joins only what is drawn:
 

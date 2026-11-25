@@ -27,12 +27,12 @@ check('on-board', app.active.id === 'board');
 // the summary
 const m = document.querySelector('.import-report');
 check('report', !!m && /The Netlist matches Eagle's nets, pin for pin/.test(m.textContent) && /Every board signal matches/.test(m.textContent), m?.textContent);
-check('losses', /Octagonal pads became round/.test(m?.textContent || '') && /Curved tracks/.test(m?.textContent || ''));
+check('losses', !/Octagonal pads became round/.test(m?.textContent || '') && /Curved tracks/.test(m?.textContent || '')); // octagons stay octagons (#70)
 // the DRC row fills in once the Zones have filled, and the log has it
 for (let i = 0; i < 100 && /waiting for the Zones/.test(m?.textContent || ''); i++) await new Promise((r) => setTimeout(r, 100));
 check('drc-row', /DRC: 0 errors/.test(m?.textContent || ''), m?.textContent);
 const log = app.importLog?.text || '';
-check('log', /ElectroCAD import log/.test(log) && /regulator\.sch \(Eagle [\d.]+/.test(log) && /\[ok\] The Netlist matches/.test(log) && /DRC: 0 errors, \d+ warnings/.test(log) && /- Octagonal pads became round/.test(log), log);
+check('log', /ElectroCAD import log/.test(log) && /regulator\.sch \(Eagle [\d.]+/.test(log) && /\[ok\] The Netlist matches/.test(log) && /DRC: 0 errors, \d+ warnings/.test(log) && /- Curved tracks/.test(log) && !/Octagonal/.test(log), log);
 check('log-buttons', [...m.querySelectorAll('button')].some((x) => x.textContent === 'Copy log') && [...m.querySelectorAll('button')].some((x) => /Save log/.test(x.textContent)));
 const logFile = `/tmp/electrocad-smoke-eagle-${Date.now()}.txt`;
 await native.smokeDialog(logFile);

@@ -1,10 +1,11 @@
 // The Footprint editor (#19): the Library tab with the toolbar's Symbol | Footprint switch on
-// Footprint. Pads (rect, roundrect, circle, oval; SMD or through-hole with a drill), and
+// Footprint. Pads (rect, roundrect, circle, oval, chamfered; SMD or through-hole with a drill), and
 // silkscreen, courtyard and fab graphics (lines, rectangles, circles, arcs, text with ${REF} and
 // ${VALUE}); one bottom chip per layer (the active layer for new graphics). A Generator… makes
 // standard packages from parameters with a live preview. Footprints save into the user's
 // Libraries; the Symbol editor's PART section attaches them to Parts as Preferred footprints.
 // It has its own undo history, like the Symbol editor, and draws in the Board's colours.
+import { OCTAGON } from '../core/collision.js';
 import { inPolygon } from '../core/zones.js';
 import { h, icon, button, popupMenu, toast, confirmDialog, promptDialog, modal } from '../ui/dom.js';
 import { section } from '../workspaces/workspace.js';
@@ -181,7 +182,7 @@ export class FootprintEditor {
       s.addEventListener('change', () => onSet(s.value));
       return h('label', { class: 'le-row' }, h('span', {}, label), s, h('em', {}, ''));
     };
-    const shapes = PAD_SHAPES.map((x) => [x, { rect: 'Rectangle', roundrect: 'Rounded rectangle', circle: 'Circle', oval: 'Oval' }[x]]);
+    const shapes = PAD_SHAPES.map((x) => [x, { rect: 'Rectangle', roundrect: 'Rounded rectangle', circle: 'Circle', oval: 'Oval', chamfer: 'Chamfered (octagon)' }[x]]);
     const pads = sel.filter((x) => x.startsWith('pad:')).map((x) => +x.slice(4));
     const gs = sel.filter((x) => x.startsWith('g:')).map((x) => +x.slice(2));
     if (!d) { el.replaceChildren(h('p', { class: 'side-note' }, 'Nothing open.')); return; }
@@ -194,7 +195,9 @@ export class FootprintEditor {
       el.replaceChildren(...[
         h('div', { class: 'prop-title' }, `Pad ${p.number}`),
         h('label', { class: 'le-row' }, h('span', {}, 'Number'), number, h('em', {}, '')),
-        select('Shape', p.shape, shapes, (v) => set('Pad shape', (x) => { x.shape = v; if (v === 'circle') x.size = [x.size[0], x.size[0]]; })),
+        select('Shape', p.shape, shapes, (v) => set('Pad shape', (x) => { x.shape = v; if (v === 'circle') x.size = [x.size[0], x.size[0]]; if (v !== 'chamfer') { delete x.chamfer; delete x.corners; } })),
+        // how far each corner is cut, as a fraction of the shorter side: 0.293 makes a regular octagon of a square (#70)
+        p.shape === 'chamfer' ? num('Chamfer', String(+(p.chamfer ?? OCTAGON).toFixed(3)), (v) => set('Pad chamfer', (x) => { const r = Math.max(0, Math.min(0.5, v)); if (Math.abs(r - OCTAGON) < 1e-3) delete x.chamfer; else x.chamfer = r; }), '× side', '0.01') : null,
         num('Width', fmt(p.size[0]), (v) => set('Pad size', (x) => { x.size = [mm(v), x.shape === 'circle' ? mm(v) : x.size[1]]; })),
         p.shape === 'circle' ? null : num('Height', fmt(p.size[1]), (v) => set('Pad size', (x) => { x.size = [x.size[0], mm(v)]; })),
         select('Type', tht ? 'tht' : 'smd', [['smd', 'SMD (top: copper, paste, mask)'], ['tht', 'Through-hole (all copper, mask)']], (v) => set('Pad type', (x) => { x.layers = v === 'tht' ? [...THT_LAYERS] : [...SMD_LAYERS]; if (v === 'tht') x.drill ||= Math.round(Math.min(x.size[0], x.size[1]) * 0.55); else delete x.drill; })),
@@ -416,7 +419,7 @@ export class FootprintEditor {
     if (this.active && this.draft && this.tool === 'pad') {
       // what the Pad tool makes next
       const t = this.padTpl;
-      const shapes = PAD_SHAPES.map((x) => [x, { rect: 'Rectangle', roundrect: 'Rounded rect', circle: 'Circle', oval: 'Oval' }[x]]);
+      const shapes = PAD_SHAPES.map((x) => [x, { rect: 'Rectangle', roundrect: 'Rounded rect', circle: 'Circle', oval: 'Oval', chamfer: 'Octagon' }[x]]);
       s.show(`pad|${t.shape}|${t.w}|${t.h}|${t.tht}|${t.drill}`, () => [stripLabel('New pads', 'pad'), stripSep(),
         stripSelect({ label: 'Shape', value: t.shape, options: shapes, onSet: (v) => { t.shape = v; this.refresh(); } }),
         stripNumber({ label: 'W', value: fmt(t.w), unit: t.shape === 'circle' ? 'mm' : '', step: '0.01', min: '0.01', width: 58, title: 'Width (mm)', onSet: (v) => { t.w = mm(v); this.refresh(); } }),

@@ -71,7 +71,9 @@ test('library: a package becomes a Footprint, with what changed reported', () =>
   assert.equal(p1.layers.includes('F.Cu'), true);
   assert.equal(p2.drill > 0, true);
   assert.ok(fp.pads.some((p) => !p.number || p.type === 'np_thru_hole' || p.plated === false), 'the hole is a non-plated pad');
-  assert.ok(report.list().some((t) => /ctagonal/.test(t)));
+  // octagons stay octagons (#70): a chamfered square, nothing to report
+  assert.equal(p2.shape, 'chamfer'); assert.equal(p2.size[0], p2.size[1]);
+  assert.ok(!report.list().some((t) => /ctagonal/.test(t)));
 });
 
 test('eagleKind tells schematic, board and library apart', () => {

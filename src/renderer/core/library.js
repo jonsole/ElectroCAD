@@ -198,7 +198,7 @@ export const SMD_LAYERS = ['F.Cu', 'F.Paste', 'F.Mask'];
 export const THT_LAYERS = ['*.Cu', '*.Mask'];
 /** Layers a Footprint's graphics can be drawn on (its own side; flipping puts them on B.*). */
 export const FOOTPRINT_LAYERS = ['F.SilkS', 'F.CrtYd', 'F.Fab'];
-export const PAD_SHAPES = ['rect', 'roundrect', 'circle', 'oval'];
+export const PAD_SHAPES = ['rect', 'roundrect', 'circle', 'oval', 'chamfer'];
 
 export function newFootprint(name = 'New footprint') {
   return { name, pads: [], graphics: [] };

@@ -103,10 +103,8 @@ export function packageToFootprint(pkg, { report = new Report(), rules = DEFAULT
       else if (shape === 'long' || shape === 'offset') {
         pad = { shape: 'oval', size: turned ? [d, 2 * d] : [2 * d, d] };
         if (shape === 'offset') report.add('Offset pads were centred on their hole');
-      } else {
-        pad = { shape: 'circle', size: [d, d] };
-        if (shape === 'octagon') report.add('Octagonal pads became round');
-      }
+      } else if (shape === 'octagon') pad = { shape: 'chamfer', size: [d, d] }; // a regular octagon, as Eagle's OC8 (#70)
+      else pad = { shape: 'circle', size: [d, d] };
       // on the inner layers Eagle makes it round, its size from the inner restring only (#82)
       const inner = rules.innerRatio != null ? drill + 2 * restring(drill, rules.innerRatio, rules.innerMin, rules.innerMax) : 0;
       pads.push({ number: c.attr('name'), at: pt(c.attr('x'), c.attr('y')), ...pad, drill, ...(inner ? { innerSize: inner } : {}), layers: c.attr('stop') === 'no' ? ['*.Cu'] : ['*.Cu', '*.Mask'] });

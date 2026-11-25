@@ -1,5 +1,6 @@
 // Draws Symbols on the schematic canvas with the Schematic Colour theme (#51).
 // Graphics are in the Symbol's local frame (nm); `place` applies the Symbol's rotation/mirror.
+import { chamferPts, OCTAGON } from '../core/collision.js';
 import { vectorLayout, vectorWidth } from '../core/strokefont.js';
 import { drawOriginMark } from '../view/handles.js';
 import { place, arcCircle, shapePoints } from '../core/geom.js';
@@ -506,6 +507,7 @@ export function drawFootprintPreview(canvas, fp, C) {
     ctx.beginPath();
     if (p.shape === 'circle' || p.shape === 'oval') ctx.ellipse(cx, cy, w / 2, h / 2, 0, 0, Math.PI * 2);
     else if (p.shape === 'roundrect' && ctx.roundRect) ctx.roundRect(cx - w / 2, cy - h / 2, w, h, Math.min(w, h) * 0.25);
+    else if (p.shape === 'chamfer') { chamferPts(w, h, p.chamfer ?? OCTAGON, p.corners).forEach(([x, y], i) => (i ? ctx.lineTo(cx + x, cy + y) : ctx.moveTo(cx + x, cy + y))); ctx.closePath(); }
     else ctx.rect(cx - w / 2, cy - h / 2, w, h);
     ctx.fill();
     if (p.drill) { ctx.fillStyle = C.drill || '#000'; ctx.beginPath(); ctx.arc(cx, cy, (p.drill * s) / 2, 0, Math.PI * 2); ctx.fill(); }

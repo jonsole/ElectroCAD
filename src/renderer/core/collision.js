@@ -67,7 +67,28 @@ export function shapeBox(s) {
   return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
 }
 
-/** A placed pad as a shape: circles and ovals as capsules, rectangles (and rounded ones) as polygons. */
+/** A regular octagon's chamfer: each corner cut back this fraction of the side (Eagle's octagon pads). */
+export const OCTAGON = 1 - Math.SQRT1_2;
+
+/**
+ * A chamfered rectangle (#70), centred, in pad coordinates (+Y down): each corner in `corners`
+ * ('tl', 'tr', 'br', 'bl'; all when absent) cut back `ratio` of the shorter side.
+ */
+export function chamferPts(w, h, ratio = OCTAGON, corners = null) {
+  const c = Math.max(0, Math.min(0.5, ratio)) * Math.min(w, h), on = (k) => !corners || corners.includes(k);
+  const x = w / 2, y = h / 2, out = [];
+  const corner = (k, p, q, r) => { if (on(k)) out.push(p, r); else out.push(q); };
+  corner('tl', [-x, -y + c], [-x, -y], [-x + c, -y]);
+  corner('tr', [x - c, -y], [x, -y], [x, -y + c]);
+  corner('br', [x, y - c], [x, y], [x - c, y]);
+  corner('bl', [-x + c, y], [-x, y], [-x, y - c]);
+  return out;
+}
+
+/** Is this pad a regular octagon (a square with every corner cut at the octagon's ratio)? */
+export const isOctagon = (pad) => pad.shape === 'chamfer' && pad.size[0] === pad.size[1] && !pad.corners && Math.abs((pad.chamfer ?? OCTAGON) - OCTAGON) < 1e-3;
+
+/** A placed pad as a shape: circles and ovals as capsules, rectangles (and rounded or chamfered ones) as polygons. */
 export function padShape(pad) {
   const [w, h] = pad.size;
   const t = ((pad.rot || 0) * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
@@ -78,6 +99,7 @@ export function padShape(pad) {
     const [a, b] = w >= h ? [[-half, 0], [half, 0]] : [[0, -half], [0, half]];
     return { type: 'capsule', a: R(a), b: R(b), r };
   }
+  if (pad.shape === 'chamfer') return { type: 'poly', pts: chamferPts(w, h, pad.chamfer ?? OCTAGON, pad.corners).map(R) };
   return { type: 'poly', pts: [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(R) };
 }
 

@@ -10,7 +10,7 @@ import ClipperLib from 'clipper-lib';
 import { copperLayerNames } from './board.js';
 import { placedPads, padNets, fpTransform, flipLayer, padOnLayer } from './footprint.js';
 import { footprintOf } from './project.js';
-import { padShape } from './collision.js';
+import { padShape, isOctagon } from './collision.js';
 import { arcCircle } from './geom.js';
 import { fabSettings } from './presets.js';
 import { drawingGeometry } from './boardDrawings.js';
@@ -113,6 +113,8 @@ function plotPad(g, pad, grow, fn) {
   if (pad.shape === 'rect' && square) { g.flash(`R,${mm6(aw)}X${mm6(ah)}`, pad.at, fn); return; }
   if (pad.shape === 'oval' && square) { g.flash(`O,${mm6(aw)}X${mm6(ah)}`, pad.at, fn); return; }
   if (pad.shape === 'oval') { const s = padShape({ ...pad, size: [w, h] }); g.stroke(s.r * 2, [s.a, s.b], fn); return; }
+  // a regular octagon: an 8-sided polygon aperture, as Eagle plots it (grown, it's still regular) (#70)
+  if (isOctagon(pad)) { g.flash(`P,${mm6(w / Math.cos(Math.PI / 8))}X8X${+(22.5 + rot).toFixed(4)}`, pad.at, fn); return; }
   const r = pad.shape === 'roundrect' ? Math.min(w, h) * 0.25 : 0;
   g.region(r ? roundRectPts(pad.at, w, h, r, rot) : padShape({ ...pad, size: [w, h] }).pts, fn);
 }

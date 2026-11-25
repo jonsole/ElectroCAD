@@ -43,7 +43,7 @@ export function placedPads(project, bf, nets = padNets(project.board)) {
   if (!fp) return [];
   const T = fpTransform(bf);
   return fp.pads.map((p) => ({
-    number: p.number, at: T(p.at), size: p.size, shape: p.shape, drill: p.drill || 0, ...(p.innerSize ? { innerSize: p.innerSize } : {}),
+    number: p.number, at: T(p.at), size: p.size, shape: p.shape, drill: p.drill || 0, ...(p.innerSize ? { innerSize: p.innerSize } : {}), ...(p.chamfer != null ? { chamfer: p.chamfer } : {}), ...(p.corners ? { corners: p.corners } : {}),
     layers: (p.layers || []).map((l) => flipLayer(l, bf.side)), rot: ((bf.rot || 0) + (p.rot || 0)) % 360,
     net: nets.get(`${bf.componentId}:${p.number}`) || '',
   }));

@@ -804,8 +804,28 @@
             "rect",
             "circle",
             "oval",
-            "roundrect"
-          ]
+            "roundrect",
+            "chamfer"
+          ],
+          "description": "chamfer (#70): a rectangle with its corners cut (an octagon by default)."
+        },
+        "chamfer": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.5,
+          "description": "chamfer pads: how far each corner is cut, as a fraction of the shorter side. Absent: 0.2929, a regular octagon on a square."
+        },
+        "corners": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "tl",
+              "tr",
+              "br",
+              "bl"
+            ]
+          },
+          "description": "chamfer pads: the corners cut. Absent: all four."
         },
         "size": {
           "$ref": "#/$defs/point",

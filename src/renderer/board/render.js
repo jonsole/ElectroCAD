@@ -3,6 +3,7 @@
 // with their tickets. Screen space is the world scaled (+Y down on both), so angles match.
 import { vectorLayout } from '../core/strokefont.js';
 import { drawingGeometry } from '../core/boardDrawings.js';
+import { chamferPts, OCTAGON } from '../core/collision.js';
 import { placedFieldTexts, fieldOfText, footprintTextPlacement } from '../core/fpTexts.js';
 import { arcCircle } from '../core/geom.js';
 import { outlineLoops, checkOutline } from '../core/board.js';
@@ -241,9 +242,7 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
       ctx.translate(cx, cy); ctx.rotate((-pad.rot * Math.PI) / 180);
       ctx.fillStyle = tht ? (C.padThroughHole || C[cu]) : C[cu] || '#c33';
       ctx.beginPath();
-      if (pad.shape === 'circle' || pad.shape === 'oval') ctx.ellipse(0, 0, w / 2, hgt / 2, 0, 0, TAU);
-      else if (pad.shape === 'roundrect' && ctx.roundRect) ctx.roundRect(-w / 2, -hgt / 2, w, hgt, Math.min(w, hgt) * 0.25);
-      else ctx.rect(-w / 2, -hgt / 2, w, hgt);
+      padPath(ctx, pad, w, hgt);
       ctx.fill();
       if (pad.drill) { ctx.fillStyle = C.drill || '#000'; ctx.beginPath(); ctx.arc(0, 0, (pad.drill * view.scale) / 2, 0, TAU); ctx.fill(); }
       ctx.restore();
@@ -360,6 +359,14 @@ export function drawFootprintGraphics(ctx, view, C, fp, T, { side = 'F', visible
   return own;
 }
 
+/** A pad's outline as a path, centred on the origin, `w` x `h` (screen units). */
+export function padPath(ctx, pad, w, h) {
+  if (pad.shape === 'circle' || pad.shape === 'oval') ctx.ellipse(0, 0, w / 2, h / 2, 0, 0, TAU);
+  else if (pad.shape === 'roundrect' && ctx.roundRect) ctx.roundRect(-w / 2, -h / 2, w, h, Math.min(w, h) * 0.25);
+  else if (pad.shape === 'chamfer') { chamferPts(w, h, pad.chamfer ?? OCTAGON, pad.corners).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); }
+  else ctx.rect(-w / 2, -h / 2, w, h);
+}
+
 /** One pad, at its board position (shape, colour by layer, drill hole). */
 export function drawPad(ctx, view, C, pad, cu) {
   const tht = pad.layers.includes('*.Cu');
@@ -369,9 +376,7 @@ export function drawPad(ctx, view, C, pad, cu) {
   ctx.translate(cx, cy); ctx.rotate((-(pad.rot || 0) * Math.PI) / 180);
   ctx.fillStyle = tht ? (C.padThroughHole || C[cu]) : C[cu] || '#c33';
   ctx.beginPath();
-  if (pad.shape === 'circle' || pad.shape === 'oval') ctx.ellipse(0, 0, w / 2, hgt / 2, 0, 0, TAU);
-  else if (pad.shape === 'roundrect' && ctx.roundRect) ctx.roundRect(-w / 2, -hgt / 2, w, hgt, Math.min(w, hgt) * 0.25);
-  else ctx.rect(-w / 2, -hgt / 2, w, hgt);
+  padPath(ctx, pad, w, hgt);
   ctx.fill();
   if (pad.drill) { ctx.fillStyle = C.drill || '#000'; ctx.beginPath(); ctx.arc(0, 0, (pad.drill * view.scale) / 2, 0, TAU); ctx.fill(); }
   const small = Math.min(w, hgt);
