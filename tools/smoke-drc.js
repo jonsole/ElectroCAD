@@ -1,0 +1,48 @@
+// DRC journey (#25): the DRC button waits for zone fills, then lists the problems with markers;
+// clicking one zooms to it and selects what it's about; fixing it and running again clears it.
+const app = window.electrocad;
+const fails = [];
+const check = (name, cond, info) => { if (!cond) fails.push(name + (info !== undefined ? ' -> ' + JSON.stringify(info) : '')); };
+const L = window.electrocadLib, G = 1270000, MM = 1e6;
+const part = (n) => app.workspace('schematic').editor.parts.find((x) => x.name === n);
+app.edit('demo', (pr) => {
+  const s = pr.schematic.sheets[0];
+  const rs = [0, 1].map((i) => L.project.addComponent(pr, s, part('Resistor'), [G * (20 + i * 20), G * 20]).comp);
+  const pin = (c, n) => { const y = s.symbols.find((q) => q.componentId === c.id); return L.project.pinPositions(pr, y).find((x) => x.pin.number === n).at; };
+  L.schematic.addLabel(pr, s, { at: pin(rs[0], '2'), net: 'SIG', style: 'label', scope: 'local' });
+  L.schematic.addLabel(pr, s, { at: pin(rs[1], '1'), net: 'SIG', style: 'label', scope: 'local' });
+  pr.board.outline = [{ type: 'rect', a: [0, 0], b: [30e6, 20e6], layer: 'Edge.Cuts' }];
+});
+app.setWorkspace('board');
+await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+const ws = app.workspace('board'), ed = ws.editor;
+ed.annotate();
+[...document.querySelectorAll('.annotate-modal button')].find((b) => b.textContent === 'Apply').click();
+app.edit('place', (pr) => {
+  const f = (ref) => pr.board.footprints.find((x) => pr.components[x.componentId].ref === ref);
+  f('R1').at = [6 * MM, 6 * MM]; f('R2').at = [20 * MM, 6 * MM];
+  pr.board.tracks.push({ id: 'sig', a: [6.9125 * MM, 6 * MM], b: [19.0875 * MM, 6 * MM], width: 250000, layer: 'F.Cu', net: 'SIG' });
+  pr.board.tracks.push({ id: 'near', a: [10 * MM, 6.35 * MM], b: [16 * MM, 6.35 * MM], width: 250000, layer: 'F.Cu', net: 'X' });
+  // a zone, refilling as DRC starts
+  pr.board.zones.push({ id: 'zz', layer: 'B.Cu', net: '', outline: [[MM, MM], [29 * MM, MM], [29 * MM, 19 * MM], [MM, 19 * MM]], priority: 0, clearance: 0, connect: 'thermal', thermal: { gap: 500000, spoke: 500000 } });
+});
+check('zone-pending', ed.zoneFiller.busy);
+[...document.querySelectorAll('[data-ws="board"] .toolbar button')].find((b) => b.textContent.trim() === 'DRC').click();
+const t0 = Date.now();
+while (!ed.drc && Date.now() - t0 < 5000) await new Promise((r) => setTimeout(r, 50));
+check('ran', !!ed.drc && !ed.zoneFiller.busy && ed.zoneFiller.fills.has('zz'), ed.drc && ed.drc.list.length);
+const card = document.querySelector('[data-ws="board"] [data-card="drc"]');
+check('card', card && card.style.display !== 'none' && /1 error/.test(card.textContent), card?.textContent.slice(0, 120));
+const rows = [...card.querySelectorAll('.erc-row')];
+check('rows', rows.length === 1 && rows[0].dataset.rule === 'clearance', rows.map((r) => r.dataset.rule));
+// clicking zooms to it and selects both tracks
+const before = ws.view.view.scale;
+rows[0].click();
+check('zoomed', ws.view.view.scale > before && ed.drcFocus === ed.drc.list[0].id, [before, ws.view.view.scale]);
+check('selected', ed.trackSel.has('sig') && ed.trackSel.has('near'), [...ed.trackSel]);
+// an edit marks the results out of date; fixing it and running again clears the marker
+app.edit('fix', (pr) => { pr.board.tracks = pr.board.tracks.filter((t) => t.id !== 'near'); });
+check('stale', /changed since this run/.test(card.textContent));
+await ed.runDrc();
+check('clean', ed.drc.list.length === 0 && /No problems/.test(card.textContent) && !/changed since/.test(card.textContent), ed.drc.list.map((v) => v.message));
+return { fails };

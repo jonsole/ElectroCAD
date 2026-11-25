@@ -19,7 +19,9 @@ import { uid } from './project.js';
 
 const CL = ClipperLib;
 const low = (s) => String(s || '').toLowerCase();
-const ARC_TOL = 5_000; // nm: how closely rounded corners follow the circle
+const ARC_TOL = 5_000; // nm: how closely rounded corners follow the circle (their chords cut inside it,
+// so keep-outs grow by this much more and the fill never comes closer than the clearance)
+const MARGIN = 2 * ARC_TOL; // the extra clearance that keeps chords outside the clearance, with room for rounding
 
 /** Defaults for a new Zone. */
 export const ZONE_DEFAULTS = { priority: 0, clearance: 0, connect: 'thermal', thermal: { gap: 500_000, spoke: 500_000 } };
@@ -164,7 +166,7 @@ export function fillZone(input, z, higher = new Map()) {
   let region = union([P(z.outline)]);
   const edge = input.rules.edgeClearance || 0;
   const bArea = boardArea(input.outline);
-  if (bArea) region = inter(region, offset(bArea, -edge));
+  if (bArea) region = inter(region, offset(bArea, -edge - MARGIN));
   if (!region.length) return empty;
   const net = z.net || '', foreign = (n) => !net || low(n) !== low(net);
   const box = zoneBox(z, maxClearance(input) + (z.thermal?.gap || 0) + (z.thermal?.spoke || 0));
@@ -176,15 +178,15 @@ export function fillZone(input, z, higher = new Map()) {
     if (!foreign(o.net)) continue;
     const f = higher.get(o.id);
     const paths = f ? f.polys.flatMap((poly) => poly.map(P)) : [P(o.outline)];
-    keepOut.push(...offset(union(paths), clearanceOf(input, z, o.net)));
+    keepOut.push(...offset(union(paths), clearanceOf(input, z, o.net) + MARGIN));
   }
   const near = (it) => onLayer(it) && boxesMeet(box, itemBox(it));
-  for (const t of input.tracks) if (near(t) && foreign(t.net)) keepOut.push(...shapePaths({ type: 'capsule', a: t.a, b: t.b, r: t.width / 2 }, clearanceOf(input, z, t.net)));
-  for (const v of input.vias) if (boxesMeet(box, itemBox(v)) && foreign(v.net)) keepOut.push(...shapePaths({ type: 'capsule', a: v.at, b: v.at, r: v.diameter / 2 }, clearanceOf(input, z, v.net)));
+  for (const t of input.tracks) if (near(t) && foreign(t.net)) keepOut.push(...shapePaths({ type: 'capsule', a: t.a, b: t.b, r: t.width / 2 }, clearanceOf(input, z, t.net) + MARGIN));
+  for (const v of input.vias) if (boxesMeet(box, itemBox(v)) && foreign(v.net)) keepOut.push(...shapePaths({ type: 'capsule', a: v.at, b: v.at, r: v.diameter / 2 }, clearanceOf(input, z, v.net) + MARGIN));
   const own = [];
   for (const pad of input.pads) {
     if (!near(pad)) continue;
-    if (foreign(pad.net)) keepOut.push(...shapePaths(padShape(pad), clearanceOf(input, z, pad.net)));
+    if (foreign(pad.net)) keepOut.push(...shapePaths(padShape(pad), clearanceOf(input, z, pad.net) + MARGIN));
     else own.push(pad);
   }
   const allowed = diff(region, union(keepOut));

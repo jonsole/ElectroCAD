@@ -30,13 +30,13 @@ export class CardSet {
    * Add a card: { id, title, icon, body: Element[], open (default true), cls, tip }.
    * Returns { el, button, toggle(open) }.
    */
-  add({ id, title, icon: ic, body, open = true, cls = '', tip = '' }) {
+  add({ id, title, icon: ic, body, open = true, cls = '', tip = '', toolbar = true, onClose = null }) {
     const key = `electrocad.cardOpen.${this.prefix}-${id}`;
     let isOpen = open;
     try { const v = localStorage.getItem(key); if (v != null) isOpen = v === '1'; } catch { /* private mode */ }
-    const card = { id, title, isOpen };
+    const card = { id, title, isOpen, toolbar };
     card.el = h('div', { class: `float-panel side-card ${cls}`, role: 'region', 'aria-label': title, dataset: { card: id } },
-      cardHead({ icon: ic, title, onClose: () => card.toggle(false), closeTitle: `Close (the ${title} button on the toolbar opens it again)` }),
+      cardHead({ icon: ic, title, onClose: () => { card.toggle(false); onClose?.(); }, closeTitle: `Close (the ${title} button on the toolbar opens it again)` }),
       h('div', { class: 'fp-body side-card-body' }, ...body));
     card.el.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
     card.button = button({ icon: ic, title: tip || `${title} (a floating card; drag it to an edge of the canvas to dock it)`, onClick: () => card.toggle() });
@@ -53,13 +53,13 @@ export class CardSet {
   _show(card) {
     card.el.style.display = this.visible && card.isOpen ? '' : 'none';
     card.button.classList.toggle('active', card.isOpen);
-    card.button.hidden = !this.visible;
+    card.button.hidden = !this.visible || !card.toolbar;
   }
 
   /** Show or hide the whole set (the Library tab's Symbol | Footprint switch). */
   setVisible(on) { this.visible = on; for (const c of this.cards) this._show(c); }
 
-  buttons() { return this.cards.map((c) => c.button); }
+  buttons() { return this.cards.filter((c) => c.toolbar).map((c) => c.button); }
   card(id) { return this.cards.find((c) => c.id === id); }
 
   /** Put the cards over a workspace's canvas, in a column at its top right, dockable at its edges. */

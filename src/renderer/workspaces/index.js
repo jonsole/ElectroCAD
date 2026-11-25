@@ -47,7 +47,7 @@ function board(app) {
     toolbar: [...editor.toolbar(), sep(),
       button({ label: 'Update from Schematic', icon: 'annotate', title: 'Forward annotation: list what the Schematic changes on the Board (new parts, removed parts, values, nets), then apply it (F8)', onClick: () => editor.annotate() }),
       button({ label: 'Board setup', icon: 'settings', title: 'Board setup: Fab preset, Design rules, Fab output settings and Net classes', onClick: () => editor.setup() }),
-      later({ label: 'DRC', icon: 'erc', title: 'Design rule check' }, 25), spacer(),
+      button({ label: 'DRC', icon: 'erc', title: 'Design rule check: clearance, track width, annular ring, holes, edge clearance, courtyards, unrouted nets and Schematic changes (waits for zone fills); click a result to go there', onClick: () => editor.runDrc() }), spacer(),
       editor.modeGroup(later),
       sep(), segmented([['2d', '2D', 'twoD', '2D board view'], ['3d', '3D', 'cube', '3D board preview', 40]], '2d')],
     hint: '',

@@ -477,6 +477,25 @@ Selecting something in one editor highlights the same thing in the other (#18). 
   - New tracks take their net's class width and via size; the clearance between two nets is the larger of their classes'. Zones (and DRC, #25) use the same rules. The routing hint and a selected track's Properties name the class.
 - The Gerber tab's **Fab preset** section shows the preset the rules came from.
 
+## DRC
+
+**DRC** (Board toolbar) checks the board against its Design rules and Net classes (#25). It first waits for any zone refill in progress, then lists the problems in the **DRC** card, errors first:
+- **Clearance** (error): copper of different nets closer than the larger of their classes' clearance. This covers pads, tracks, vias and zone fills, on each copper layer, using the collision engine.
+- **Edge clearance** (error): copper nearer the board edge than the edge clearance, or off the board.
+- **Track width** (error): a track narrower than its net class's width.
+- **Annular ring** (error): a via or plated pad whose copper ring round the drill is under the annular ring.
+- **Hole size** (error): a drill under the minimum hole.
+- **Courtyard overlap** (error): two footprints on the same side whose courtyards overlap.
+- **Board outline** (error): the Outline isn't closed.
+- **Unrouted** (warning): each ratsnest connection still to route.
+- **Schematic/Board mismatch** (warning): the Schematic has changes the Board hasn't had. Clicking it opens Update from Schematic.
+
+Using the card:
+- **Markers:** while the card is open, each problem has a marker on the board (red for errors, amber for warnings). The **Errors** and **Warnings** chips filter both the list and the markers.
+- **Going to a problem:** click a row to zoom to it, ring its marker and select what it's about (tracks, vias, footprints, zones, or the net for an unrouted one). A hidden copper layer it's on is shown.
+- **Staying current:** after an edit the card says the board has changed since the run. **Run again** (or the DRC button) replaces the list and markers.
+- **Code:** DRC is a pure function, `runDrc(project, fills)` in `core/drc.js`.
+
 ## Zones
 
 **Zone (Z)** draws a copper pour (#23):

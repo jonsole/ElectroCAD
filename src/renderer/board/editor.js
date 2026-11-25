@@ -16,6 +16,7 @@ import { drawBoard, drawLabels } from './render.js';
 import { openAnnotateDialog } from './annotate-dialog.js';
 import { openBoardSetup } from './setup-dialog.js';
 import { netClassOf } from '../core/netclasses.js';
+import { runDrc, drcCounts, DRC_RULES } from '../core/drc.js';
 import { hitPad, footprintOutline, placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation } from '../core/footprint.js';
 import { ratsnest } from '../core/ratsnest.js';
 import { copperIndex, pointSeg2 } from '../core/collision.js';
@@ -78,6 +79,9 @@ export class BoardEditor {
     this.pts = null;            // points clicked so far by the drawing tools
     this.arcNext = false;       // polygon: the next side is an arc (a mid point, then the end)
     this.measure = null;        // { a, b, done }
+    this.drc = null;            // the last DRC run: { list, rev } (#25)
+    this.drcFocus = null;       // the violation last jumped to
+    this.drcFilter = { error: true, warning: true };
   }
 
   get project() { return this.app.project; }
@@ -187,6 +191,9 @@ export class BoardEditor {
     this.cards = new CardSet('board');
     this.cards.add({ id: 'layers', title: 'Layers', icon: 'layers', body: [this.stackEl, this.layerList], tip: 'Layers: the copper stack, which layers show, and the active layer' });
     this.cards.add({ id: 'props', title: 'Properties', icon: 'sliders', body: [this.propsEl], tip: 'Properties: the selected footprint or outline shape, and the Outline' });
+    // DRC results: opened by the DRC button, which also runs it (so no card button of its own)
+    this.drcEl = h('div', { class: 'drc-body' });
+    this.drcCard = this.cards.add({ id: 'drc', title: 'DRC', icon: 'erc', body: [this.drcEl], open: false, toolbar: false, onClose: () => { this.drcFocus = null; this.ws?.view.invalidate(); } });
   }
 
   layerColor(name) { return this.app.canvasColors('board')[name] || '#888'; }
@@ -455,7 +462,7 @@ export class BoardEditor {
       if (this.pairSel.options.length !== pairs.length) this.pairSel.replaceChildren(...pairs.map((q) => h('option', { value: q.join('|') }, q.join(' ↔ '))));
       this.pairSel.value = cur;
     }
-    if (this.stackEl) { this.renderStack(); this.renderLayers(); this.renderProps(); }
+    if (this.stackEl) { this.renderStack(); this.renderLayers(); this.renderProps(); this.renderDrc(); }
     this._home();
     if (this.ws) { this.ws.view.grid = this.gridStep; this.ws.view.origin = this.board.origin; }
     this.gridCard?.render();
@@ -989,6 +996,72 @@ export class BoardEditor {
     this.refresh();
   }
 
+  // ---------------------------------------------------------------- DRC (#25)
+
+  /** Run DRC (after any Zone refill in progress) and show the results in the DRC card. */
+  async runDrc() {
+    this.drcCard.toggle(true);
+    this.drcRunning = true;
+    this.renderDrc();
+    await this.whenZonesFilled();
+    this.drc = { list: runDrc(this.project, this.zoneFiller.fills), rev: this._rev() };
+    this.drcRunning = false;
+    this.drcFocus = null;
+    this.renderDrc();
+    this.ws?.view.invalidate();
+    const c = drcCounts(this.drc.list);
+    toast(c.error || c.warning ? `DRC: ${[c.error ? `${c.error} error${c.error === 1 ? '' : 's'}` : '', c.warning ? `${c.warning} warning${c.warning === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')}.` : 'DRC: no problems.', c.error ? 'error' : 'info', 2200);
+    return this.drc.list;
+  }
+
+  /** A number that changes with every edit (to tell when the DRC results are out of date). */
+  _rev() { const hs = this.app.history; return [hs.undoStack[hs.undoStack.length - 1] || null, hs.redoStack?.[hs.redoStack.length - 1] || null, this.project.id]; }
+  _drcStale() { const r = this._rev(); return !!this.drc && this.drc.rev.some((x, i) => x !== r[i]); }
+
+  _drcShown() { return (this.drc?.list || []).filter((v) => this.drcFilter[v.severity]); }
+
+  renderDrc() {
+    const el = this.drcEl;
+    if (!el || !this.drcCard?.isOpen) return;
+    const list = this.drc?.list || [];
+    const c = drcCounts(list);
+    const chip = (sev, label) => h('button', { class: `erc-chip erc-chip-${sev}` + (this.drcFilter[sev] ? ' on' : ''), type: 'button', 'aria-pressed': String(this.drcFilter[sev]), title: `Show ${label.toLowerCase()}`, dataset: { severity: sev },
+      onClick: () => { this.drcFilter[sev] = !this.drcFilter[sev]; this.renderDrc(); this.ws?.view.invalidate(); } }, h('span', { class: 'erc-dot' }), label, h('span', { class: 'erc-n' }, String(c[sev])));
+    const stale = this._drcStale();
+    const head = h('div', { class: 'erc-filter' },
+      h('div', { class: 'drc-run' },
+        h('span', { class: 'drc-sum' }, this.drcRunning ? 'Running… (waiting for zone fills)' : !this.drc ? 'Not run yet' : c.error || c.warning ? `${c.error} error${c.error === 1 ? '' : 's'} · ${c.warning} warning${c.warning === 1 ? '' : 's'}` : 'No problems'),
+        button({ label: this.drc ? 'Run again' : 'Run', icon: 'play', cls: 'btn-outline btn-xs', title: 'Run DRC again (clears the old markers)', onClick: () => this.runDrc() })),
+      stale ? h('div', { class: 'drc-stale' }, icon('info', 14), h('span', {}, 'The board has changed since this run.')) : null,
+      h('div', { class: 'erc-chips', role: 'group', 'aria-label': 'Show' }, chip('error', 'Errors'), chip('warning', 'Warnings')));
+    const shown = this._drcShown();
+    const label = Object.fromEntries(DRC_RULES);
+    const row = (v) => h('div', { class: `erc-row erc-${v.severity}` + (v.id === this.drcFocus ? ' on' : ''), role: 'button', tabindex: '0', dataset: { rule: v.rule }, title: v.at ? 'Show it on the board' : v.rule === 'annotation' ? 'Update from Schematic' : '',
+      onClick: () => this.gotoViolation(v), onKeydown: (e) => { if (e.key === 'Enter') this.gotoViolation(v); } },
+      h('span', { class: 'erc-dot', 'aria-label': v.severity }),
+      h('span', { class: 'erc-msg' }, h('b', { class: 'drc-rule' }, `${label[v.rule]}${v.layer ? ` · ${v.layer}` : ''}`), ' ', v.message));
+    const empty = this.drcRunning || !this.drc ? null : !list.length ? 'Every rule is met, everything is routed and the Board matches the Schematic.' : !shown.length ? 'Everything is filtered out.' : null;
+    el.replaceChildren(head, h('div', { class: 'fp-body drc-list' }, empty ? h('p', { class: 'side-note erc-clean' }, empty) : '', ...shown.map(row)));
+  }
+
+  /** Zoom to a violation and select what it's about. */
+  gotoViolation(v) {
+    this.drcFocus = v.id;
+    if (v.rule === 'annotation') { this.annotate(); this.renderDrc(); return; }
+    if (v.box && this.ws) {
+      const b = v.box, w = Math.max(b.x1 - b.x0, 6e6), hh = Math.max(b.y1 - b.y0, 6e6), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+      this.ws.view.view.fit({ x0: cx - w * 0.75, y0: cy - hh * 0.75, x1: cx + w * 0.75, y1: cy + hh * 0.75 }, this.ws.view.w, this.ws.view.h, 30);
+    }
+    const ids = new Set(v.items);
+    this.trackSel = new Set([...(this.board.tracks || []), ...(this.board.vias || [])].filter((t) => ids.has(t.id)).map((t) => t.id));
+    this.fpSel = new Set(this.board.footprints.filter((f) => ids.has(f.id)).map((f) => f.id));
+    this.zoneSel = new Set((this.board.zones || []).filter((z) => ids.has(z.id)).map((z) => z.id));
+    this.selection.clear(); this.netSel.clear();
+    if (v.rule === 'unrouted' && v.items[0]) this.netSel = new Set([v.items[0]]);
+    if (v.layer && /\.Cu$/.test(v.layer) && this.hidden.has(v.layer)) { this.hidden.delete(v.layer); pref.set('boardHidden', [...this.hidden]); }
+    this.refresh();
+  }
+
   /** Board setup: Fab preset, Design rules, Fab output and Net classes (#24). */
   setup(tab) { return openBoardSetup(this.app, { tab }); }
 
@@ -1094,8 +1167,31 @@ export class BoardEditor {
       const copper = new Set([...t.copper].filter((id) => !this.trackSel.has(id)));
       if (fps.size || t.pads.size || copper.size) this._highlightBoard(ctx, view, C, board, new Set(), fps, t.pads, { ...C, selection: C.highlight || C.selection }, this.selection.size || this.fpSel.size, copper);
     }
+    this._drawDrc(ctx, view, C); // over the highlights, so the focused problem shows
     drawHandles(ctx, view, C, this._handles(), this.handleDrag?.key);
     drawSnapMark(ctx, view, C, this.snapMark);
+  }
+
+  /** DRC markers while the DRC card is open: a badge at each shown violation, the focused one ringed. */
+  _drawDrc(ctx, view, C) {
+    if (!this.drc || !this.drcCard?.isOpen) return;
+    const shown = this._drcShown();
+    ctx.save();
+    for (const v of shown) {
+      if (!v.at) continue;
+      const [x, y] = view.toScreen(v.at);
+      const col = v.severity === 'error' ? (C.drcError || '#ff3b6b') : (C.ercWarning || '#ffb74d');
+      ctx.fillStyle = col; ctx.strokeStyle = C.background || '#000'; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.95;
+      const r = 6;
+      ctx.beginPath(); ctx.moveTo(x, y - r * 1.7); ctx.lineTo(x + r, y); ctx.lineTo(x - r, y); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.font = '700 9px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', x, y - r * 0.55);
+      if (v.id === this.drcFocus) {
+        ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
+        if (v.box) { const [x0, y0] = view.toScreen([v.box.x0, v.box.y0]), [x1, y1] = view.toScreen([v.box.x1, v.box.y1]); ctx.beginPath(); ctx.arc(x, y, Math.max(12, Math.min(40, Math.hypot(x1 - x0, y1 - y0) / 8)), 0, Math.PI * 2); ctx.stroke(); }
+        ctx.setLineDash([]);
+      }
+    }
+    ctx.restore();
   }
 
   /**
