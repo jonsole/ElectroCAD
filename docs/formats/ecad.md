@@ -96,7 +96,7 @@ Every shape may have `fill` (`none`, `background` = the theme's symbol fill, `ou
 
 Footprint text (#84) can carry `rot` (degrees, relative to the Footprint; it turns with it and is kept readable), `align` (Eagle's anchors: `at` is that point of the text, placed with the real string) and `spin` (never turned the other way up). Text without `rot` is drawn upright, centred on `at`.
 
-Pads may be `chamfer` (#70): a rectangle with corners cut by `chamfer` (a fraction of the shorter side, default 0.2929: a regular octagon on a square) at `corners` (`tl`, `tr`, `br`, `bl`; default all). Through-hole pads may carry `innerSize` (#82): their diameter on the inner copper layers, where they are round. Zones may carry `minWidth` (#82): copper narrower than it is left out of the fill.
+Courtyard rectangles may carry `generated: true` (#67): an importer made them because the library had none, and DRC reports their overlaps as warnings. Pads may be `chamfer` (#70): a rectangle with corners cut by `chamfer` (a fraction of the shorter side, default 0.2929: a regular octagon on a square) at `corners` (`tl`, `tr`, `br`, `bl`; default all). Through-hole pads may carry `innerSize` (#82): their diameter on the inner copper layers, where they are round. Zones may carry `minWidth` (#82): copper narrower than it is left out of the fill.
 
 ## Component
 

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { parseXml } from '../src/renderer/io/xml.js';
 import { arcMid, arcPoints, len, rotOf, Report } from '../src/renderer/io/eagle/common.js';
 import { packageToFootprint } from '../src/renderer/io/eagle/library.js';
+import { mm } from '../src/renderer/core/units.js';
 import { importEagle, eagleKind, importLog, eagleVersion } from '../src/renderer/io/eagle/index.js';
 import { ratsnest } from '../src/renderer/core/ratsnest.js';
 import { serialize, deserialize } from '../src/renderer/core/project.js';
@@ -361,4 +362,32 @@ test('plain Eagle labels come over as text on the wire, xref labels as flags, bo
   // sheet references (#76): only xref labels show them, so the project default is off
   assert.equal(project.schematic.showSheetRefs, false);
   assert.ok(ls.every((l) => !l.showRefs || (l.scope === 'global' && look(l) === 'flag')));
+});
+
+test('courtyards (#67): a package\'s keepout outline wins; otherwise one round pads and fab only, marked generated', () => {
+  const withKeepout = parseXml('<package name="K"><smd name="1" x="-1" y="0" dx="1" dy="1" layer="1"/><smd name="2" x="1" y="0" dx="1" dy="1" layer="1"/><wire x1="-2" y1="-1" x2="2" y2="-1" width="0" layer="39"/><wire x1="2" y1="-1" x2="2" y2="1" width="0" layer="39"/><wire x1="2" y1="1" x2="-2" y2="1" width="0" layer="39"/><text x="-5" y="5" size="1" layer="25">&gt;NAME</text></package>');
+  const a = packageToFootprint(withKeepout, { report: new Report() }).graphics.filter((g) => /CrtYd/.test(g.layer || ''));
+  assert.equal(a.length, 1);
+  assert.deepEqual([a[0].a, a[0].b], [[-mm(2), -mm(1)], [mm(2), mm(1)]], 'the keepout box (pads inside it)');
+  assert.ok(!a[0].generated);
+  // no keepout: pads and fab drawing, 0.25 mm out; silk and its text (far off) don't count
+  const plain = parseXml('<package name="P"><smd name="1" x="-1" y="0" dx="1" dy="1" layer="1"/><smd name="2" x="1" y="0" dx="1" dy="1" layer="1"/><wire x1="-8" y1="3" x2="8" y2="3" width="0.2" layer="21"/><wire x1="-1.8" y1="0" x2="1.8" y2="0" width="0.1" layer="51"/></package>');
+  const b = packageToFootprint(plain, { report: new Report() }).graphics.find((g) => /CrtYd/.test(g.layer || ''));
+  assert.equal(b.generated, true);
+  assert.deepEqual([b.a, b.b], [[-mm(2.05), -mm(0.75)], [mm(2.05), mm(0.75)]]);
+});
+
+test('courtyards (#67): overlaps of generated courtyards are warnings, of drawn ones errors', async () => {
+  const { runDrc } = await import('../src/renderer/core/drc.js');
+  const { project } = importEagle({ sch: SCH, brd: BRD, name: 'reg' });
+  const b = project.board;
+  // put two footprints on top of each other
+  b.footprints[1].at = [...b.footprints[0].at]; b.footprints[1].side = b.footprints[0].side;
+  const v = runDrc(project).filter((x) => x.rule === 'courtyard');
+  assert.ok(v.length >= 1);
+  assert.ok(v.every((x) => x.severity === 'warning' && /made by the import/.test(x.message)), JSON.stringify(v.map((x) => [x.severity, x.message])));
+  // a drawn courtyard: an error
+  for (const part of Object.values(project.parts)) for (const fp of Object.values(part.footprints || {})) for (const g of fp.graphics) delete g.generated;
+  for (const f of Object.values(project.footprints)) for (const g of f.footprint.graphics) delete g.generated;
+  assert.ok(runDrc(project).filter((x) => x.rule === 'courtyard').every((x) => x.severity === 'error'));
 });

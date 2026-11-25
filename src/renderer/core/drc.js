@@ -267,7 +267,8 @@ export function runDrc(project, fills = new Map(), { areas = null, rats = null }
       else if (g.type === 'circle') pts = Array.from({ length: 32 }, (_, i) => [g.c[0] + g.r * Math.cos((i / 32) * 2 * Math.PI), g.c[1] + g.r * Math.sin((i / 32) * 2 * Math.PI)]);
       if (pts) paths.push(pts.map(T).map(([x, y]) => ({ X: Math.round(x), Y: Math.round(y) })));
     }
-    if (paths.length) yards.push({ bf, side: bf.side === 'B' ? 'B' : 'F', paths, box: shapeBox({ type: 'poly', pts: paths.flat().map((q) => [q.X, q.Y]) }) });
+    const generated = (fp.graphics || []).some((g) => /CrtYd$/.test(g.layer || '') && g.generated);
+    if (paths.length) yards.push({ bf, generated, side: bf.side === 'B' ? 'B' : 'F', paths, box: shapeBox({ type: 'poly', pts: paths.flat().map((q) => [q.X, q.Y]) }) });
   }
   for (let i = 0; i < yards.length; i++) for (let j = i + 1; j < yards.length; j++) {
     const a = yards[i], b = yards[j];
@@ -284,7 +285,9 @@ export function runDrc(project, fills = new Map(), { areas = null, rats = null }
     const at = [Math.round((ob.x0 + ob.x1) / 2), Math.round((ob.y0 + ob.y1) / 2)];
     const ref = (bf) => board.annotation?.components?.[bf.componentId]?.ref || project.components[bf.componentId]?.ref || '?';
     const ring = (p) => p.map((q) => [q.X, q.Y]);
-    add({ rule: 'courtyard', severity: 'error', at, box: merge(a.box, b.box), items: [a.bf.id, b.bf.id], layer: `${a.side}.CrtYd`, show: { outlines: [...a.paths.map(ring), ...b.paths.map(ring)], overlap: sol.map(ring) }, message: `${ref(a.bf)} and ${ref(b.bf)} courtyards overlap (${a.side === 'B' ? 'back' : 'front'}).` });
+    // a courtyard the import made up (no drawn one, #67) is only a guess: its overlaps are warnings
+    const guess = a.generated || b.generated;
+    add({ rule: 'courtyard', severity: guess ? 'warning' : 'error', at, box: merge(a.box, b.box), items: [a.bf.id, b.bf.id], layer: `${a.side}.CrtYd`, show: { outlines: [...a.paths.map(ring), ...b.paths.map(ring)], overlap: sol.map(ring) }, message: `${ref(a.bf)} and ${ref(b.bf)} courtyards overlap (${a.side === 'B' ? 'back' : 'front'})${guess ? '; one was made by the import (no courtyard in the library), so check the parts themselves' : ''}.` });
   }
 
   // unrouted connections

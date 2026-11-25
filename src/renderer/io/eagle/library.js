@@ -117,17 +117,27 @@ export function packageToFootprint(pkg, { report = new Report(), rules = DEFAULT
   }
   const graphics = shapes(pkg, (L) => (PACKAGE_LAYER[L] ?? null),
     (t, L) => (t === '>NAME' || t === '>name' ? '${REF}' : t === '>VALUE' || t === '>value' ? '${VALUE}' : L === 25 || L === 27 ? null : t), report, { anchored: true });
-  // a courtyard round the pads and the silk and fab shapes, 0.25 mm out
-  const xs = [], ys = [];
-  for (const p of pads) { xs.push(p.at[0] - p.size[0] / 2, p.at[0] + p.size[0] / 2); ys.push(p.at[1] - p.size[1] / 2, p.at[1] + p.size[1] / 2); }
-  for (const g of graphics) {
-    if (g.type === 'text') continue;
-    const q = g.pts || (g.type === 'rect' ? [g.a, g.b] : g.type === 'circle' ? [[g.c[0] - g.r, g.c[1] - g.r], [g.c[0] + g.r, g.c[1] + g.r]] : g.type === 'arc' ? [g.start, g.mid, g.end] : []);
-    for (const [x, y] of q) { xs.push(x); ys.push(y); }
-  }
-  if (xs.length) {
+  // the courtyard (#67): the package's own keepout outline (tKeepout/bKeepout, layers 39/40) round
+  // its pads when it has one; else one made round the pads and the fab (body) drawing, 0.25 mm out,
+  // marked generated (silk text and logos reach far, so they don't count): DRC reports the overlaps
+  // of generated courtyards as warnings
+  const extent = (list) => {
+    const xs = [], ys = [];
+    for (const p of pads) { xs.push(p.at[0] - p.size[0] / 2, p.at[0] + p.size[0] / 2); ys.push(p.at[1] - p.size[1] / 2, p.at[1] + p.size[1] / 2); }
+    for (const g of list) {
+      if (g.type === 'text') continue;
+      const q = g.pts || (g.type === 'rect' ? [g.a, g.b] : g.type === 'circle' ? [[g.c[0] - g.r, g.c[1] - g.r], [g.c[0] + g.r, g.c[1] + g.r]] : g.type === 'arc' ? [g.start, g.mid, g.end] : []);
+      for (const [x, y] of q) { xs.push(x); ys.push(y); }
+    }
+    return xs.length ? { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) } : null;
+  };
+  const keepout = shapes(pkg, (L) => (L === 39 || L === 40 ? undefined : null), () => null);
+  const own = keepout.length ? extent(keepout) : null;
+  if (own) graphics.push({ type: 'rect', layer: 'F.CrtYd', a: [own.x0, own.y0], b: [own.x1, own.y1] });
+  else {
+    const b = extent(graphics.filter((g) => /Fab$/.test(g.layer || '')));
     const m = 250_000;
-    graphics.push({ type: 'rect', layer: 'F.CrtYd', a: [Math.min(...xs) - m, Math.min(...ys) - m], b: [Math.max(...xs) + m, Math.max(...ys) + m] });
+    if (b) graphics.push({ type: 'rect', layer: 'F.CrtYd', a: [b.x0 - m, b.y0 - m], b: [b.x1 + m, b.y1 + m], generated: true });
   }
   void holes;
   return { name: pkg.attr('name'), pads, graphics };
