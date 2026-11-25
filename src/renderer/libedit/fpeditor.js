@@ -75,7 +75,7 @@ export class FootprintEditor {
       save: button({ label: 'Save', icon: 'check', cls: 'btn-primary', title: 'Save the footprint to its Library (Ctrl+S)', onClick: () => this.save() }),
     };
     // delete and turn live on the context strip over the canvas
-    this.strip = new ContextStrip('Selection actions');
+    this.strip = new ContextStrip('Selection actions', 'library');
     this.gridCard = new GridCard({
       key: 'footprint-grid', choices: BOARD_GRIDS,
       state: () => ({ grid: this.grid, origin: [0, 0], scope: 'Footprint editor', originEditable: false, originNote: 'The footprint\'s origin is where the board places it from.' }),

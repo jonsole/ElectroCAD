@@ -140,7 +140,7 @@ export class LibraryEditor {
       save: button({ label: 'Save', icon: 'check', cls: 'btn-primary', title: 'Save the Part to its Library (Ctrl+S)', onClick: () => this.save() }),
     };
     // delete and turn live on the context strip over the canvas
-    this.strip = new ContextStrip('Selection actions');
+    this.strip = new ContextStrip('Selection actions', 'library');
     this.gridCard = new GridCard({
       key: 'library-grid', choices: SCHEMATIC_GRIDS,
       state: () => ({ grid: this.grid, origin: [0, 0], scope: 'Symbol editor', originEditable: false, originNote: 'The Symbol\'s anchor: pick a point and the Part moves so that point is the anchor.' }),

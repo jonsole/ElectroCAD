@@ -457,6 +457,8 @@ A small floating toolbar at the top of the canvas (`ui/contextStrip.js`, styled 
 
 The strip rebuilds only when its context changes, so a field being typed in keeps its focus. Clicks on it don't reach the canvas.
 
+**Moving a strip:** drag the grip at its left end (three vertical bars) to move the strip anywhere over the canvas. It stays there, kept inside the canvas, and is remembered per editor; on the Board the routing strip shares the place. Double-click the grip to put it back at the top left.
+
 ## Routing tracks
 
 **Route (X)** draws Tracks (#20):

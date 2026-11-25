@@ -31,7 +31,7 @@ import { ZoneFiller } from './zoneFiller.js';
 import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { watchAlt } from '../ui/grid.js';
 import { GridCard } from '../ui/gridCard.js';
-import { ContextStrip, stripLabel, stripSep, stripButton, stripNumber, stripSelect, stripSegmented, stripProps } from '../ui/contextStrip.js';
+import { ContextStrip, stripLabel, stripSep, stripButton, stripNumber, stripSelect, stripSegmented, stripProps, stripGrip, placeStrip } from '../ui/contextStrip.js';
 import { CardSet } from '../ui/cards.js';
 import { highlight, screenBox, revealBox } from '../view/highlight.js';
 import { probeFromBoard, boardTargets } from '../core/probe.js';
@@ -78,7 +78,7 @@ export class BoardEditor {
     this.chamfer = mm(pref.get('boardChamfer', 0));         // Eagle-style auto chamfer of 90° bends
     this.rotStep = pref.get('boardRotStep', 90);           // degrees R and the strip's rotate buttons turn by
     this.zoneNet = 'auto';                                 // the Zone tool's net: 'auto' (from the first corner), '' or a name
-    this.strip = new ContextStrip('Tool options and selection actions');
+    this.strip = new ContextStrip('Tool options and selection actions', 'board');
     this.route = null;          // the track being routed (router state), its copper index and proposal
     this.pts = null;            // points clicked so far by the drawing tools
     this.arcNext = false;       // polygon: the next side is an arc (a mid point, then the end)
@@ -456,7 +456,9 @@ export class BoardEditor {
     }
     if (this.toolBtn) for (const [id, b] of Object.entries(this.toolBtn)) b.classList.toggle('active', this.tool === id);
     if (this.routeStrip) {
+      const wasHidden = this.routeStrip.hidden;
       this.routeStrip.hidden = this.tool !== 'route';
+      if (wasHidden && !this.routeStrip.hidden) placeStrip(this.routeStrip, 'board');
       // layer pairs: only a 4-layer board has a choice
       const pairs = layerPairs(this.board.stack.copper), four = this.board.stack.copper === 4;
       this.pairBox.hidden = !four; this.routeStrip.querySelector('.pair-sep').hidden = !four;
@@ -771,7 +773,9 @@ export class BoardEditor {
     this.gridCard.mount(ws);
     this.cards.mount(ws);
     ws.view.el.append(this.routeStrip);
+    this.routeStrip.prepend(stripGrip(this.routeStrip, 'board')); // moves with the context strip: one place per editor
     this.strip.mount(ws.view.el);
+    ws.view.el.addEventListener('strip-moved', () => { placeStrip(this.strip.el, 'board'); placeStrip(this.routeStrip, 'board'); });
     this.routeStrip.addEventListener('pointerdown', (e) => e.stopPropagation());
     c.addEventListener('pointercancel', up);
     c.addEventListener('pointerleave', () => { if (this.tool !== 'select') { this.cursor = null; ws.view.invalidate(); } });

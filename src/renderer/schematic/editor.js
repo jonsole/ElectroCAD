@@ -463,7 +463,7 @@ export class SchematicEditor {
       onPick: () => this.setTool('origin'),
     });
     // copy, duplicate, delete, rotate, mirror and Fields live on the context strip over the canvas
-    this.strip = new ContextStrip('Selection actions and tool options');
+    this.strip = new ContextStrip('Selection actions and tool options', 'schematic');
     return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), this.btn.paste, h('span', { class: 'sep' }),
       this.partsBtn, this.gridCard.button, this.sheetsBtn, this.netlistBtn, erc];
   }

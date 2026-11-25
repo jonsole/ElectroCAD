@@ -20,7 +20,7 @@ sch.selection = new Set([y.id]); sch.refresh();
 check('sch-shown', !strip('schematic').hidden && /R1/.test(strip('schematic').textContent), strip('schematic').textContent);
 // every selection strip ends with Properties, which opens the selection's Properties
 const propsBtn = (ws) => strip(ws).querySelector('.strip-props');
-check('sch-props-button', propsBtn('schematic') === strip('schematic').lastElementChild);
+check('sch-props-button', propsBtn('schematic') === strip('schematic').querySelector('.strip-body').lastElementChild);
 propsBtn('schematic').click();
 check('sch-props-open', sch.propsOpen && /R1/.test(document.querySelector('.inspector .insp-title')?.textContent));
 propsBtn('schematic').click();
@@ -47,7 +47,7 @@ check('select-none', strip('board').hidden);
 const fp = app.project.board.footprints[0];
 ed.fpSel = new Set([fp.id]); ed.refresh();
 check('fp-strip', !strip('board').hidden && !!btn('board', 'Rotate 90° anticlockwise'), strip('board').textContent);
-check('fp-props-button', propsBtn('board') === strip('board').lastElementChild);
+check('fp-props-button', propsBtn('board') === strip('board').querySelector('.strip-body').lastElementChild);
 const step = strip('board').querySelector('select[aria-label="Rotation step"]'); step.value = '45'; step.dispatchEvent(new Event('change'));
 btn('board', 'Rotate 45° anticlockwise').click();
 check('fp-rot', app.project.board.footprints[0].rot === 45 && localStorage.getItem('electrocad.boardRotStep') === '45', app.project.board.footprints[0].rot);
@@ -60,7 +60,7 @@ check('fp-lock', app.project.board.footprints[0].locked === true && btn('board',
 // a track
 app.edit('track', (pr) => pr.board.tracks.push({ id: 'tt', a: [MM, MM], b: [5 * MM, MM], width: 250000, layer: 'F.Cu', net: 'A' }));
 ed.fpSel.clear(); ed.trackSel = new Set(['tt']); ed.refresh();
-check('track-props-button', propsBtn('board') === strip('board').lastElementChild);
+check('track-props-button', propsBtn('board') === strip('board').querySelector('.strip-body').lastElementChild);
 propsBtn('board').click();
 check('track-props-open', ed.cards.card('props').isOpen && /1 track/.test(ed.propsEl.textContent));
 const w = strip('board').querySelector('input[aria-label="Width"]'); w.value = '0.4'; w.dispatchEvent(new Event('change'));
@@ -78,6 +78,24 @@ check('props-closed', !ed.cards.card('props').isOpen);
   check('props-open', ed.cards.card('props').isOpen && /Reference/.test(ed.propsEl.textContent));
   ed.fpSel.clear(); ed.refresh(); // the selection changes
   check('props-follow-close', !ed.cards.card('props').isOpen);
+}
+// the strip moves by its grip (three bars at its left), remembered; double-click puts it back
+{
+  const st = strip('board'), grip = st.querySelector('.strip-grip');
+  ed.fpSel = new Set([app.project.board.footprints[0].id]); ed.refresh();
+  const r0 = st.getBoundingClientRect(), g = grip.getBoundingClientRect();
+  const pe = (type, x, y) => (type === 'pointerdown' ? grip : window).dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, button: 0, buttons: type === 'pointerup' ? 0 : 1, bubbles: true, pointerId: 77 }));
+  pe('pointerdown', g.left + 3, g.top + 5); pe('pointermove', g.left + 203, g.top + 125); pe('pointerup', g.left + 203, g.top + 125);
+  const r1 = st.getBoundingClientRect();
+  check('strip-moved', Math.abs(r1.left - r0.left - 200) < 2 && Math.abs(r1.top - r0.top - 120) < 2 && !!localStorage.getItem('electrocad.strip.board'), [r0.left, r0.top, r1.left, r1.top]);
+  ed.setTool('route');
+  const rs = document.querySelector('[data-ws="board"] .route-strip').getBoundingClientRect();
+  check('route-strip-follows', Math.abs(rs.left - r1.left) < 2 && Math.abs(rs.top - r1.top) < 2, [rs.left, rs.top]);
+  ed.setTool('select'); ed.fpSel = new Set([app.project.board.footprints[0].id]); ed.refresh();
+  grip.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  const r2 = st.getBoundingClientRect();
+  check('strip-home', Math.abs(r2.left - r0.left) < 2 && Math.abs(r2.top - r0.top) < 2 && !localStorage.getItem('electrocad.strip.board'));
+  ed.fpSel.clear(); ed.refresh();
 }
 // ---- Library: the Footprint editor's strip shows only in Footprint mode
 app.setWorkspace('library'); await raf();

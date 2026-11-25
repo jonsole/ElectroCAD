@@ -754,3 +754,10 @@ body.resizing iframe, body.resizing canvas { pointer-events: none; }
 .insp-net { font-size: 13px; }
 .insp-pins { margin-top: 2px; }
 .insp-actions { display: flex; gap: 6px; margin-top: 8px; }
+/* a strip's grip: three bars at its left end, to move it */
+.strip-grip { display: inline-flex; gap: 2px; align-items: center; align-self: stretch; padding: 0 5px 0 0; margin-left: -6px; cursor: grab; touch-action: none; }
+.strip-grip i { display: block; width: 2px; height: 14px; border-radius: 1px; background: var(--muted); opacity: .55; }
+.strip-grip:hover i { opacity: .95; }
+.tool-strip.moving { cursor: grabbing; opacity: .95; }
+.tool-strip.moving .strip-grip { cursor: grabbing; }
+.strip-body { display: flex; align-items: center; gap: inherit; flex-wrap: wrap; }
