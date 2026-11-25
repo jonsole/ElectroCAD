@@ -761,3 +761,6 @@ body.resizing iframe, body.resizing canvas { pointer-events: none; }
 .tool-strip.moving { cursor: grabbing; opacity: .95; }
 .tool-strip.moving .strip-grip { cursor: grabbing; }
 .strip-body { display: flex; align-items: center; gap: inherit; flex-wrap: wrap; }
+.strip-field:has(:disabled) { opacity: .45; }
+.strip-field :disabled { cursor: not-allowed; }
+.strip-btn:disabled { opacity: .4; cursor: not-allowed; }

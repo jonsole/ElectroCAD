@@ -106,15 +106,15 @@ export function stripButton({ icon: ic, label, title, onClick, active = false, d
 }
 
 /** A number field with its unit; onSet(value) on change or Enter. */
-export function stripNumber({ label, value, unit = '', step = '0.05', min = '0', max = null, onSet, width = 64, title = '', placeholder = '' }) {
-  const i = stop(h('input', { class: 'input', type: 'number', step, min, ...(max != null ? { max } : {}), value: value == null ? '' : String(value), placeholder, 'aria-label': label, style: { width: width + 'px' } }));
+export function stripNumber({ label, value, unit = '', step = '0.05', min = '0', max = null, onSet, width = 64, title = '', placeholder = '', disabled = false }) {
+  const i = stop(h('input', { class: 'input', type: 'number', step, min, ...(max != null ? { max } : {}), value: value == null ? '' : String(value), placeholder, 'aria-label': label, style: { width: width + 'px' }, disabled }));
   i.addEventListener('change', () => { const v = parseFloat(i.value); if (Number.isFinite(v)) onSet(v); });
   return h('label', { class: 'strip-field', title: title || label }, h('span', {}, label), i, unit ? h('em', {}, unit) : null);
 }
 
 /** A select; options [[value, text]]; onSet(value). */
-export function stripSelect({ label, value, options, onSet, title = '', showLabel = true }) {
-  const s = stop(h('select', { class: 'select', 'aria-label': label }, ...options.map(([v, t]) => h('option', { value: String(v) }, t))));
+export function stripSelect({ label, value, options, onSet, title = '', showLabel = true, disabled = false }) {
+  const s = stop(h('select', { class: 'select', 'aria-label': label, disabled }, ...options.map(([v, t]) => h('option', { value: String(v) }, t))));
   s.value = String(value);
   s.addEventListener('change', () => onSet(s.value));
   return h('label', { class: 'strip-field', title: title || label }, showLabel ? h('span', {}, label) : null, s);

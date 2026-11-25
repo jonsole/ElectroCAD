@@ -252,6 +252,7 @@ export class SchematicEditor {
     }
     const anySym = this.sheet.symbols.some((y) => this.selection.has(y.id));
     const anyLabel = (this.sheet.labels || []).some((l) => this.selection.has(l.id)) || (this.sheet.drawings || []).some((d) => this.selection.has(d.id));
+    const selSyms = this._selSyms(), allLocked = selSyms.length > 0 && selSyms.length === this.selection.size && selSyms.every((y) => y.locked);
     popupMenu([
       { label: 'Properties…', icon: 'sliders', shortcut: 'Double-click', onClick: () => this.openProperties() },
       anySym || this.sheet.wires.some((w) => this.selection.has(w.id)) ? { label: anySym ? 'Show on Board' : 'Show the net on Board', icon: 'board', onClick: () => this.showOnBoard() } : null,
@@ -261,8 +262,8 @@ export class SchematicEditor {
       { label: 'Duplicate', icon: 'duplicate', shortcut: 'Ctrl+D', onClick: () => this.duplicate() },
       { label: 'Delete', icon: 'trash', shortcut: 'Del', onClick: () => this.deleteSelection() },
       'sep',
-      { label: 'Rotate', icon: 'rotate', shortcut: 'R', disabled: !anySym && !anyLabel, onClick: () => this.rotate() },
-      { label: 'Mirror', icon: 'mirror', shortcut: 'X', disabled: !anySym, onClick: () => this.mirror() },
+      { label: 'Rotate', icon: 'rotate', shortcut: 'R', disabled: (!anySym && !anyLabel) || allLocked, onClick: () => this.rotate() },
+      { label: 'Mirror', icon: 'mirror', shortcut: 'X', disabled: !anySym || allLocked, onClick: () => this.mirror() },
       anySym ? { label: this._selSyms().every((y) => y.locked) ? 'Unlock' : 'Lock', icon: this._selSyms().every((y) => y.locked) ? 'unlock' : 'lock', onClick: () => this.lockSel() } : null,
       anySym ? 'sep' : null,
       anySym ? this._reapplyItem() : null,
@@ -1483,9 +1484,11 @@ export class SchematicEditor {
     const parts = [[syms, 'part'], [wires, 'wire'], [labels, 'label'], [drawings, 'drawing'], [ncs, 'no-connect']].filter(([k]) => k).map(([k, w]) => `${k} ${w}${k === 1 ? '' : 's'}`);
     let title = parts.join(', ');
     if (syms === 1 && sel.size === 1) { const y = sh.symbols.find((q) => sel.has(q.id)); title = this.project.components[y.componentId]?.ref || title; }
+    // everything selected is a locked part: what would move it is greyed out
+    const allLocked = syms > 0 && syms === sel.size && this._selSyms().every((y) => y.locked);
     s.show(`sel|${[...sel].sort().join()}|${this.propsOpen}|${this._selSyms().map((y) => !!y.locked).join()}`, () => [stripLabel(title, syms ? 'parts' : wires ? 'wire' : labels ? 'netLabel' : 'select'), stripSep(),
-      syms || labels || drawings ? stripButton({ icon: 'rotate', title: 'Rotate 90° (R)', onClick: () => this.rotate() }) : null,
-      syms ? stripButton({ icon: 'mirror', title: 'Mirror (X)', onClick: () => this.mirror() }) : null,
+      syms || labels || drawings ? stripButton({ icon: 'rotate', title: allLocked ? 'Locked: unlock to rotate' : 'Rotate 90° (R)', disabled: allLocked, onClick: () => this.rotate() }) : null,
+      syms ? stripButton({ icon: 'mirror', title: allLocked ? 'Locked: unlock to mirror' : 'Mirror (X)', disabled: allLocked, onClick: () => this.mirror() }) : null,
       syms ? stripButton({ icon: 'ltext', label: 'Fields', title: 'Field style for the selected parts', onClick: (e) => this.fieldsMenu(e.currentTarget) }) : null,
       syms ? (() => { const locked = this._selSyms().every((y) => y.locked); return stripButton({ icon: locked ? 'unlock' : 'lock', label: locked ? 'Unlock' : 'Lock', active: locked, title: `${locked ? 'Unlock' : 'Lock'}: a locked part doesn't move, rotate or mirror; its origin shows × instead of +`, onClick: () => this.lockSel() }); })() : null,
       stripSep(),

@@ -136,7 +136,7 @@ export class SchematicInspector {
 
     // position, rotation, mirror
     const posInput = (axis) => {
-      const inp = h('input', { class: 'input', type: 'number', step: 1.27, value: fmtMm(sym.at[axis]), 'aria-label': axis ? 'Y (mm)' : 'X (mm)' });
+      const inp = h('input', { class: 'input', type: 'number', step: 1.27, value: fmtMm(sym.at[axis]), 'aria-label': axis ? 'Y (mm)' : 'X (mm)', disabled: !!sym.locked });
       inp.addEventListener('keydown', (e) => e.stopPropagation());
       inp.addEventListener('change', () => {
         const v = parseFloat(inp.value);
@@ -148,16 +148,17 @@ export class SchematicInspector {
       });
       return inp;
     };
-    const rot = h('select', { class: 'select', 'aria-label': 'Rotation' }, ...[0, 90, 180, 270].map((d) => h('option', { value: d }, `${d}°`)));
+    const rot = h('select', { class: 'select', 'aria-label': 'Rotation', disabled: !!sym.locked }, ...[0, 90, 180, 270].map((d) => h('option', { value: d }, `${d}°`)));
     rot.value = String(sym.rot || 0);
     rot.addEventListener('change', () => {
       const steps = ((+rot.value - (sym.rot || 0)) / 90 + 4) % 4;
       if (steps) this._edit(`Rotate ${comp.ref}`, (p) => { for (let i = 0; i < steps; i++) rotateSymbols(p, [sym.id]); });
     });
-    const mir = h('input', { type: 'checkbox', checked: !!sym.mirror, 'aria-label': 'Mirrored' });
+    const mir = h('input', { type: 'checkbox', checked: !!sym.mirror, 'aria-label': 'Mirrored', disabled: !!sym.locked });
     mir.addEventListener('change', () => this._edit(`Mirror ${comp.ref}`, (p) => mirrorSymbols(p, [sym.id])));
     rows.push(h('div', { class: 'xy' }, h('span', {}, 'X'), posInput(0), h('span', {}, 'Y'), posInput(1), h('em', {}, 'mm')),
-      h('div', { class: 'xy' }, h('span', {}, 'Rot'), rot, h('label', { class: 'check' }, mir, 'Mirror')));
+      h('div', { class: 'xy' }, h('span', {}, 'Rot'), rot, h('label', { class: 'check' }, mir, 'Mirror')),
+      sym.locked ? h('div', { class: 'insp-note' }, 'Locked: it can\'t be moved, rotated or mirrored. Unlock it on the toolbar or the right-click menu.') : null);
 
     // MPN and custom fields (collapsible, like the fork's inspector sections)
     const mpn = comp.mpn || { manufacturer: '', number: '' };

@@ -415,6 +415,7 @@ Selecting something in one editor highlights the same thing in the other (#18). 
 ## Component origins and locking
 
 Every placed part on the Schematic, and every footprint on the Board, marks its origin with a small **+** when it can move, or a small **×** when it is locked. The mark is a fixed size on screen, and on the Board it's in the footprint side's silk colour, over the copper.
+- **What greys out:** when everything selected is locked, the actions that would move it are greyed out. That covers rotate, the step and angle, flip and mirror on the context strip; the same right-click menu items; and the position, rotation, side and mirror fields in Properties. Lock/Unlock, Delete and Properties stay available. With a mix of locked and unlocked parts, the actions stay on and apply to the unlocked ones.
 - **Board:** **L** locks a footprint, or use Lock on its context strip or right-click menu. A locked footprint doesn't move, rotate or flip.
 - **Schematic:** Lock is on the selection's context strip and right-click menu. There's no key, because L is the Net label tool. A locked part doesn't move, rotate or mirror; its wires stay put, and a toast says when some of a selection stayed put. Saved as `locked` on the symbol.
 

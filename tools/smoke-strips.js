@@ -25,6 +25,9 @@ propsBtn('schematic').click();
 check('sch-props-open', sch.propsOpen && /R1/.test(document.querySelector('.inspector .insp-title')?.textContent));
 propsBtn('schematic').click();
 check('sch-props-toggle', !sch.propsOpen);
+btn('schematic', 'Lock').click();
+check('sch-locked-disabled', btn('schematic', 'Locked: unlock to rotate')?.disabled && btn('schematic', 'Locked: unlock to mirror')?.disabled && !btn('schematic', 'Unlock').disabled);
+btn('schematic', 'Unlock').click();
 btn('schematic', 'Rotate 90°').click();
 check('sch-rotated', app.project.schematic.sheets[0].symbols[0].rot === 90, app.project.schematic.sheets[0].symbols[0].rot);
 btn('schematic', 'Delete').click();
@@ -57,6 +60,15 @@ btn('board', 'Flip').click();
 check('fp-flip', app.project.board.footprints[0].side === 'B');
 btn('board', 'Lock').click();
 check('fp-lock', app.project.board.footprints[0].locked === true && btn('board', 'Unlock'));
+// locked: what would move it is greyed out, on the strip and the right-click menu
+check('fp-locked-disabled', btn('board', 'Locked: unlock to rotate').disabled && btn('board', 'Flip').disabled && strip('board').querySelector('input[aria-label="Angle"]').disabled && !btn('board', 'Unlock').disabled);
+{
+  const v = app.workspace('board').view, r = v.canvas.getBoundingClientRect(), [sx, sy] = v.view.toScreen(app.project.board.footprints[0].at);
+  ed.contextMenu({ clientX: r.left + sx, clientY: r.top + sy });
+  const it = (t) => [...document.querySelectorAll('.menu .menu-item')].find((m) => m.textContent.includes(t));
+  check('fp-locked-menu', it('Flip')?.classList.contains('disabled') && it('anticlockwise')?.classList.contains('disabled') && !it('Unlock')?.classList.contains('disabled'));
+  document.querySelectorAll('.menu').forEach((m) => m.remove());
+}
 // a track
 app.edit('track', (pr) => pr.board.tracks.push({ id: 'tt', a: [MM, MM], b: [5 * MM, MM], width: 250000, layer: 'F.Cu', net: 'A' }));
 ed.fpSel.clear(); ed.trackSel = new Set(['tt']); ed.refresh();

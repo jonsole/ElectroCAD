@@ -867,9 +867,9 @@ export class BoardEditor {
     if (this.fpSel.size) {
       const locked = this.board.footprints.filter((f) => this.fpSel.has(f.id)).every((f) => f.locked);
       popupMenu([props, toSch, 'sep',
-        { label: `Rotate ${this.rotStep}° anticlockwise`, icon: 'rotateLeft', shortcut: 'R', onClick: () => this.rotateSel(this.rotStep) },
-        { label: `Rotate ${this.rotStep}° clockwise`, icon: 'rotateRight', shortcut: 'Shift+R', onClick: () => this.rotateSel(-this.rotStep) },
-        { label: 'Flip to the other side', icon: 'flip', shortcut: 'F', onClick: () => this.flipSel() },
+        { label: `Rotate ${this.rotStep}° anticlockwise`, icon: 'rotateLeft', shortcut: 'R', disabled: locked, onClick: () => this.rotateSel(this.rotStep) },
+        { label: `Rotate ${this.rotStep}° clockwise`, icon: 'rotateRight', shortcut: 'Shift+R', disabled: locked, onClick: () => this.rotateSel(-this.rotStep) },
+        { label: 'Flip to the other side', icon: 'flip', shortcut: 'F', disabled: locked, onClick: () => this.flipSel() },
         { label: locked ? 'Unlock' : 'Lock', icon: locked ? 'unlock' : 'lock', shortcut: 'L', onClick: () => this.lockSel() },
         selectNet ? 'sep' : null, selectNet], at);
       return;
@@ -1176,12 +1176,12 @@ export class BoardEditor {
       const props = this.cards?.card('props');
       s.show(`fp|${fps.map((f) => `${f.id}:${f.rot}:${f.side}:${!!f.locked}`).join(';')}|${this.rotStep}|${shapes.length}|${!!props?.isOpen}`, () => [
         stripLabel(one ? `${ref(one)}${one.side === 'B' ? ' (back)' : ''}` : `${fps.length} footprints`, 'pad'), stripSep(),
-        stripButton({ icon: 'rotateLeft', title: `Rotate ${this.rotStep}° anticlockwise (R)`, onClick: () => this.rotateSel(this.rotStep) }),
-        stripButton({ icon: 'rotateRight', title: `Rotate ${this.rotStep}° clockwise (Shift+R)`, onClick: () => this.rotateSel(-this.rotStep) }),
-        stripSelect({ label: 'Rotation step', showLabel: false, value: this.rotStep, options: [90, 45, 30, 15, 10, 5, 1].map((d) => [d, `${d}°`]), title: 'How far R and the rotate buttons turn', onSet: (v) => { this.rotStep = +v; pref.set('boardRotStep', this.rotStep); this.refresh(); } }),
-        one ? stripNumber({ label: 'Angle', value: +one.rot.toFixed(2), unit: '°', step: '1', min: '-360', max: '360', width: 62, title: 'The exact rotation (anticlockwise)', onSet: (v) => this.app.edit(`Rotate ${ref(one)} to ${v}°`, (p) => setFootprintRotation(p, one.id, v)) }) : null,
+        stripButton({ icon: 'rotateLeft', title: locked ? 'Locked: unlock to rotate' : `Rotate ${this.rotStep}° anticlockwise (R)`, disabled: locked, onClick: () => this.rotateSel(this.rotStep) }),
+        stripButton({ icon: 'rotateRight', title: locked ? 'Locked: unlock to rotate' : `Rotate ${this.rotStep}° clockwise (Shift+R)`, disabled: locked, onClick: () => this.rotateSel(-this.rotStep) }),
+        stripSelect({ label: 'Rotation step', showLabel: false, value: this.rotStep, disabled: locked, options: [90, 45, 30, 15, 10, 5, 1].map((d) => [d, `${d}°`]), title: 'How far R and the rotate buttons turn', onSet: (v) => { this.rotStep = +v; pref.set('boardRotStep', this.rotStep); this.refresh(); } }),
+        one ? stripNumber({ label: 'Angle', value: +one.rot.toFixed(2), unit: '°', step: '1', min: '-360', max: '360', width: 62, disabled: locked, title: locked ? 'Locked: unlock to change the angle' : 'The exact rotation (anticlockwise)', onSet: (v) => this.app.edit(`Rotate ${ref(one)} to ${v}°`, (p) => setFootprintRotation(p, one.id, v)) }) : null,
         stripSep(),
-        stripButton({ icon: 'flip', label: 'Flip', title: `Flip to the ${one?.side === 'B' ? 'front' : 'other side'} (F)`, onClick: () => this.flipSel() }),
+        stripButton({ icon: 'flip', label: 'Flip', title: locked ? 'Locked: unlock to flip' : `Flip to the ${one?.side === 'B' ? 'front' : 'other side'} (F)`, disabled: locked, onClick: () => this.flipSel() }),
         stripButton({ icon: locked ? 'unlock' : 'lock', label: locked ? 'Unlock' : 'Lock', active: locked, title: `${locked ? 'Unlock' : 'Lock'}: a locked footprint doesn't move (L)`, onClick: () => this.lockSel() }),
         stripSep(), propsBtn()]);
       return;
