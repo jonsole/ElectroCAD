@@ -107,3 +107,20 @@ test('labels print in their own look (#81): a global label as text has no flag b
   assert.equal(sides(flag, 'LFLAG'), 5);
   assert.equal(sides(plain, 'GTEXT'), 1);
 });
+
+test('sheet references print after a Global label\'s name (#76)', async () => {
+  const { addLabel, placeSymbol } = await import('../src/renderer/core/schematic.js');
+  const { newProject, newSheet, pinPositions } = await import('../src/renderer/core/project.js');
+  const { RESISTOR } = await import('../src/renderer/library/mini.js');
+  const p = newProject('Refs');
+  p.schematic.sheets.push(newSheet('Two'));
+  for (const s of p.schematic.sheets) {
+    const sym = placeSymbol(p, s, RESISTOR, [25_400_000, 25_400_000]).sym;
+    addLabel(p, s, { at: pinPositions(p, sym).find((x) => x.pin.number === '1').at, net: 'XREF', scope: 'global' });
+  }
+  const [s1, s2] = p.schematic.sheets;
+  assert.ok(texts(sheetToSvg(p, s1, { textStyle: 'sans' })).includes('XREF [2]'));
+  assert.ok(texts(sheetToSvg(p, s2, { textStyle: 'sans' })).includes('XREF [1]'));
+  p.schematic.showSheetRefs = false;
+  assert.ok(texts(sheetToSvg(p, s1, { textStyle: 'sans' })).includes('XREF'), 'off: the name alone');
+});

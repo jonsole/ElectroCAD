@@ -45,7 +45,7 @@ A Project is one JSON file, the Native format ([ADR-0004](../adr/0004-native-for
 | `parts` | `{ [partKey]: Part }` | A frozen copy of every Part in use ([ADR-0004](../adr/0004-native-format-is-json-foreign-formats-are-lossy-converters.md)), keyed by Library origin `library/partId@version` so Parts from different Libraries never clash. A Part with no origin (made in the Project) uses its own id. Parts nothing uses are removed. |
 | `components` | `{ [componentId]: Component }` | The Components: one per Reference designator. |
 | `footprints` | `{ [fpKey]: { library, footprint } }` | Footprints Components use that are not one of their Part's Preferred footprints, each stored once (`library/name`, with `~2`… if two differ). Unused ones are removed. |
-| `schematic` | `{ sheets: [Sheet], textFont? }` | At least one Sheet, in display order. `textFont`: `system` (absent: the default) or `vector`, how schematic text is drawn (#79). |
+| `schematic` | `{ sheets: [Sheet], textFont?, showSheetRefs? }` | At least one Sheet, in display order. `textFont`: `system` (absent: the default) or `vector`, how schematic text is drawn (#79). `showSheetRefs`: Global labels show the other sheets their net is on (#76); new Projects `true`, absent `false`. |
 | `board` | Board | The PCB: the layer stack, the Outline and rules today. |
 | `fieldStyles` | `{ default, styles }` | `default` is a key in `styles`; `styles` holds every Field style the Project uses ([ADR-0012](../adr/0012-fields-are-placed-automatically-by-field-styles.md)). |
 | `titleBlock` | `{ title, company, author, revision, date, comment }` | The title block on every Sheet (#59); an empty title shows the Project name. Sheet name and number are filled in per Sheet. |
@@ -149,6 +149,7 @@ Every shape may have `fill` (`none`, `background` = the theme's symbol fill, `ou
 | `style` | `label` / `power` / `gnd` | `power` and `gnd` are Power symbols and always have `scope: "global"`. |
 | `shape` | `text` / `flag`? | How a Net or Global label looks (#81): the name on the wire, or a pointed flag. Absent: by scope (`local` text, `global` flag). It never changes what the label joins. |
 | `size` | nm? | Text height. Absent: 1.27 mm. |
+| `showRefs` | boolean? | A Global label's own choice to show sheet references (#76). Absent: the Schematic's `showSheetRefs`. The sheet numbers themselves are never stored; they come from the Netlist. |
 
 How Nets are built from these (not stored): see [DESIGN.md §4](../DESIGN.md#4-connectivity-netlist) and `core/netlist.js`. In short: a Net's name comes from its labels (Power symbol before Global label before Net label), or is generated as `Net-(R1-Pad2)` from its lowest Reference designator.
 

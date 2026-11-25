@@ -28,9 +28,9 @@ export const labelSize = (l) => (l.size > 0 ? l.size : LABEL_TEXT);
  * a power arrow points up, a ground points down). Returns { lines: [[pts]], polys: [[pts]],
  * text: { at, align, base } , box } where coordinates are nm relative to `at`.
  */
-export function labelShape(label, measure = estimateWidth) {
+export function labelShape(label, measure = estimateWidth, refs = null) {
   const T = labelSize(label);
-  const w = measure(label.net || '?', T);
+  const w = measure(labelText(label, refs), T);
   if (label.style === 'power') {
     const top = -1.6 * G;
     return {
@@ -75,23 +75,54 @@ export function labelFrame(label) {
   return { rot: r, flip: true, apply: (p) => rot90([-p[0], p[1]], r) };
 }
 
-/** World-space bounding box of a label. */
-export function labelBounds(label, measure = estimateWidth) {
-  const { box } = labelShape(label, measure);
+/** World-space bounding box of a label (with its sheet references, #76, when given). */
+export function labelBounds(label, measure = estimateWidth, refs = null) {
+  const { box } = labelShape(label, measure, refs);
   const f = labelFrame(label);
   const pts = [[box.x0, box.y0], [box.x1, box.y0], [box.x1, box.y1], [box.x0, box.y1]].map(f.apply);
   const xs = pts.map((p) => p[0] + label.at[0]), ys = pts.map((p) => p[1] + label.at[1]);
   return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
 }
 
-/** The topmost label on `sheet` under world point `pt` (within `tol`), or null. */
-export function hitLabel(sheet, pt, tol = 0, measure = estimateWidth) {
+/** The topmost label on `sheet` under world point `pt` (within `tol`), or null. `refsOf(label)`: its sheet references (#76). */
+export function hitLabel(sheet, pt, tol = 0, measure = estimateWidth, refsOf = null) {
   for (let i = (sheet.labels || []).length - 1; i >= 0; i--) {
     const l = sheet.labels[i];
-    const b = labelBounds(l, measure);
+    const b = labelBounds(l, measure, refsOf ? refsOf(l) : null);
     if (pt[0] >= b.x0 - tol && pt[0] <= b.x1 + tol && pt[1] >= b.y0 - tol && pt[1] <= b.y1 + tol) return l;
   }
   return null;
+}
+
+// ---------------------------------------------------------------- sheet references (#76)
+
+/** What a label shows: its net name, then the other sheets its net is on, e.g. "D_A8 [3,5]". */
+export const labelText = (label, refs = null) => (refs?.length ? `${label.net || '?'} [${refs.join(',')}]` : label.net || '?');
+
+/** Whether a label shows sheet references: its own choice, else the Schematic's (Global labels only). */
+export const showsRefs = (project, label) => label.style === 'label' && label.scope === 'global' && (label.showRefs ?? !!project.schematic.showSheetRefs);
+
+/**
+ * Where each sheet number in a label's references is drawn: [{ sheet (1-based), box }] in world
+ * coordinates, for clicking one to go to that sheet.
+ */
+export function labelRefBoxes(label, refs, measure = estimateWidth) {
+  if (!refs?.length) return [];
+  const T = labelSize(label), sh = labelShape(label, measure, refs), f = labelFrame(label);
+  const full = labelText(label, refs), w = measure(full, T);
+  const out = [];
+  let from = `${label.net || '?'} [`;
+  for (const n of refs) {
+    const a = measure(from, T), b = measure(from + n, T);
+    // in the label's frame; text reads from text.at (mirrored labels read from the far end)
+    const x = (o) => (f.flip ? sh.text.at[0] + (w - o) : sh.text.at[0] + o);
+    const y0 = sh.text.at[1] - T * 0.6, y1 = sh.text.at[1] + T * 0.6;
+    const pts = [[x(a), y0], [x(b), y0], [x(b), y1], [x(a), y1]].map(f.apply).map(([px, py]) => [px + label.at[0], py + label.at[1]]);
+    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+    out.push({ sheet: n, box: { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) } });
+    from += `${n},`;
+  }
+  return out;
 }
 
 /** Why a label name can't be used, or null. */

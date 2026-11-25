@@ -2,6 +2,7 @@
 // title block and a border, drawn by the same code as the editor into SVG or a multi-page PDF.
 // Print colours don't follow the editor's theme: ElectroCAD Light (default), Classic paper, or
 // black and white.
+import { sheetRefs } from '../core/sheetRefs.js';
 import { drawSheet, DEFAULT_DISPLAY, textStyle, setTextStyle, projectTextStyle, measureText } from '../schematic/render.js';
 import { paperRect } from '../core/drawings.js';
 import { placeFields } from '../core/fields.js';
@@ -40,8 +41,9 @@ function drawPage(ctx, project, sheet, C, measure) {
   const m = mm(5) * K;
   ctx.strokeStyle = C.sheetEdge; ctx.lineWidth = Math.max(1, mm(0.25) * K);
   ctx.strokeRect(m, m, r.x1 * K - 2 * m, r.y1 * K - 2 * m);
-  const placement = placeFields(project, sheet, { measure });
-  drawSheet(ctx, view, C, project, sheet, { selection: new Set(), placement, display: PRINT_DISPLAY });
+  const refs = sheetRefs(project); // sheet references on Global labels (#76)
+  const placement = placeFields(project, sheet, { measure, refs });
+  drawSheet(ctx, view, C, project, sheet, { selection: new Set(), placement, display: PRINT_DISPLAY, refs });
 }
 
 /**

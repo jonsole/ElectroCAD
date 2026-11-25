@@ -7,7 +7,8 @@ import { partOf } from '../core/project.js';
 import { mm } from '../core/units.js';
 import { junctions, connectedPins, wireCrossings } from '../core/netlist.js';
 import { placeFields, styleFor } from '../core/fields.js';
-import { labelShape, labelFrame, labelBounds, isPower, labelLook, labelSize } from '../core/labels.js';
+import { labelShape, labelFrame, labelBounds, isPower, labelLook, labelSize, labelText, showsRefs } from '../core/labels.js';
+import { sheetRefs } from '../core/sheetRefs.js';
 import { textLayout, drawingBounds, expandVariables, titleBlockLayout } from '../core/drawings.js';
 
 const LINE = mm(0.2);      // symbol body line width
@@ -232,13 +233,14 @@ function drawFields(ctx, view, C, project, sheet, placement, selection = new Set
 }
 
 /** Draw Net labels, Global labels and Power symbols (text always upright). */
-export function drawLabels(ctx, view, C, labels, { selection = new Set(), alpha = null } = {}) {
+export function drawLabels(ctx, view, C, labels, { selection = new Set(), alpha = null, refs = null } = {}) {
   ctx.save();
   if (alpha != null) ctx.globalAlpha = alpha;
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   const lw = Math.max(1.2, mm(0.15) * view.scale);
   for (const l of labels) {
-    const shape = labelShape(l, measureText);
+    const r = refs?.get(l.id) || null;
+    const shape = labelShape(l, measureText, r);
     const f = labelFrame(l);
     const W = (p) => view.toScreen([l.at[0] + f.apply(p)[0], l.at[1] + f.apply(p)[1]]);
     const color = isPower(l) ? C.power : l.scope === 'global' ? C.globalLabel : C.netLabel;
@@ -264,7 +266,7 @@ export function drawLabels(ctx, view, C, labels, { selection = new Set(), alpha 
       if (f.flip) align = align === 'left' ? 'right' : align === 'right' ? 'left' : align;
     }
     ctx.textAlign = align;
-    fillText(ctx, l.net || '?', 0, 0);
+    fillText(ctx, labelText(l, r), 0, 0);
     ctx.restore();
   }
   ctx.restore();
@@ -362,8 +364,10 @@ export function drawTitleBlock(ctx, view, C, project, sheet) {
  * being drawn. With `only` (a Set of ids) it draws just those items and nothing around them: the
  * highlight pass (view/highlight.js) uses that to draw the selection in its style.
  */
-export function drawSheet(ctx, view, C, project, sheet0, { selection = new Set(), only = null, ghost = null, bounds, wiring = null, target = null, placement = null, display = DEFAULT_DISPLAY, ghostLabel = null, erc = null, ercFocus = null, ghostDrawing = null } = {}) {
+export function drawSheet(ctx, view, C, project, sheet0, { selection = new Set(), only = null, ghost = null, bounds, wiring = null, target = null, placement = null, display = DEFAULT_DISPLAY, ghostLabel = null, erc = null, ercFocus = null, ghostDrawing = null, refs = undefined } = {}) {
   const toScreen = (p) => view.toScreen(p);
+  // sheet references on Global labels (#76): given by the editor, else worked out here when any label shows them
+  if (refs === undefined) refs = (sheet0.labels || []).some((l) => showsRefs(project, l)) ? sheetRefs(project) : null;
   const wireW = Math.max(1.5, WIRE * view.scale);
   const sheet = only ? { ...sheet0, symbols: sheet0.symbols.filter((x) => only.has(x.id)), wires: sheet0.wires.filter((x) => only.has(x.id)), labels: (sheet0.labels || []).filter((x) => only.has(x.id)), noConnects: (sheet0.noConnects || []).filter((x) => only.has(x.id)), drawings: (sheet0.drawings || []).filter((x) => only.has(x.id)) } : sheet0;
   if (only) { ghost = null; wiring = null; target = null; ghostLabel = null; erc = null; ghostDrawing = null; }
@@ -406,8 +410,8 @@ export function drawSheet(ctx, view, C, project, sheet0, { selection = new Set()
   }
   // each part's origin: + (unlocked) or × (locked)
   if (!only) for (const sym of sheet.symbols) { const [x, y] = view.toScreen(sym.at); drawOriginMark(ctx, x, y, !!sym.locked, C.symbolBody || '#888'); }
-  drawLabels(ctx, view, C, sheet.labels || []);
-  drawFields(ctx, view, C, project, sheet, placement || placeFields(project, sheet, { measure: measureText }), selection);
+  drawLabels(ctx, view, C, sheet.labels || [], { refs });
+  drawFields(ctx, view, C, project, sheet, placement || placeFields(project, sheet, { measure: measureText, refs }), selection);
   // Junction dots, derived from the Wires and Pins
   ctx.fillStyle = C.junction;
   const jr = Math.max(2.5, JUNCTION * view.scale);

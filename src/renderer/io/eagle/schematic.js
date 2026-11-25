@@ -67,6 +67,9 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
   const libs = libraries(drawing);
   const project = newProject(name);
   project.schematic.sheets = [];
+  // only Eagle's cross-reference labels show sheet references (#76); its plain labels never do
+  project.schematic.showSheetRefs = false;
+  const xrefFormat = sch.attr('xreflabel');
   // parts: components, supply symbols, frames
   const parts = new Map();
   const partDefs = new Map();
@@ -190,12 +193,14 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
       // where a label sits: Eagle's labels, moved onto their wire; else the first wire's start, or the first pin
       const spots = [];
       // a plain Eagle label is the name written on the wire; xref="yes" is the flag (#81); both keep Eagle's size
-      for (const l of seg.all('label')) spots.push({ at: nearestOnWires(T(l.attr('x'), l.attr('y')), wires), rot: labelRot(l.attr('rot')), shape: l.attr('xref') === 'yes' ? 'flag' : 'text', size: nm(l.attr('size', 1.778)) });
-      for (const s of spots) if (s.at) sheet.labels.push(eagleLabel({ at: s.at, rot: s.rot, net: netName, scope, shape: s.shape, size: s.size }));
+      for (const l of seg.all('label')) spots.push({ at: nearestOnWires(T(l.attr('x'), l.attr('y')), wires), rot: labelRot(l.attr('rot')), shape: l.attr('xref') === 'yes' ? 'flag' : 'text', size: nm(l.attr('size', 1.778)), xref: l.attr('xref') === 'yes' });
+      for (const s of spots) if (s.at) sheet.labels.push(eagleLabel({ at: s.at, rot: s.rot, net: netName, scope, shape: s.shape, size: s.size, xref: s.xref }));
       // Eagle named the net without drawing a label: one is needed here, placed once Eagle's own are down
       if (!spots.length) invented.push({ sheet, wires, seg, net: netName, scope });
     }
   }
+  const xrefs = project.schematic.sheets.reduce((n, sh) => n + sh.labels.filter((l) => l.showRefs).length, 0);
+  if (xrefs) report.add(`Cross-reference labels show the other sheets their net is on, e.g. [2,5]${xrefFormat ? ` (Eagle's format ${xrefFormat} also gives the frame column and row, which ElectroCAD doesn't have)` : ''}`, xrefs);
   const inventedReport = placeInventedLabels(project, parts, invented);
   if (inventedReport.moved) report.add('Nets Eagle names without a label got one, placed clear of pins and other labels', inventedReport.moved);
   if (inventedReport.crowded) report.add('Labels added for named nets with no fully clear spot (placed where they overlap least)', inventedReport.crowded);
@@ -458,8 +463,9 @@ export function verifySchematic(project, parts, netsByName, report = new Report(
 }
 
 /** A Net or Global label made by the import: `shape` and `size` stored only where they differ from the defaults (#81). */
-function eagleLabel({ at, rot, net, scope, shape, size = 0 }) {
+function eagleLabel({ at, rot, net, scope, shape, size = 0, xref = false }) {
   const l = { id: uid('l'), at, rot, net, scope, style: 'label' };
+  if (xref && scope === 'global') l.showRefs = true; // Eagle's cross-reference labels show where the net goes (#76)
   if (shape && shape !== (scope === 'global' ? 'flag' : 'text')) l.shape = shape;
   if (size > 0 && size !== LABEL_TEXT) l.size = size;
   return l;

@@ -64,6 +64,10 @@ export const ECAD_SCHEMA = {
       ],
       "additionalProperties": false,
       "properties": {
+        "showSheetRefs": {
+          "type": "boolean",
+          "description": "Global labels show the other sheets their net is on, e.g. [3,5] (#76), unless a label says otherwise. New projects: true; absent: false."
+        },
         "textFont": {
           "enum": ["system", "vector"],
           "description": "How schematic text is drawn (Sheet setup): the system font (absent: the default) or the vector font with Eagle's metrics (#79; Eagle imports use it)."
@@ -842,6 +846,10 @@ export const ECAD_SCHEMA = {
         "size": {
           "$ref": "#/$defs/nm",
           "description": "Text height. Absent: 1.27 mm."
+        },
+        "showRefs": {
+          "type": "boolean",
+          "description": "A Global label's own choice to show sheet references (#76). Absent: the Schematic's showSheetRefs."
         }
       }
     },

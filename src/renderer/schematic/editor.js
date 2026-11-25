@@ -29,7 +29,8 @@ import { SchematicInspector } from './inspector.js';
 import { makeDraggable } from '../ui/draggable.js';
 import { placeFields, fieldWarnings, setDefaultFieldStyle, setComponentFieldStyle, hitField, styleFor, pinField, unpinFields, hasPinnedFields } from '../core/fields.js';
 import { validateRef, updateComponent } from '../core/components.js';
-import { hitLabel, labelBounds, labelShape, labelFrame, validateLabelName, isPower, netNameChoices, filterNetNames, canonicalNetName, labelSize } from '../core/labels.js';
+import { hitLabel, labelBounds, labelShape, labelFrame, validateLabelName, isPower, netNameChoices, filterNetNames, canonicalNetName, labelSize, labelRefBoxes } from '../core/labels.js';
+import { sheetRefs } from '../core/sheetRefs.js';
 
 /** The label tools: what each one places. */
 const LABEL_TOOLS = {
@@ -148,6 +149,43 @@ export class SchematicEditor {
   _S(p) { const id = this.sheet.id; return p.schematic.sheets.find((s) => s.id === id) || p.schematic.sheets[0]; }
 
   /** Switch to another Sheet: the selection and any tool in progress are dropped. */
+  /** A label's sheet references, for hit testing (#76). */
+  _refsOf() { const r = this.refs; return r ? (l) => r.get(l.id) || null : null; }
+
+  /** The sheet number under `world` on a Global label of this sheet: { label, sheet } or null. */
+  /** Where a label's sheet numbers are drawn: [{ sheet, box }] (world). */
+  refBoxes(l) { return labelRefBoxes(l, this.refs?.get(l.id), measureText); }
+
+  _refAt(world, tol = 0) {
+    if (!this.refs) return null;
+    for (const l of this.sheet.labels || []) {
+      for (const b of this.refBoxes(l)) {
+        if (world[0] >= b.box.x0 - tol && world[0] <= b.box.x1 + tol && world[1] >= b.box.y0 - tol && world[1] <= b.box.y1 + tol) return { label: l, sheet: b.sheet };
+      }
+    }
+    return null;
+  }
+
+  /** Go to sheet `n` (1-based) and select the labels of `label`'s Net there, zoomed to (#76). */
+  gotoSheetRef(label, n) {
+    const target = this.project.schematic.sheets[n - 1];
+    if (!target) return;
+    const net = buildNetlist(this.project).nets.find((x) => x.labels?.includes(label.id));
+    const ids = new Set(net?.labels || []);
+    const there = (target.labels || []).filter((l) => ids.has(l.id));
+    const wires = net ? target.wires.filter((w) => net.wires?.includes(w.id)) : [];
+    this.switchSheet(target.id);
+    const sel = there.length ? there.map((l) => l.id) : wires.map((w) => w.id);
+    this.selection = new Set(sel);
+    const b = sel.length ? itemsBounds(this.project, target, sel) : null;
+    if (b && this.ws) {
+      const m = SCH_GRID * 8, w = Math.max(b.x1 - b.x0, SCH_GRID * 30), hh = Math.max(b.y1 - b.y0, SCH_GRID * 20), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+      this.ws.view.view.fit({ x0: cx - w / 2 - m, y0: cy - hh / 2 - m, x1: cx + w / 2 + m, y1: cy + hh / 2 + m }, this.ws.view.w, this.ws.view.h, 20);
+    }
+    this.refresh();
+    toast(`${label.net} on ${target.name}${there.length > 1 ? ` (${there.length} labels)` : ''}`, 'info', 1800);
+  }
+
   switchSheet(id) {
     if (id === this.sheet.id) return;
     this.closeFieldEdit();
@@ -240,7 +278,7 @@ export class SchematicEditor {
     const fsym = f && this.sheet.symbols.find((y) => y.id === f.symbolId);
     const thin = [hitDrawing(this.sheet, world, tol, measureText), hitWire(this.sheet, world, tol)].filter(Boolean);
     const atPin = sym && pinPositions(this.project, sym).some(({ at }) => Math.hypot(at[0] - world[0], at[1] - world[1]) <= tol * 1.5);
-    const order = [hitNoConnect(this.sheet, world, SCH_GRID / 2), hitLabel(this.sheet, world, tol / 2, measureText),
+    const order = [hitNoConnect(this.sheet, world, SCH_GRID / 2), hitLabel(this.sheet, world, tol / 2, measureText, this._refsOf()),
       ...(sym && !atPin ? [...thin, sym, fsym] : [sym, fsym, ...thin])];
     const seen = new Set(), out = [];
     for (const x of order) if (x && !seen.has(x.id)) { seen.add(x.id); out.push(x); }
@@ -523,6 +561,7 @@ export class SchematicEditor {
 
   /** Enable/disable buttons and refresh the hint after any change. */
   refresh() {
+    this.refs = sheetRefs(this.project); // sheet references on Global labels (#76), from the Netlist
     // drop selected ids that no longer exist (after undo, delete, project switch)
     const ids = new Set(this._allIds());
     for (const id of [...this.selection]) if (!ids.has(id)) this.selection.delete(id);
@@ -620,6 +659,9 @@ export class SchematicEditor {
       const last = this._lastClick, now = e.timeStamp || performance.now();
       this._cycle = !e.shiftKey && e.detail <= 1 && !!last && now - last.t >= 350 && Math.hypot(e.clientX - last.x, e.clientY - last.y) <= 3 && this.selection.size === 1 ? { world } : null;
       this._lastClick = { x: e.clientX, y: e.clientY, t: now };
+      // a sheet number on a Global label: go to that sheet (#76)
+      const ref = !e.shiftKey && this._refAt(world, tol / 2);
+      if (ref) { this.gotoSheetRef(ref.label, ref.sheet); return; }
       const handle = !e.shiftKey && this._handleAt(world, 5 / ws.view.view.scale);
       if (handle) {
         this.handleDrag = { ...handle, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.project), moved: false };
@@ -656,7 +698,7 @@ export class SchematicEditor {
       if (this.tool !== 'select' || this.placing) return;
       const world = ws.view.view.toWorld(ws.view.local(e));
       const f = this.placement && hitField(this.project, this.placement, world, 3 / ws.view.view.scale, measureText);
-      const l = hitLabel(this.sheet, world, 3 / ws.view.view.scale, measureText);
+      const l = hitLabel(this.sheet, world, 3 / ws.view.view.scale, measureText, this._refsOf());
       if (l && l.style !== 'gnd') { e.preventDefault(); this.editLabel({ label: l }); return; }
       // double-clicking a Wire (or a ground symbol) selects its whole Net on this Sheet
       const wire = !f && !l && hitWire(this.sheet, world, 4 / ws.view.view.scale);
@@ -823,15 +865,16 @@ export class SchematicEditor {
       : null;
     const proj = this.preview || this.project;
     const sheet = this._S(proj);
-    this.placement = placeFields(proj, sheet, { measure: measureText });
-    drawSheet(ctx, view, C, proj, sheet, { selection: this.selection, ghost, bounds: (s) => symbolBounds(proj, s), wiring, target, placement: this.placement, display: this.app.schematicDisplay(), ghostLabel,
+    const refs = this.refs || null;
+    this.placement = placeFields(proj, sheet, { measure: measureText, refs });
+    drawSheet(ctx, view, C, proj, sheet, { refs, selection: this.selection, ghost, bounds: (s) => symbolBounds(proj, s), wiring, target, placement: this.placement, display: this.app.schematicDisplay(), ghostLabel,
       erc: this.ercOpen ? (this.ercShown || []).filter((x) => x.sheetId === sheet.id && x.severity !== 'info') : null, ercFocus: this.ercFocus,
       ghostDrawing: this._ghostDrawing() });
     // the selection, highlighted in the style chosen in Settings (the same in every editor)
     if (this.selection.size && !this.placing) {
       const only = this.selection, display = this.app.schematicDisplay(), placement = this.placement;
       const boxes = [...only].map((id) => itemsBounds(proj, sheet, [id])).filter(Boolean).map((b) => screenBox(view, b));
-      highlight(ctx, C, this.app.highlightStyle(), (c, Cx) => drawSheet(c, view, Cx, proj, sheet, { only, placement, display }), boxes);
+      highlight(ctx, C, this.app.highlightStyle(), (c, Cx) => drawSheet(c, view, Cx, proj, sheet, { only, placement, display, refs }), boxes);
     }
     // the Board's selection (cross-probing), in the theme's Highlight colour
     const probed = this._probeTargets(proj);
@@ -839,7 +882,7 @@ export class SchematicEditor {
       const only = new Set([...probed].filter((id) => !this.selection.has(id)));
       const display = this.app.schematicDisplay(), placement = this.placement;
       const boxes = [...only].map((id) => itemsBounds(proj, sheet, [id])).filter(Boolean).map((b) => screenBox(view, b));
-      highlight(ctx, { ...C, selection: C.highlight || C.selection }, this.app.highlightStyle() === 'fade' && this.selection.size ? 'glow' : this.app.highlightStyle(), (c, Cx) => drawSheet(c, view, Cx, proj, sheet, { only, placement, display }), boxes);
+      highlight(ctx, { ...C, selection: C.highlight || C.selection }, this.app.highlightStyle() === 'fade' && this.selection.size ? 'glow' : this.app.highlightStyle(), (c, Cx) => drawSheet(c, view, Cx, proj, sheet, { only, placement, display, refs }), boxes);
     }
     drawHandles(ctx, view, C, this._handles(), this.handleDrag?.key);
     drawSnapMark(ctx, view, C, this.snapMark);
@@ -1340,6 +1383,7 @@ export class SchematicEditor {
     const reset = button({ label: 'Reset', cls: 'btn-ghost', title: "Put the origin back at the paper's top-left corner", onClick: () => { ox.value = '0'; oy.value = '0'; } });
     const font = h('select', { class: 'select', 'aria-label': 'Text font' }, h('option', { value: 'system' }, 'System font'), h('option', { value: 'vector' }, 'Vector font (as Eagle draws it)'));
     font.value = this.project.schematic.textFont === 'vector' ? 'vector' : 'system';
+    const refsBox = h('input', { type: 'checkbox', checked: !!this.project.schematic.showSheetRefs, 'aria-label': 'Show sheet references on global labels' });
     const inputs = TITLE_FIELDS.map(([k, label]) => [k, stop(h('input', { class: 'input', type: 'text', value: tb[k] || '', 'aria-label': label, placeholder: k === 'title' ? this.project.name : '' })), label]);
     const apply = () => {
       const nx = Math.round((parseFloat(ox.value) || 0) * 1e6), ny = Math.round((parseFloat(oy.value) || 0) * 1e6);
@@ -1352,6 +1396,7 @@ export class SchematicEditor {
         s.origin = [nx, ny];
         p.titleBlock = Object.fromEntries(inputs.map(([k, i]) => [k, i.value.trim()]));
         if (font.value === 'vector') p.schematic.textFont = 'vector'; else delete p.schematic.textFont;
+        p.schematic.showSheetRefs = refsBox.checked;
       });
       m.close();
       this.refresh();
@@ -1368,6 +1413,7 @@ export class SchematicEditor {
         h('p', { class: 'side-note' }, "From the paper's top-left corner. The grid, rulers and coordinates measure from it; the Origin tool (O) sets it by clicking.")),
       h('div', { class: 'setup-group' }, h('div', { class: 'setup-head' }, 'Text (every sheet)'),
         h('label', { class: 'field' }, h('span', {}, 'Font'), font),
+        h('label', { class: 'check-row' }, refsBox, 'Show sheet references on global labels (the other sheets a net is on, e.g. [3,5]; each label can override it)'),
         h('p', { class: 'side-note' }, 'Kept with the project. The vector font has the board\'s stroke glyphs, sized and spaced as Eagle\'s; Eagle imports use it. Field positions follow the font\'s widths.')),
       h('div', { class: 'setup-group' }, h('div', { class: 'setup-head' }, 'Title block (every sheet)'),
         h('div', { class: 'setup-grid' }, ...inputs.map(([, i, label]) => h('label', { class: 'field' }, h('span', {}, label), i))),

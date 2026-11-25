@@ -817,7 +817,8 @@
     },
     "origin": [0, 0]
    }
-  ]
+  ],
+  "showSheetRefs": true
  },
  "board": {
   "stack": {

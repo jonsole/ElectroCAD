@@ -234,3 +234,44 @@ test('label look is separate from scope (#81): text or flag, any size; scope alo
   const n = buildNetlist(p).nets.find((x) => x.name === 'BUS');
   assert.equal(n.pins.length, 2);
 });
+
+test('sheet references (#76): the other sheets a Global label\'s net is on, following the Netlist', async () => {
+  const { sheetRefs } = await import('../src/renderer/core/sheetRefs.js');
+  const { labelText, labelRefBoxes, showsRefs } = await import('../src/renderer/core/labels.js');
+  const p = newProject();
+  assert.equal(p.schematic.showSheetRefs, true, 'on for new projects');
+  p.schematic.sheets.push(newSheet('Two'), newSheet('Three'));
+  const [s1, s2, s3] = p.schematic.sheets;
+  const a = placeSymbol(p, s1, RESISTOR, [G * 10, G * 10]).sym;
+  const b = placeSymbol(p, s2, RESISTOR, [G * 10, G * 10]).sym;
+  const l1 = addLabel(p, s1, { at: pinAt(p, a, '1'), net: 'D_A8', scope: 'global' });
+  const l2 = addLabel(p, s2, { at: pinAt(p, b, '1'), net: 'd_a8', scope: 'global' });
+  let r = sheetRefs(p);
+  assert.deepEqual(r.get(l1.id), [2]); assert.deepEqual(r.get(l2.id), [1]);
+  assert.equal(labelText(l1, r.get(l1.id)), 'D_A8 [2]');
+  // a third sheet joins in
+  const c = placeSymbol(p, s3, RESISTOR, [G * 10, G * 10]).sym;
+  const l3 = addLabel(p, s3, { at: pinAt(p, c, '2'), net: 'D_A8', scope: 'global' });
+  r = sheetRefs(p);
+  assert.deepEqual(r.get(l1.id), [2, 3]); assert.deepEqual(r.get(l3.id), [1, 2]);
+  // and leaves again
+  deleteItems(p, [l3.id]);
+  assert.deepEqual(sheetRefs(p).get(l1.id), [2]);
+  // local labels and power symbols never show them; a label can turn them off, or on with the default off
+  const loc = addLabel(p, s1, { at: [G * 40, G * 40], net: 'L' });
+  assert.ok(!showsRefs(p, loc) && !sheetRefs(p).has(loc.id));
+  l1.showRefs = false; assert.ok(!sheetRefs(p).has(l1.id));
+  p.schematic.showSheetRefs = false; l1.showRefs = true;
+  assert.deepEqual([...sheetRefs(p).keys()], [l1.id]);
+  // each number has a box on the label, after the name, for clicking; a mirrored label too
+  for (const rot of [0, 90, 180, 270]) {
+    const L = { ...l1, at: [0, 0], rot };
+    const boxes = labelRefBoxes(L, [2, 5]);
+    assert.deepEqual(boxes.map((x) => x.sheet), [2, 5]);
+    const lb = labelBounds(L, undefined, [2, 5]);
+    for (const { box } of boxes) assert.ok(box.x0 >= lb.x0 - 1 && box.x1 <= lb.x1 + 1 && box.y0 >= lb.y0 - 1 && box.y1 <= lb.y1 + 1, `rot ${rot}: inside the label`);
+    const horiz = rot === 0 || rot === 180;
+    const [p2, p5] = boxes.map((x) => (horiz ? x.box.x0 : x.box.y0));
+    assert.ok(rot === 90 || rot === 270 ? p2 > p5 : p2 < p5, `rot ${rot}: 2 reads before 5`);
+  }
+});

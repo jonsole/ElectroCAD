@@ -250,6 +250,17 @@ export class SchematicInspector {
         this._edit(`${l.net}: text ${v} mm`, (p) => { const x = this._find(p, l.id); const nm = Math.round(v * 1e6); if (nm === LABEL_TEXT) delete x.size; else x.size = nm; });
       });
       rows.push(h('div', { class: 'param' }, h('label', {}, 'Text size (mm)'), size));
+      // sheet references (#76): a Global label can show the other sheets its net is on
+      if (l.scope === 'global') {
+        const dflt = !!this.project.schematic.showSheetRefs;
+        const refs = h('select', { class: 'select', 'aria-label': 'Sheet references' },
+          h('option', { value: '' }, `As the schematic (${dflt ? 'shown' : 'hidden'})`), h('option', { value: 'show' }, 'Show the other sheets'), h('option', { value: 'hide' }, 'Hide'));
+        refs.value = l.showRefs === true ? 'show' : l.showRefs === false ? 'hide' : '';
+        refs.addEventListener('change', () => this._edit(`${l.net}: sheet references`, (p) => { const x = this._find(p, l.id); if (refs.value === '') delete x.showRefs; else x.showRefs = refs.value === 'show'; }));
+        rows.push(h('div', { class: 'param param-wide' }, h('label', {}, 'Sheet references'), refs));
+        const on = this.ed.refs?.get(l.id);
+        if (on) rows.push(h('div', { class: 'insp-note' }, on.length ? `Also on sheet${on.length === 1 ? '' : 's'} ${on.join(', ')}: click a number on the label to go there.` : 'On no other sheet.'));
+      }
     } else {
       rows.push(h('div', { class: 'insp-note' }, 'Power symbols join every pin with the same name, on every sheet.'));
     }

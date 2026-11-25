@@ -30,7 +30,7 @@ export function newProject(name = 'Untitled') {
   return {
     format: FORMAT, version: VERSION, id: uid('p'), name,
     parts: {}, components: {}, footprints: {},
-    schematic: { sheets: [newSheet('Sheet 1')] },
+    schematic: { sheets: [newSheet('Sheet 1')], showSheetRefs: true }, // new Projects show sheet references on Global labels (#76)
     board: newBoard(),
     fieldStyles: defaultFieldStyles(),
     titleBlock: { title: '', company: '', author: '', revision: '', date: '', comment: '' },

@@ -356,4 +356,7 @@ test('plain Eagle labels come over as text on the wire, xref labels as flags, bo
   assert.ok(ls.filter((l) => look(l) === 'text').every((l) => l.size === 1_778_000 || !l.size));
   assert.ok(ls.some((l) => look(l) === 'text' && l.size === 1_778_000), 'plain labels keep 1.778 mm');
   assert.ok(check.schematic.ok, JSON.stringify(check.schematic.mismatches));
+  // sheet references (#76): only xref labels show them, so the project default is off
+  assert.equal(project.schematic.showSheetRefs, false);
+  assert.ok(ls.every((l) => !l.showRefs || (l.scope === 'global' && look(l) === 'flag')));
 });

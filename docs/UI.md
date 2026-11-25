@@ -144,6 +144,7 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 - The name box offers the net names already in the Project. After a Net label the next one offers the name with its number bumped (D0 → D1).
 - Text stays readable: Net and Global labels turned 180° or 270° read left-to-right or bottom-to-top, sitting on the other side of their point. Power symbols turn freely with upright text.
 - **Look** (#81) is separate from what a label joins. **Text** writes the name on the wire, above it (beside it when vertical), with a short tick; **Flag** puts it in a pointed box. A Net label is text and a Global label a flag unless you choose otherwise: the label tools' strip has **Look: Text | Flag** for the next labels. A global text label still joins on every sheet, and a local flag only on its own. The colour still says which: global labels in the Global label colour.
+- **Sheet references** (#76): a Global label can show the other sheets its net is on after its name, e.g. `D_A8 [2,5]`. They come from the Netlist, so they change as the net spreads to more sheets or leaves one. **Click a number** to go to that sheet: the net's labels there are selected and zoomed to. Sheet setup → Text has the default for every Global label (**Show sheet references on global labels**, on for new projects); the inspector's **Sheet references** can show or hide them on one label. They print too.
 - Labels select, move, copy, rotate and delete with everything else. A label sitting on a Wire that moves goes with it. Double-click a label to rename it. The inspector edits the name, whether it joins on this sheet only or every sheet, its look, its text size (1.27 mm by default) and its rotation.
 - Names match regardless of case (ADR-0013): `+3v3` and `+3V3` are one Net. Typing a name that differs from an existing Net only by case stores the existing spelling and says so in a toast. Mixed spellings from an import are kept on the labels; the Net shows the most used one, and ERC (#11) warns about them.
 - Net names: Power symbol beats Global label beats Net label beats the generated `Net-(R1-Pad2)`. Local labels named alike on two Sheets are two Nets, shown as `Sheet 1/EN` and `Sheet 2/EN`. Two different names on one Net are kept for ERC (#11).
@@ -173,7 +174,7 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 - **Sheet setup** opens with the gear on a sheet's row in the Sheets card, by double-clicking the title block, or from **Sheet setup…** in the right-click menu on empty canvas. It sets:
   - that Sheet's paper size (A4, A3, A2, Letter, Tabloid) and orientation; the canvas frame and Home follow it, and Print uses it;
   - that Sheet's grid, Alt grid and origin (X and Y in mm from the paper's top-left corner, with Reset);
-  - the Project's text font (every sheet): system or vector (see Text, above);
+  - the Project's text font (every sheet): system or vector (see Text, above), and whether Global labels show sheet references;
   - the Project's title block fields.
 
 ## Print and export
@@ -642,7 +643,7 @@ Some of Eagle's implicit connections are made visible, because ElectroCAD joins 
 
 - **Hidden power pins.** A power gate Eagle never placed (a 74xx gate P, `addlevel=request`) is placed under the part's drawing. Each power pin no wire reaches gets a power label naming its net (VCC, GND…), as Eagle joins it by name.
 - **Bus entries.** Busses don't come over. A stub wire whose end lands on another net's wire (a bus entry over the dropped bus) is removed, and a longer wire is pulled back 1.27 mm, so the two nets don't merge. Both are counted in the summary.
-- **Labels** (#81). Eagle's plain labels come over as text on the wire and its cross-reference labels (`xref`) as flags, each at Eagle's size, whatever nets they join. Labels the import adds for nets Eagle names without one are text.
+- **Labels** (#81). Eagle's plain labels come over as text on the wire and its cross-reference labels (`xref`) as flags, each at Eagle's size, whatever nets they join. Cross-reference labels on nets that span sheets show their sheet references (#76): the other sheet numbers, not Eagle's frame column and row, which ElectroCAD has no frame grid for. The Project default is off, so Eagle's plain labels don't show them. Labels the import adds for nets Eagle names without one are text.
 - **Mirrored parts.** Eagle turns a part and then mirrors it; ElectroCAD mirrors and then turns, so `MR90` becomes the back side at 270°.
 - **Board text and graphics** (`<plain>`, #66): text, wires, arcs, circles, rectangles and polygons on the silk, names, values, docu, stop, cream, keepout and copper layers become Board drawings. Text keeps Eagle's anchor (bottom-left unless aligned), and text turned past 90° is drawn the other way up from the opposite corner, as Eagle keeps it readable (spun `S` text excepted). Multi-line text becomes one drawing per line. Rectangles and width-0 circles are filled, as in Eagle. Drill legends and other user layers are listed as left out.
 

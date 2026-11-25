@@ -195,7 +195,7 @@ function layout(slot, lines, style, b, measure) {
  * Place every Symbol's fields on a Sheet. Returns Map(symbolId -> { items, slot, flagged,
  * overlapWith }), where items are [{ keys, text, x, y, align, box }] in world nm.
  */
-export function placeFields(project, sheet, { measure, wires = sheet.wires } = {}) {
+export function placeFields(project, sheet, { measure, wires = sheet.wires, refs = null } = {}) {
   const geo = new Map();
   for (const sym of sheet.symbols) { const g = symbolGeometry(project, sym); if (g) geo.set(sym.id, g); }
   // fixed obstacles: bodies, Pins, Wires (inflated by half a grid)
@@ -203,7 +203,7 @@ export function placeFields(project, sheet, { measure, wires = sheet.wires } = {
   for (const [id, g] of geo) { for (const b of [...g.body, ...g.pins]) fixed.push({ ...b, owner: id }); }
   const half = SCH_GRID / 2;
   for (const w of wires) fixed.push(box(Math.min(w.a[0], w.b[0]) - half / 2, Math.min(w.a[1], w.b[1]) - half / 2, Math.max(w.a[0], w.b[0]) + half / 2, Math.max(w.a[1], w.b[1]) + half / 2, 'wire'));
-  for (const l of sheet.labels || []) { const b = labelBounds(l, measure); fixed.push(box(b.x0, b.y0, b.x1, b.y1, 'label')); }
+  for (const l of sheet.labels || []) { const b = labelBounds(l, measure, refs?.get(l.id)); fixed.push(box(b.x0, b.y0, b.x1, b.y1, 'label')); }
   const placed = [];
   const out = new Map();
   // pinned fields first: they never move, and every other field keeps clear of them
