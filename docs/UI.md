@@ -609,7 +609,10 @@ Using the card:
   - **Track width, annular ring, hole size:** the track, copper ring or drill, labelled with its size and what's needed.
   - **Courtyard overlap:** both courtyards dashed and the overlap filled.
   - **Unrouted:** the connection's airwire, thicker.
-- **Staying current:** after an edit the card says the board has changed since the run. **Run again** (or the DRC button) replaces the list and markers.
+- **Staying current** (#85): once DRC has run, every edit re-checks the copper round what it changed straight away (the old and new place of each track, via, footprint, zone or copper drawing, as far round as the largest clearance), and the board-wide checks (courtyards, unrouted, outline) with it. Fix a problem and it leaves the list and the board at once; make one and it appears. Undo and redo re-check the same way.
+  - Where a zone is refilling, the card says it is re-checking near the zones, and looks again when the fill arrives.
+  - A change that reaches the whole board (rules, net classes, the outline, the layer stack, Update from Schematic) is re-checked by a full run.
+  - After a pause in editing a full DRC runs in the background (a Web Worker) as a safety net and replaces the list. **Run again** (or the DRC button) still runs one at once.
 - **Code:** DRC is a pure function, `runDrc(project, fills)` in `core/drc.js`.
 
 ## Zones

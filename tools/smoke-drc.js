@@ -54,9 +54,19 @@ check('hover', ed.drcHover === v0.id);
 rows[0].dispatchEvent(new MouseEvent('mouseleave'));
 check('hover-off', ed.drcHover === null);
 ed.drcFocus = v0.id;
-// an edit marks the results out of date; fixing it and running again clears the marker
-app.edit('fix', (pr) => { pr.board.tracks = pr.board.tracks.filter((t) => t.id !== 'near'); });
-check('stale', /changed since this run/.test(card.textContent));
-await ed.runDrc();
-check('clean', ed.drc.list.length === 0 && /No problems/.test(card.textContent) && !/changed since/.test(card.textContent), ed.drc.list.map((v) => v.message));
+// live (#85): moving the track away clears the problem at once, without Run again
+app.edit('fix', (pr) => { pr.board.tracks.find((t) => t.id === 'near').a[1] += 1000000; pr.board.tracks.find((t) => t.id === 'near').b[1] += 1000000; });
+check('fixed-live', ed.drc.list.length === 0 && /No problems/.test(card.textContent), ed.drc.list.map((v) => v.message));
+check('focus-cleared', ed.drcFocus === null);
+// moving it back (undo) brings it back, as soon as the zone under it has refilled
+app.undo();
+check('back-live', ed.drc.list.some((v) => v.rule === 'clearance' && v.items.includes('near')), ed.drc.list.map((v) => v.message));
+await ed.whenZonesFilled(); await new Promise((r) => setTimeout(r, 50));
+check('back-after-fill', ed.drc.list.filter((v) => v.rule === 'clearance').length === 1, ed.drc.list.map((v) => v.message));
+// the background full run agrees
+await new Promise((r) => setTimeout(r, 2500));
+check('full-agrees', ed.drc.list.filter((v) => v.rule === 'clearance').length === 1 && !/Re-checking/.test(card.textContent), [ed.drc.list.map((v) => v.message), card.textContent.slice(0, 120)]);
+// deleting the track clears it again
+app.edit('delete', (pr) => { pr.board.tracks = pr.board.tracks.filter((t) => t.id !== 'near'); });
+check('clean', ed.drc.list.length === 0 && /No problems/.test(card.textContent), ed.drc.list.map((v) => v.message));
 return { fails };

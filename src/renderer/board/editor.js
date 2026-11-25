@@ -16,7 +16,8 @@ import { drawBoard, drawLabels, drawBoardDrawings } from './render.js';
 import { openAnnotateDialog } from './annotate-dialog.js';
 import { openBoardSetup } from './setup-dialog.js';
 import { netClassOf } from '../core/netclasses.js';
-import { runDrc, drcCounts, DRC_RULES } from '../core/drc.js';
+import { runDrc, drcCounts, DRC_RULES, mergeDrc } from '../core/drc.js';
+import { boardItems, changedAreas } from '../core/drcLive.js';
 import { hitPad, footprintOutline, insidePolygon, placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation } from '../core/footprint.js';
 import { ratsnest } from '../core/ratsnest.js';
 import { copperIndex, pointSeg2 } from '../core/collision.js';
@@ -94,7 +95,7 @@ export class BoardEditor {
     this.drawWidth = null;      // pen width for new shapes (null: the layer's default)
     this.drawFill = false;      // new rectangles and circles filled
     // Zone fills, refilled in a Web Worker after each edit (only the Zones it touched)
-    this.zoneFiller = new ZoneFiller(() => { this._rats = ratsnest(this.project, this.board, this.zoneFiller.fills); this.renderProps(); this.ws?.renderBar(); this.ws?.view.invalidate(); });
+    this.zoneFiller = new ZoneFiller(() => { this._rats = ratsnest(this.project, this.board, this.zoneFiller.fills); this._liveDrcFills(); this.renderProps(); this.ws?.renderBar(); this.ws?.view.invalidate(); });
     this.pair = pref.get('boardLayerPair', null); // the layers V switches between while routing (4-layer boards)
     this.routeMode = pref.get('boardRouteMode', 'walkaround'); // 'walkaround' | 'free' (Shove: #29)
     this.corner = pref.get('boardCorner', '45');            // track bends: '90' | '45' | 'any'
@@ -543,6 +544,7 @@ export class BoardEditor {
     if (pc?.isOpen && (!this._propsFor || this._selSig() !== this._propsFor)) { pc.toggle(false); this._propsFor = null; }
     this.zoneFiller.update(this.project);
     this._rats = ratsnest(this.project, this.board, this.zoneFiller.fills);
+    this._liveDrc(); // re-check what the edit changed (#85)
     if (!copperLayerNames(this.board.stack.copper).includes(this.activeLayer) && /^In\d/.test(this.activeLayer)) this.activeLayer = 'F.Cu';
     if (this.btn) {
       this.btn.undo.disabled = !this.app.history.canUndo;
@@ -1506,6 +1508,7 @@ export class BoardEditor {
     this.renderDrc();
     await this.whenZonesFilled();
     this.drc = { list: runDrc(this.project, this.zoneFiller.fills), rev: this._rev() };
+    this._drcBase();
     this.drcRunning = false;
     this.drcFocus = null;
     this.renderDrc();
@@ -1514,6 +1517,88 @@ export class BoardEditor {
     toast(c.error || c.warning ? `DRC: ${[c.error ? `${c.error} error${c.error === 1 ? '' : 's'}` : '', c.warning ? `${c.warning} warning${c.warning === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')}.` : 'DRC: no problems.', c.error ? 'error' : 'info', 2200);
     return this.drc.list;
   }
+
+  // ---------------------------------------------------------------- live DRC (#85)
+
+  /** What the DRC results were made from: the items' boxes and the Zone fills. */
+  _drcBase() {
+    this._drcItems = boardItems(this.project);
+    this._drcFillsSeen = new Map(this.zoneFiller.fills);
+    this._drcAreasWaiting = [];
+  }
+
+  /**
+   * After an edit (refresh): re-check at once the areas it changed and merge the results; a change
+   * that reaches the whole board waits for the background run. Either way a full run follows a
+   * pause in editing.
+   */
+  _liveDrc() {
+    if (!this.drc || this.drcRunning || !this._drcItems) return;
+    const r = this._rev();
+    if (!this.drc.rev.some((x, i) => x !== r[i])) return;
+    const next = boardItems(this.project);
+    const ch = changedAreas(this._drcItems, next);
+    this._drcItems = next;
+    if (!ch.full && ch.areas.length) {
+      this.drc = { list: mergeDrc(this.drc.list, runDrc(this.project, this.zoneFiller.fills, { areas: ch.areas, rats: this._rats }), ch.areas), rev: r };
+      if (this.zoneFiller.busy) this._drcAreasWaiting.push(...ch.areas); // looked at again once the zones have refilled
+    } else if (ch.full) { this.drc.rev = r; this._drcNeedsFull = true; }
+    else this.drc.rev = r;
+    if (this.drcFocus && !this.drc.list.some((v) => v.id === this.drcFocus)) this.drcFocus = null; // fixed
+    this._scheduleFullDrc(ch.full ? 0 : 1500);
+  }
+
+  /** New Zone fills: re-check where they changed, and the areas edited while they were refilling. */
+  _liveDrcFills() {
+    if (!this.drc || this.drcRunning || !this._drcFillsSeen) return;
+    const areas = [...this._drcAreasWaiting];
+    for (const z of this.board.zones || []) {
+      if (this.zoneFiller.fills.get(z.id) === this._drcFillsSeen.get(z.id)) continue;
+      const xs = z.outline.map((q) => q[0]), ys = z.outline.map((q) => q[1]);
+      areas.push({ x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) });
+    }
+    this._drcFillsSeen = new Map(this.zoneFiller.fills);
+    if (this.zoneFiller.busy) return;
+    this._drcAreasWaiting = [];
+    if (!areas.length) { this.renderDrc(); return; }
+    this.drc = { list: mergeDrc(this.drc.list, runDrc(this.project, this.zoneFiller.fills, { areas, rats: this._rats }), areas), rev: this.drc.rev };
+    if (this.drcFocus && !this.drc.list.some((v) => v.id === this.drcFocus)) this.drcFocus = null;
+    this.renderDrc();
+    this.ws?.view.invalidate();
+  }
+
+  /** A full DRC in the background after `ms` of no edits: the safety net, and for board-wide changes. */
+  _scheduleFullDrc(ms) {
+    clearTimeout(this._drcTimer);
+    this._drcTimer = setTimeout(async () => {
+      await this.whenZonesFilled();
+      const rev = this._rev(), seq = (this._drcSeq = (this._drcSeq || 0) + 1);
+      const project = this.project, fills = this.zoneFiller.fills;
+      let list;
+      try { list = await this._drcInWorker(seq, project, fills); } catch { list = runDrc(project, fills); }
+      const now = this._rev();
+      if (seq !== this._drcSeq || !this.drc || rev.some((x, i) => x !== now[i])) return; // an edit since: its own run follows
+      this.drc = { list, rev };
+      this._drcBase();
+      this._drcNeedsFull = false;
+      if (this.drcFocus && !list.some((v) => v.id === this.drcFocus)) this.drcFocus = null;
+      this.renderDrc();
+      this.ws?.view.invalidate();
+    }, ms);
+  }
+
+  _drcInWorker(seq, project, fills) {
+    if (this._drcWorker === null || typeof Worker === 'undefined') return Promise.resolve(runDrc(project, fills));
+    try { this._drcWorker ||= new Worker(new URL('./drcWorker.js', import.meta.url), { type: 'module' }); } catch { this._drcWorker = null; return Promise.resolve(runDrc(project, fills)); }
+    return new Promise((resolve, reject) => {
+      this._drcWorker.onmessage = (e) => { if (e.data.seq === seq) (e.data.error ? reject(new Error(e.data.error)) : resolve(e.data.list)); };
+      this._drcWorker.onerror = (e) => { this._drcWorker = null; reject(e); };
+      this._drcWorker.postMessage({ seq, project, fills: [...fills] });
+    });
+  }
+
+  /** Whether a re-check is still to come: zones refilling, or a board-wide change waiting for the full run. */
+  _drcRechecking() { return !!this.drc && (this._drcNeedsFull || (this.zoneFiller.busy && this._drcAreasWaiting?.length > 0)); }
 
   /** A number that changes with every edit (to tell when the DRC results are out of date). */
   _rev() { const hs = this.app.history; return [hs.undoStack[hs.undoStack.length - 1] || null, hs.redoStack?.[hs.redoStack.length - 1] || null, this.project.id]; }
@@ -1528,12 +1613,12 @@ export class BoardEditor {
     const c = drcCounts(list);
     const chip = (sev, label) => h('button', { class: `erc-chip erc-chip-${sev}` + (this.drcFilter[sev] ? ' on' : ''), type: 'button', 'aria-pressed': String(this.drcFilter[sev]), title: `Show ${label.toLowerCase()}`, dataset: { severity: sev },
       onClick: () => { this.drcFilter[sev] = !this.drcFilter[sev]; this.renderDrc(); this.ws?.view.invalidate(); } }, h('span', { class: 'erc-dot' }), label, h('span', { class: 'erc-n' }, String(c[sev])));
-    const stale = this._drcStale();
+    const stale = this._drcRechecking();
     const head = h('div', { class: 'erc-filter' },
       h('div', { class: 'drc-run' },
         h('span', { class: 'drc-sum' }, this.drcRunning ? 'Running… (waiting for zone fills)' : !this.drc ? 'Not run yet' : c.error || c.warning ? `${c.error} error${c.error === 1 ? '' : 's'} · ${c.warning} warning${c.warning === 1 ? '' : 's'}` : 'No problems'),
         button({ label: this.drc ? 'Run again' : 'Run', icon: 'play', cls: 'btn-outline btn-xs', title: 'Run DRC again (clears the old markers)', onClick: () => this.runDrc() })),
-      stale ? h('div', { class: 'drc-stale' }, icon('info', 14), h('span', {}, 'The board has changed since this run.')) : null,
+      stale ? h('div', { class: 'drc-stale' }, icon('info', 14), h('span', {}, this._drcNeedsFull ? 'Re-checking the whole board…' : 'Re-checking near the zones as they refill…')) : null,
       h('div', { class: 'erc-chips', role: 'group', 'aria-label': 'Show' }, chip('error', 'Errors'), chip('warning', 'Warnings')));
     const shown = this._drcShown();
     const label = Object.fromEntries(DRC_RULES);

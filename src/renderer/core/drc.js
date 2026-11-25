@@ -115,13 +115,45 @@ function namer(project) {
 
 // ---------------------------------------------------------------- the checks
 
+/** The checks that look at copper in one place: a live re-check (#85) runs them over an area only. */
+export const LOCAL_RULES = new Set(['clearance', 'edge', 'width', 'ring', 'hole', 'courtyard']);
+/** Board-wide checks a re-check leaves as they were: a board edit can't change them. */
+const KEPT_RULES = new Set(['annotation']);
+
+const inBox = (p, b) => p && p[0] >= b.x0 && p[0] <= b.x1 && p[1] >= b.y0 && p[1] <= b.y1;
+const boxesMeet = (a, b) => a.x0 <= b.x1 && a.x1 >= b.x0 && a.y0 <= b.y1 && a.y1 >= b.y0;
+const grow = (b, m) => ({ x0: b.x0 - m, y0: b.y0 - m, x1: b.x1 + m, y1: b.y1 + m });
+
+/** Is result `v` one an area re-check of `areas` stands for (a local check whose place is in one)? */
+export const inAreas = (v, areas) => LOCAL_RULES.has(v.rule) && !!v.at && areas.some((b) => inBox(v.at, b));
+
+/**
+ * After a re-check of `areas` (#85): the old results with the local ones there and every board-wide
+ * one replaced by `fresh`, in the usual order.
+ */
+export function mergeDrc(old, fresh, areas) {
+  const keep = old.filter((v) => (LOCAL_RULES.has(v.rule) && !inAreas(v, areas)) || KEPT_RULES.has(v.rule));
+  return sortDrc([...keep, ...fresh]);
+}
+
+const sortDrc = (list) => {
+  const order = Object.fromEntries(DRC_RULES.map(([k], i) => [k, i]));
+  return list.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'error' ? -1 : 1) || order[a.rule] - order[b.rule]);
+};
+
 /**
  * Run every check. `fills`: the Zone fills (id -> { polys }) to check too (the editor waits for
- * any refill in progress first).
+ * any refill in progress first). `areas` (boxes, #85): check the copper only there (results placed
+ * inside them, the same as a full run gives there), and the board-wide checks in full; merge with
+ * mergeDrc.
  */
-export function runDrc(project, fills = new Map()) {
+export function runDrc(project, fills = new Map(), { areas = null, rats = null } = {}) {
   const board = project.board;
   const rules = board.rules;
+  const maxC = Math.max(rules.clearance || 0, rules.edgeClearance || 0, ...Object.values(board.netClasses || {}).map((c) => c.clearance || 0));
+  // the copper that can make a problem placed in the areas: within the largest clearance of them
+  const reach = areas && areas.map((b) => grow(b, maxC + 1_000_000));
+  const near = (b) => !reach || reach.some((r) => boxesMeet(b, r));
   const out = [];
   const add = (v) => out.push({ layer: null, items: [], ...v, id: `${v.rule}:${(v.items || []).join('|')}:${v.at ? v.at.join(',') : ''}` });
   const name = namer(project);
@@ -133,11 +165,14 @@ export function runDrc(project, fills = new Map()) {
     if (!f) continue;
     for (const poly of f.polys) for (const ring of poly) for (let i = 0; i < ring.length; i++) {
       const shape = { type: 'capsule', a: ring[i], b: ring[(i + 1) % ring.length], r: 0 };
+      if (reach && !near(shapeBox(shape))) continue;
       index.add({ kind: 'zone', id: z.id, net: z.net, layer: z.layer, layers: new Set([z.layer]), shape, item: z });
     }
   }
   const pairs = new Map();
-  for (const it of index.items) {
+  // a re-check looks from the copper near its areas (it still meets everything in the index)
+  const local = reach ? index.items.filter((it) => near(it.box)) : index.items;
+  for (const it of local) {
     for (const layer of it.layers) {
       for (const other of index.collisions(board, it.shape, layer, it.net, new Set([it.id]))) {
         if (it.kind === 'zone' && other.kind === 'zone') continue; // zone against zone: their priorities decide
@@ -170,7 +205,7 @@ export function runDrc(project, fills = new Map()) {
   const rings = area ? area.map((path) => path.map((q) => [q.X, q.Y])) : null;
   const edge = rules.edgeClearance || 0;
   const edgeSeen = new Set(); // a drawing is one item made of many segments: report it once
-  for (const it of index.items) {
+  for (const it of local) {
     if (it.kind === 'zone') continue; // fills are cut back from the edge
     if (it.kind === 'drawing') { if (edgeSeen.has(it.id)) continue; }
     const probe = it.shape.type === 'capsule' ? it.shape.a : it.shape.pts[0];
@@ -235,6 +270,7 @@ export function runDrc(project, fills = new Map()) {
   }
   for (let i = 0; i < yards.length; i++) for (let j = i + 1; j < yards.length; j++) {
     const a = yards[i], b = yards[j];
+    if (reach && !(near(a.box) && near(b.box))) continue; // an overlap lies inside both courtyards
     if (a.side !== b.side || a.box.x0 >= b.box.x1 || b.box.x0 >= a.box.x1 || a.box.y0 >= b.box.y1 || b.box.y0 >= a.box.y1) continue;
     const c = new ClipperLib.Clipper();
     c.AddPaths(a.paths, ClipperLib.PolyType.ptSubject, true);
@@ -251,20 +287,19 @@ export function runDrc(project, fills = new Map()) {
   }
 
   // unrouted connections
-  const rats = ratsnest(project, board, fills);
-  for (const w of rats.wires) {
+  for (const w of (rats || ratsnest(project, board, fills)).wires) {
     const at = mid(w.a, w.b);
     add({ rule: 'unrouted', severity: 'warning', at, box: merge(boxAround(w.a, 1_500_000), boxAround(w.b, 1_500_000)), items: [w.net], show: { wire: [w.a, w.b] }, message: `${w.net} is not routed here (${mmText(Math.round(Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1])))}).` });
   }
 
   // the Schematic has changes the Board hasn't had (Forward annotation pending)
-  const ch = changeList(project);
-  if (!isEmpty(ch) && ch.changes.length) {
+  const ch = areas ? null : changeList(project); // a re-check keeps the last result (mergeDrc)
+  if (ch && !isEmpty(ch) && ch.changes.length) {
     add({ rule: 'annotation', severity: 'warning', at: null, box: null, message: `The Schematic has ${ch.changes.length} change${ch.changes.length === 1 ? '' : 's'} the Board doesn't: Update from Schematic (F8).` });
   }
 
-  const order = Object.fromEntries(DRC_RULES.map(([k], i) => [k, i]));
-  return out.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'error' ? -1 : 1) || order[a.rule] - order[b.rule]);
+  // a re-check gives the local results placed in its areas, and every board-wide one
+  return sortDrc(areas ? out.filter((v) => !LOCAL_RULES.has(v.rule) || inAreas(v, areas)) : out);
 }
 
 /** Counts by severity: { error, warning }. */
