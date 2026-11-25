@@ -172,7 +172,7 @@ The shapes are fixed by [ADR-0015](../adr/0015-board-objects-in-the-native-forma
 | `footprints` | `[{ id, componentId, at, rot, side, locked }]` | Where each Component sits (#17). `rot` is any angle (degrees, [0, 360), to 0.01°); `side` is `F` or `B`. Pads and graphics come from the Component's footprint, not copied. |
 | `tracks` | `[{ id, a, b, width, layer, net }]` | Straight copper segments (#20). `layer` a copper layer, `net` a Net name. |
 | `vias` | `[{ id, at, drill, diameter, from, to, net }]` | v1 has through vias only: `from: "F.Cu"`, `to: "B.Cu"` (#21). |
-| `zones` | `[{ id, layer, net, outline, priority, clearance, thermal: { gap, spoke } }]` | Copper pours (#23). `outline` has at least 3 points. The fill is **not stored**; it is recomputed. |
+| `zones` | `[{ id, layer, net, outline, priority, clearance, connect?, thermal: { gap, spoke } }]` | Copper pours (#23). `outline` has at least 3 points. `priority`: higher fills first and wins overlaps with other Nets. `clearance`: the least gap to other Nets' copper (the Net classes' clearance applies when larger; 0 for just the classes'). `connect`: `thermal` (default) or `solid`, how same-Net pads join. `thermal.gap` and `thermal.spoke`: the relief's gap round a pad and its spoke width. The fill is **not stored**; it is recomputed. |
 | `netClasses` | `{ [name]: { trackWidth, clearance, viaDrill, viaDiameter, nets } }` | `nets` is a list of Net names (#24). |
 | `grid` | `{ main, alt }` | Snap grids in nm (default 0.5 and 0.1 mm). |
 | `origin` | point | The grid origin (default `[0, 0]`). |

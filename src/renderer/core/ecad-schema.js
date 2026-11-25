@@ -1291,6 +1291,13 @@ export const ECAD_SCHEMA = {
         "clearance": {
           "$ref": "#/$defs/nm"
         },
+        "connect": {
+          "enum": [
+            "thermal",
+            "solid"
+          ],
+          "description": "How same-Net pads join the fill: thermal reliefs (gap and spokes) or solid. Thermal when absent."
+        },
         "thermal": {
           "type": "object",
           "required": [

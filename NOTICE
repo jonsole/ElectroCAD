@@ -17,3 +17,8 @@ DabbleCAD
 Copyright 2026 DJMcNewgent
 Modifications Copyright 2026 jonsole
 Licensed under the Apache License, Version 2.0.
+
+Zone fills use the Clipper library (clipper-lib, the JavaScript port of Angus Johnson's
+Clipper 6.4.2), bundled into the app and its zone worker:
+  Clipper, Copyright Angus Johnson 2010-2017
+  Licensed under the Boost Software License, Version 1.0 (http://www.boost.org/LICENSE_1_0.txt).

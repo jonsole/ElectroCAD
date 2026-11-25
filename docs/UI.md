@@ -461,6 +461,30 @@ Selecting something in one editor highlights the same thing in the other (#18). 
   - a "Whole connection (U)" button and Delete.
   - Mixed values show blank or "Mixed". Every edit is one undo step.
 
+## Zones
+
+**Zone (Z)** draws a copper pour (#23):
+- **Drawing:** click its corners on the active copper layer. Click the first corner, double-click or press Enter to close it. **Backspace** takes back a corner, **Esc** cancels.
+- **Its Net:** the pad's or track's Net under the first corner, else GND if the board has one, else none. Change it in Properties.
+- **Selecting:** click its edge, or inside it where nothing else is. Drag it to move it, drag a corner to reshape it, **Del** deletes it, the arrows nudge it.
+- **Properties:**
+  - Net and layer.
+  - **Priority:** higher fills first and wins overlaps with other Nets' Zones; the lower one keeps its clearance from the higher one's fill.
+  - **Clearance:** the gap kept from other Nets' copper. The Net classes' clearance applies when it is larger; 0 means the classes' alone.
+  - **Pads: Thermal | Solid:** how the Zone's own Net's pads join it. Thermal leaves a gap round each pad, crossed by up to four spokes along the pad's axes (thermal gap and spoke width are settings). A spoke that would break clearance, or would end in nothing, is left out.
+  - How the fill went: pieces, islands removed, thermal reliefs (and any pad with fewer than two spokes).
+- **The fill** (`core/zones.js`, clipper-lib) is computed, not saved:
+  - the outline, inside the board's Outline less the edge clearance;
+  - less other Nets' tracks, vias and pads (and higher-priority Zones) by the clearance;
+  - with same-Net pads joined;
+  - with islands that touch none of the Zone's own Net's copper removed. A Zone with no Net keeps every piece.
+- **Live refill:**
+  - After every change, only the Zones whose area it touched refill, in a Web Worker (`board/zoneWorker.js`, scheduled by `board/zoneFiller.js`), so the editor never waits.
+  - A Zone waiting for its new fill shows as a dashed outline; a result that a newer change has superseded is thrown away.
+  - While a drag or a route is in progress, the Zones it touches draw as outlines; the fill comes back after the drop.
+  - `BoardEditor.whenZonesFilled()` resolves once every fill is up to date, for DRC and export.
+- Zones draw under pads and tracks, back layers first, in the layer's colour at the theme's Zone fill opacity.
+
 ## Workspaces
 
 There are four workspace tabs: **Schematic · Board · Gerber · Library**. Each keeps its own pan/zoom and selection when you switch away and back.

@@ -79,6 +79,7 @@ export function drawBoard(ctx, view, C, board, opts = {}) {
     // the Footprints' text (Reference, Value, pad numbers and Nets) goes on top of the copper: drawn
     // after the Tracks and Vias here, or left in opts.labels for the caller to draw last
     const labels = opts.labels || [];
+    drawZones(ctx, view, C, board, hidden, opts.zones);
     drawFootprints(ctx, view, C, view2, board, hidden, opts.padsOnly, opts.padKeys, labels);
     if (!opts.only || opts.trackIds) {
       drawTracks(ctx, view, C, board, hidden, opts.only ? opts.trackIds : null);
@@ -126,6 +127,35 @@ export function drawBoard(ctx, view, C, board, opts = {}) {
  * in the through-hole colour, with the drill), courtyards dashed, the Reference on silk above and
  * the Value on fab below; when zoomed in far enough, each pad shows its number and Net.
  */
+/**
+ * Zones (#23) under the pads and Tracks, back layers first, lower priority under higher: the fill
+ * in the layer's colour at the theme's Zone opacity, and the outline dashed. `z.fills` (id -> fill)
+ * and `z.outlineOnly` (ids drawn as outlines: being refilled, or touched by a drag or route).
+ */
+const LAYER_ORDER = { 'B.Cu': 0, 'In2.Cu': 1, 'In1.Cu': 2, 'F.Cu': 3 };
+export function drawZones(ctx, view, C, board, hidden, z = {}) {
+  const zones = (board.zones || []).filter((zn) => !hidden.has(zn.layer)).sort((a, b) => (LAYER_ORDER[a.layer] ?? 0) - (LAYER_ORDER[b.layer] ?? 0) || a.priority - b.priority);
+  if (!zones.length) return;
+  ctx.save();
+  for (const zn of zones) {
+    const col = C[zn.layer] || '#c33';
+    const fill = !z.outlineOnly?.has(zn.id) && z.fills?.get(zn.id);
+    if (fill) {
+      ctx.globalAlpha = typeof C.zoneOpacity === 'number' ? C.zoneOpacity : 0.4;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      for (const poly of fill.polys) for (const ring of poly) ring.forEach((q, i) => { const [x, y] = view.toScreen(q); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+      ctx.fill('evenodd');
+    }
+    ctx.globalAlpha = fill ? 0.7 : 0.95;
+    ctx.strokeStyle = col; ctx.lineWidth = fill ? 1 : 1.5; ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    zn.outline.forEach((q, i) => { const [x, y] = view.toScreen(q); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+    ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
 /** Draw text deferred by drawBoard (opts.labels): over the copper. */
 export function drawLabels(labels) { for (const f of labels || []) f(); }
 

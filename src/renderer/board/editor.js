@@ -22,7 +22,9 @@ import { connection, setTrackWidth, setTrackLayer, setViaSize, placeVia } from '
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
 import { allFootprints } from '../library/footprints.js';
 import { STARTER_LIBRARY } from '../library/starter.js';
-import { shapeHandles, hitHandle, dragOutlineHandle, snapPoint, handlePoints } from '../core/handles.js';
+import { shapeHandles, hitHandle, dragHandle, dragOutlineHandle, snapPoint, handlePoints } from '../core/handles.js';
+import { newZone, zoneInput, inPolygon, moveZones } from '../core/zones.js';
+import { ZoneFiller } from './zoneFiller.js';
 import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { watchAlt } from '../ui/grid.js';
 import { GridCard } from '../ui/gridCard.js';
@@ -37,6 +39,7 @@ export const BOARD_TOOLS = {
   select: { icon: 'select', title: 'Select (V)', key: 'v' },
   route: { icon: 'route', title: 'Route (X): click a pad to start a track on the active copper layer, click to place corners, click a pad of the same net to finish · V drops a via and changes layer · / flips the bend · Backspace undoes a corner · Esc cancels', key: 'x' },
   via: { icon: 'via', title: 'Via: click to place a through via; it takes the net of the track or pad it lands on' },
+  zone: { icon: 'zone', title: 'Zone (Z): click the corners of a copper pour on the active copper layer; click the first corner, double-click or Enter to close. Net, priority, clearance and thermal reliefs in Properties', key: 'z' },
   outline: { icon: 'outline', title: 'Outline rectangle (B): click two corners. Round the corners with Corner radius in Properties', key: 'b' },
   polygon: { icon: 'lpolygon', title: 'Outline polygon (P): click corners; A makes the next side an arc; click the first point to close', key: 'p' },
   circle: { icon: 'lellipse', title: 'Round outline or hole (C): click the centre, then the edge', key: 'c' },
@@ -62,6 +65,9 @@ export class BoardEditor {
     this.fpSel = new Set();     // ids of selected board Footprints
     this.netSel = new Set();    // Net names (as on the Board) selected by double-clicking a pad
     this.trackSel = new Set();  // ids of selected Tracks and Vias
+    this.zoneSel = new Set();   // ids of selected Zones
+    // Zone fills, refilled in a Web Worker after each edit (only the Zones it touched)
+    this.zoneFiller = new ZoneFiller(() => { this.renderProps(); this.ws?.renderBar(); this.ws?.view.invalidate(); });
     this.pair = pref.get('boardLayerPair', null); // the layers V switches between while routing (4-layer boards)
     this.routeMode = pref.get('boardRouteMode', 'walkaround'); // 'walkaround' | 'free' (Shove: #29)
     this.corner = pref.get('boardCorner', '45');            // track bends: '90' | '45' | 'any'
@@ -167,7 +173,7 @@ export class BoardEditor {
     for (const [id, t] of Object.entries(BOARD_TOOLS)) this.toolBtn[id] = button({ icon: t.icon, title: t.title, onClick: () => this.setTool(id) });
     const T = this.toolBtn;
     return [T.select, T.route, later({ icon: 'dragTrack', title: 'Drag track (D)' }, 31),
-      T.via, later({ icon: 'zone', title: 'Zone' }, 23), null,
+      T.via, T.zone, null,
       T.outline, T.polygon, T.circle, null, later({ icon: 'ltext', title: 'Text' }, 19), T.measure, T.origin];
   }
 
@@ -225,6 +231,9 @@ export class BoardEditor {
     };
     const parts = [];
     const fps = this.board.footprints.filter((f) => this.fpSel.has(f.id));
+    const zs = (this.board.zones || []).filter((z) => this.zoneSel.has(z.id));
+    if (zs.length === 1) parts.push(...this.zoneProps(zs[0]));
+    else if (zs.length > 1) parts.push(h('div', { class: 'prop-title' }, `${zs.length} zones`), h('p', { class: 'side-note' }, 'Drag to move them; Del deletes.'));
     if (this.trackSel.size) parts.push(...this.copperProps());
     if (fps.length === 1 && !sel.length) parts.push(...this.footprintProps(fps[0]));
     else if (fps.length > 1) parts.push(h('div', { class: 'prop-title' }, `${fps.length} footprints${sel.length ? ` and ${sel.length} outline shape${sel.length === 1 ? '' : 's'}` : ''}`),
@@ -290,6 +299,47 @@ export class BoardEditor {
       button({ label: 'Whole connection (U)', cls: 'btn-ghost', title: 'Select every track and via joined to these', onClick: () => this.selectConnection() }),
       button({ label: 'Delete', icon: 'trash', cls: 'btn-ghost', title: 'Delete (Del)', onClick: () => this.deleteSelection() })));
     return out;
+  }
+
+  /** PROPERTIES for one Zone: Net, layer, priority, clearance, how pads connect, and how its fill went. */
+  zoneProps(z) {
+    const stop = (el) => { el.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter' && el.tagName === 'INPUT') el.blur(); }); return el; };
+    const row = (label, el, unit = '') => h('label', { class: 'le-row' }, h('span', {}, label), el, h('em', {}, unit));
+    const set = (label, fn) => this.app.edit(label, (p) => fn(p.board.zones.find((q) => q.id === z.id)));
+    const num = (label, value, onSet, { step = '0.05', min = '0', unit = 'mm', int = false } = {}) => {
+      const i = stop(h('input', { class: 'input', type: 'number', step: int ? '1' : step, min, value: int ? String(value) : fmt(value), 'aria-label': label }));
+      i.addEventListener('change', () => { const v = parseFloat(i.value); if (Number.isFinite(v) && v >= +min) onSet(int ? Math.round(v) : mm(v)); });
+      return row(label, i, int ? '' : unit);
+    };
+    const nets = [...new Set([...padNets(this.board).values()].filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    if (z.net && !nets.some((n) => n.toLowerCase() === z.net.toLowerCase())) nets.unshift(z.net);
+    const net = stop(h('select', { class: 'select', 'aria-label': 'Zone net' }, h('option', { value: '' }, '(no net)'), ...nets.map((n) => h('option', { value: n }, n))));
+    net.value = nets.find((n) => n.toLowerCase() === (z.net || '').toLowerCase()) || '';
+    net.addEventListener('change', () => set(`Zone net ${net.value || '(none)'}`, (q) => { q.net = net.value; }));
+    const layer = stop(h('select', { class: 'select', 'aria-label': 'Zone layer' }, ...copperLayerNames(this.board.stack.copper).map((l) => h('option', { value: l }, l))));
+    layer.value = z.layer;
+    layer.addEventListener('change', () => set(`Zone to ${layer.value}`, (q) => { q.layer = layer.value; }));
+    const solid = z.connect === 'solid';
+    const conn = h('div', { class: 'segmented', role: 'radiogroup', 'aria-label': 'Pad connection' },
+      ...[['thermal', 'Thermal', 'Same-net pads join through thermal reliefs: a gap crossed by spokes (easier to solder)'], ['solid', 'Solid', 'Same-net pads are joined solid']].map(([id, label, tip]) => h('button', { class: 'btn' + ((solid ? 'solid' : 'thermal') === id ? ' active' : ''), type: 'button', role: 'radio', 'aria-checked': String((solid ? 'solid' : 'thermal') === id), title: tip, dataset: { connect: id }, onClick: () => set(`Pads ${label.toLowerCase()}`, (q) => { q.connect = id; }) }, label)));
+    const f = this.zoneFiller.fills.get(z.id), pending = this.zoneFiller.pending.has(z.id);
+    const th = f?.thermals || [];
+    const state = pending || !f ? 'Filling…'
+      : !f.polys.length ? (z.net ? `Empty: nothing of ${z.net} in it to connect to${f.islands ? ` (${f.islands} island${f.islands === 1 ? '' : 's'} removed)` : ''}.` : 'Empty.')
+        : `${f.polys.length} piece${f.polys.length === 1 ? '' : 's'}${f.islands ? ` · ${f.islands} island${f.islands === 1 ? '' : 's'} removed` : ''}${th.length ? ` · ${th.length} thermal relief${th.length === 1 ? '' : 's'}${th.some((t) => t.spokes < 2) ? ` (${th.filter((t) => t.spokes < 2).length} with fewer than 2 spokes)` : ''}` : ''}`;
+    return [
+      h('div', { class: 'prop-title' }, `Zone on ${z.layer}`),
+      row('Net', net), row('Layer', layer),
+      num('Priority', z.priority, (v) => set('Zone priority', (q) => { q.priority = v; }), { int: true }),
+      num('Clearance', z.clearance, (v) => set('Zone clearance', (q) => { q.clearance = v; })),
+      h('p', { class: 'side-note' }, `The larger of this and the net classes' clearance (${fmt(this.board.rules.clearance)} mm by default) is kept from other nets. Higher priority fills first and wins overlaps.`),
+      row('Pads', conn),
+      ...(solid ? [] : [
+        num('Thermal gap', z.thermal.gap, (v) => set('Thermal gap', (q) => { q.thermal = { ...q.thermal, gap: v }; }), { min: '0.01' }),
+        num('Spoke width', z.thermal.spoke, (v) => set('Spoke width', (q) => { q.thermal = { ...q.thermal, spoke: v }; }), { min: '0.01' })]),
+      h('div', { class: 'outline-state ' + (pending || !f ? '' : f.polys.length ? 'ok' : 'bad'), role: 'status' }, icon(pending || !f ? 'info' : f.polys.length ? 'check' : 'info', 16), h('span', {}, state)),
+      h('div', { class: 'layer-actions' }, button({ label: 'Delete', icon: 'trash', cls: 'btn-ghost', title: 'Delete the zone (Del)', onClick: () => this.deleteSelection() })),
+    ];
   }
 
   /**
@@ -367,7 +417,7 @@ export class BoardEditor {
     const b = outlineBounds(this.board.outline);
     const size = b ? `${fmt(b.x1 - b.x0)} × ${fmt(b.y1 - b.y0)} mm` : 'no outline';
     const un = Object.values(this._rats?.unrouted || {}).reduce((a, b) => a + b, 0);
-    return `${this.board.stack.copper}-layer · ${fmt(this.board.stack.thickness)} mm · ${size} · ${this.board.footprints.length} footprints${this.board.footprints.length ? ` · ${un} unrouted` : ''} · active ${this.activeLayer} · grid ${gridLabel(this.gridStep)}${this.alt ? ' (Alt)' : ''}`;
+    return `${this.board.stack.copper}-layer · ${fmt(this.board.stack.thickness)} mm · ${size} · ${this.board.footprints.length} footprints${this.board.footprints.length ? ` · ${un} unrouted` : ''} ${this.board.zones?.length ? ` · ${this.board.zones.length} zone${this.board.zones.length === 1 ? '' : 's'}${this.zoneFiller.busy ? ' (filling…)' : ''}` : ''} · active ${this.activeLayer} · grid ${gridLabel(this.gridStep)}${this.alt ? ' (Alt)' : ''}`;
   }
 
   // ---------------------------------------------------------------- state
@@ -379,12 +429,15 @@ export class BoardEditor {
     for (const id of [...this.fpSel]) if (!ids.has(id)) this.fpSel.delete(id);
     const tids = new Set([...(this.board.tracks || []), ...(this.board.vias || [])].map((t) => t.id));
     for (const id of [...this.trackSel]) if (!tids.has(id)) this.trackSel.delete(id);
+    const zids = new Set((this.board.zones || []).map((z) => z.id));
+    for (const id of [...this.zoneSel]) if (!zids.has(id)) this.zoneSel.delete(id);
+    this.zoneFiller.update(this.project);
     this._rats = ratsnest(this.project);
     if (!copperLayerNames(this.board.stack.copper).includes(this.activeLayer) && /^In\d/.test(this.activeLayer)) this.activeLayer = 'F.Cu';
     if (this.btn) {
       this.btn.undo.disabled = !this.app.history.canUndo;
       this.btn.redo.disabled = !this.app.history.canRedo;
-      this.btn.del.disabled = !this.selection.size && !this.trackSel.size;
+      this.btn.del.disabled = !this.selection.size && !this.trackSel.size && !this.zoneSel.size;
       const anyFp = this.fpSel.size > 0;
       for (const k of ['rotate', 'flip', 'lock']) this.btn[k].disabled = !anyFp;
       const fs = this.board.footprints.filter((f) => this.fpSel.has(f.id));
@@ -431,10 +484,14 @@ export class BoardEditor {
       case 'route': t = this.route
         ? `Routing ${this.route.net} on ${this.route.layer} (${fmt(this.route.width)} mm): click to place a corner · click a ${this.route.net} pad to finish · V drops a via and goes to ${this.route.layer === this.route.pair[0] ? this.route.pair[1] : this.route.pair[0]} · double-click or Enter ends here · / flips the bend · Backspace undoes a corner · Esc cancels${this.routeView?.collisions.length ? ' · red: too close to another net' : ''}${this.routeView?.blocked ? ' · no clear way to the pointer: the track stops at the obstacle' : ''}`
         : `Route (${this.routeMode === 'walkaround' ? 'Walkaround: tracks go round other nets' : 'Free: tracks go where you draw'}): click a pad on ${this.activeLayer} to start a track (corners: ${this.corner === 'any' ? 'any angle' : this.corner + '°'}${this.chamfer ? `, chamfer ${fmt(this.chamfer)} mm` : ''})`; break;
+      case 'zone': t = !p ? `Zone on ${this.activeLayer}: click its first corner (the net comes from the pad or track there, else GND; change it in Properties)`
+        : `Zone on ${this.activeLayer}: click the next corner · click the first corner, double-click or Enter to close · Backspace undo corner · Esc cancel`; break;
       case 'via': t = 'Via: click to place a through via (F.Cu to B.Cu); it takes the net of the track or pad it lands on · Esc back to Select'; break;
       case 'origin': t = 'Grid origin: click where the grid, rulers and coordinates should measure from (outline corners attract it) · Esc back to Select'; break;
       case 'measure': t = this.measure && !this.measure.done ? 'Measure: click the second point' : 'Measure: click two points · Esc to stop'; break;
-      default: t = this.trackSel.size
+      default: t = this.zoneSel.size
+        ? `${this.zoneSel.size === 1 ? 'Zone' : `${this.zoneSel.size} zones`} selected · drag a corner to reshape, the zone to move · Del deletes · arrows nudge · net, priority, clearance and thermal reliefs in Properties · it refills by itself after each change`
+        : this.trackSel.size
         ? `${this.trackSel.size} track${this.trackSel.size === 1 ? '' : 's'} or via${this.trackSel.size === 1 ? '' : 's'} selected · U selects the whole connection · Del deletes · width, layer and via size in Properties`
         : this.fpSel.size
         ? `${this.fpSel.size === 1 ? 'Footprint' : `${this.fpSel.size} footprints`} selected · drag to move (the origin snaps to the grid) · R rotate 90° (Shift+R back) · F flip to the other side · L lock · arrows nudge · exact angle and Footprint in Properties`
@@ -451,7 +508,8 @@ export class BoardEditor {
     if (this.route && t !== 'route') this.finishRoute();
     if (t === 'route' && !copperLayerNames(this.board.stack.copper).includes(this.activeLayer)) this.activeLayer = 'F.Cu';
     this.tool = t; this.pts = null; this.arcNext = false; this.measure = null;
-    if (t !== 'select') { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); this.trackSel.clear(); }
+    if (t !== 'select') { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); this.trackSel.clear(); this.zoneSel.clear(); }
+    if (t === 'zone' && !copperLayerNames(this.board.stack.copper).includes(this.activeLayer)) this.activeLayer = 'F.Cu'; // zones are copper
     if (['outline', 'polygon', 'circle'].includes(t)) this.activeLayer = 'Edge.Cuts'; // the Outline lives on Edge.Cuts
     if (this.ws) this.ws.view.canvas.style.cursor = t === 'select' ? '' : 'crosshair';
     this.refresh();
@@ -491,6 +549,11 @@ export class BoardEditor {
   }
 
   deleteSelection() {
+    if (this.zoneSel.size) {
+      const del = new Set(this.zoneSel); this.zoneSel.clear();
+      this.app.edit(del.size === 1 ? 'Delete zone' : `Delete ${del.size} zones`, (p) => { p.board.zones = p.board.zones.filter((z) => !del.has(z.id)); });
+      return;
+    }
     if (this.trackSel.size) {
       const del = new Set(this.trackSel); this.trackSel.clear();
       this.app.edit(del.size === 1 ? 'Delete track' : `Delete ${del.size} tracks and vias`, (p) => { p.board.tracks = p.board.tracks.filter((t) => !del.has(t.id)); p.board.vias = p.board.vias.filter((v) => !del.has(v.id)); });
@@ -504,8 +567,8 @@ export class BoardEditor {
   }
 
   nudge(dx, dy) {
-    const sel = [...this.selection], fps = [...this.fpSel];
-    this.app.edit(fps.length ? 'Move' : 'Move outline', (p) => { moveOutline(sel.map((i) => p.board.outline[i]), [dx, dy]); moveFootprints(p, fps, [dx, dy]); });
+    const sel = [...this.selection], fps = [...this.fpSel], zs = new Set(this.zoneSel);
+    this.app.edit(fps.length ? 'Move' : zs.size && !sel.length ? 'Move zone' : 'Move outline', (p) => { moveOutline(sel.map((i) => p.board.outline[i]), [dx, dy]); moveFootprints(p, fps, [dx, dy]); moveZones(p.board.zones, zs, [dx, dy]); });
   }
 
   _lockedNote(ids) {
@@ -553,18 +616,19 @@ export class BoardEditor {
         toast(v.net ? `Via on ${v.net}.` : 'Via with no net (it isn\'t on a track or pad).', 'info', 1600);
         return;
       }
+      if (this.tool === 'zone' && e.detail >= 2 && this.pts?.zone?.length >= 3) { this.closeZone(); return; }
       if (this.tool === 'select') {
         const tol = 5 / ws.view.view.scale;
         const handle = this._handleAt(w, tol);
         if (handle && !e.shiftKey) {
-          this.handleDrag = { ...handle, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), moved: false };
+          this.handleDrag = { ...handle, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), zoneSnapshot: handle.zone ? structuredClone(this.board.zones.find((z) => z.id === handle.zone).outline) : null, moved: false };
           try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
           return;
         }
         const tr = this._hitTrack(w, tol);
         if (tr) {
           if (e.shiftKey) { if (this.trackSel.has(tr.id)) this.trackSel.delete(tr.id); else this.trackSel.add(tr.id); }
-          else { this.trackSel = new Set([tr.id]); this.fpSel.clear(); this.selection.clear(); this.netSel.clear(); }
+          else { this.trackSel = new Set([tr.id]); this.fpSel.clear(); this.selection.clear(); this.netSel.clear(); this.zoneSel.clear(); }
           this.refresh();
           return;
         }
@@ -573,24 +637,32 @@ export class BoardEditor {
         const hit = fp || this.hidden.has('Edge.Cuts') ? null : hitOutline(this.board.outline, w, tol);
         if (fp) {
           if (e.shiftKey) { if (this.fpSel.has(fp.id)) this.fpSel.delete(fp.id); else this.fpSel.add(fp.id); this.refresh(); return; }
-          if (!this.fpSel.has(fp.id)) { this.fpSel = new Set([fp.id]); this.selection.clear(); }
+          if (!this.fpSel.has(fp.id)) { this.fpSel = new Set([fp.id]); this.selection.clear(); this.zoneSel.clear(); }
           this.netSel.clear();
           // Footprints move by their origin, which lands on the grid
-          this.drag = { start: w, anchor: fp.at, fpAnchor: true, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), fpSnapshot: structuredClone(this.board.footprints), moved: false, delta: [0, 0], onlyFp: fp.id };
+          this.drag = { start: w, anchor: fp.at, fpAnchor: true, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), fpSnapshot: structuredClone(this.board.footprints), zoneSnapshot: structuredClone(this.board.zones), moved: false, delta: [0, 0], onlyFp: fp.id };
           try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
           this.refresh();
           return;
         }
         const i = hit ? this.board.outline.indexOf(hit) : -1;
+        let zn = null;
         if (e.shiftKey && hit) { if (this.selection.has(i)) this.selection.delete(i); else this.selection.add(i); this.refresh(); return; }
         if (hit) {
-          if (!this.selection.has(i)) { this.selection = new Set([i]); this.fpSel.clear(); }
+          if (!this.selection.has(i)) { this.selection = new Set([i]); this.fpSel.clear(); this.zoneSel.clear(); }
           // the selection moves by its handle nearest the pointer, so that handle lands on the grid or another object
           const anchors = handlePoints(this.board.outline.filter((_, k) => this.selection.has(k)));
           const anchor = anchors.reduce((b, p) => (Math.hypot(p[0] - w[0], p[1] - w[1]) < Math.hypot(b[0] - w[0], b[1] - w[1]) ? p : b), anchors[0] || w);
-          this.drag = { start: w, anchor, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), fpSnapshot: structuredClone(this.board.footprints), moved: false, delta: [0, 0], only: i };
+          this.drag = { start: w, anchor, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), fpSnapshot: structuredClone(this.board.footprints), zoneSnapshot: structuredClone(this.board.zones), moved: false, delta: [0, 0], only: i };
           try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
-        } else { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); }
+        } else if (!hit && (zn = this._hitZone(w, tol))) {
+          // a Zone: by its edge, or inside it where nothing else is
+          if (e.shiftKey) { if (this.zoneSel.has(zn.id)) this.zoneSel.delete(zn.id); else this.zoneSel.add(zn.id); this.refresh(); return; }
+          if (!this.zoneSel.has(zn.id)) { this.zoneSel = new Set([zn.id]); this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); }
+          const anchor = zn.outline.reduce((b, p) => (Math.hypot(p[0] - w[0], p[1] - w[1]) < Math.hypot(b[0] - w[0], b[1] - w[1]) ? p : b), zn.outline[0]);
+          this.drag = { start: w, anchor, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), fpSnapshot: structuredClone(this.board.footprints), zoneSnapshot: structuredClone(this.board.zones), moved: false, delta: [0, 0], onlyZone: zn.id };
+          try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+        } else { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); this.zoneSel.clear(); }
         this.refresh();
         return;
       }
@@ -600,14 +672,18 @@ export class BoardEditor {
       const w = world(e);
       this.setAlt(e.altKey);
       this.snapMark = null;
-      if (this.handleDrag) { const d = this.handleDrag; this.cursor = this.snapAt(w, new Set([d.index]), shapeHandles(d.snapshot[d.index]).find((x) => x.key === d.key)?.at); }
+      if (this.handleDrag?.zone) { const d = this.handleDrag; this.cursor = this.snapAt(w, new Set(), shapeHandles({ type: 'poly', pts: d.zoneSnapshot }).find((x) => x.key === d.key)?.at); }
+      else if (this.handleDrag) { const d = this.handleDrag; this.cursor = this.snapAt(w, new Set([d.index]), shapeHandles(d.snapshot[d.index]).find((x) => x.key === d.key)?.at); }
       else if (this.tool !== 'select') this.cursor = this.snapAt(w);
       else this.cursor = this.snapPt(w);
       if (this.handleDrag && (e.buttons & 1)) {
         const d = this.handleDrag;
         if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 3) return;
         d.moved = true;
-        this.preview = dragOutlineHandle(d.snapshot, d.index, d.key, this.cursor);
+        if (d.zone) {
+          const pts = dragHandle({ type: 'poly', pts: d.zoneSnapshot }, d.key, this.cursor).pts;
+          this.previewZones = this.board.zones.map((z) => (z.id === d.zone ? { ...z, outline: pts } : z));
+        } else this.preview = dragOutlineHandle(d.snapshot, d.index, d.key, this.cursor);
         ws.view.invalidate();
         return;
       }
@@ -617,7 +693,7 @@ export class BoardEditor {
         if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 4) return;
         d.moved = true;
         const raw = [d.anchor[0] + w[0] - d.start[0], d.anchor[1] + w[1] - d.start[1]];
-        const to = d.fpAnchor ? this.snapPt(raw) : this.snapAt(raw, this.selection);
+        const to = d.fpAnchor ? this.snapPt(raw) : this.snapAt(raw, this.selection, d.onlyZone ? d.anchor : null);
         d.delta = [to[0] - d.anchor[0], to[1] - d.anchor[1]];
         const moved = structuredClone(d.snapshot);
         moveOutline([...this.selection].map((i) => moved[i]), d.delta);
@@ -629,6 +705,11 @@ export class BoardEditor {
           // the Ratsnest follows the drag
           this._rats = ratsnest(this.project, { ...this.board, footprints: fps });
         }
+        if (this.zoneSel.size) {
+          const zs = structuredClone(d.zoneSnapshot);
+          moveZones(zs, this.zoneSel, d.delta);
+          this.previewZones = zs;
+        }
         ws.view.invalidate();
       } else if (this.tool !== 'select') {
         if (this.measure && !this.measure.done) this.measure.b = this.cursor;
@@ -638,6 +719,13 @@ export class BoardEditor {
     });
     const up = () => {
       this.snapMark = null;
+      if (this.handleDrag?.zone) {
+        const d = this.handleDrag; this.handleDrag = null;
+        const z = this.previewZones?.find((q) => q.id === d.zone); this.previewZones = null;
+        if (d.moved && z && JSON.stringify(z.outline) !== JSON.stringify(d.zoneSnapshot)) this.app.edit('Reshape zone', (p) => { p.board.zones.find((q) => q.id === d.zone).outline = z.outline; });
+        else this.refresh();
+        return;
+      }
       if (this.handleDrag) {
         const d = this.handleDrag; this.handleDrag = null;
         const result = this.preview; this.preview = null;
@@ -646,11 +734,12 @@ export class BoardEditor {
         return;
       }
       if (!this.drag) return;
-      const d = this.drag; this.drag = null; this.preview = null; this.previewFps = null;
+      const d = this.drag; this.drag = null; this.preview = null; this.previewFps = null; this.previewZones = null;
       if (d.moved && (d.delta[0] || d.delta[1])) { this.nudge(...d.delta); this._lockedNote([...this.fpSel]); }
       else {
         // a click picks one item out of a group
-        if (!d.moved && d.onlyFp) { this.fpSel = new Set([d.onlyFp]); this.selection.clear(); }
+        if (!d.moved && d.onlyFp) { this.fpSel = new Set([d.onlyFp]); this.selection.clear(); this.zoneSel.clear(); }
+        else if (!d.moved && d.onlyZone) { this.zoneSel = new Set([d.onlyZone]); this.selection.clear(); this.fpSel.clear(); }
         else if (!d.moved && d.only !== undefined) { this.selection = new Set([d.only]); this.fpSel.clear(); }
         this.refresh();
       }
@@ -679,6 +768,8 @@ export class BoardEditor {
 
   /** The handles shown: those of the one selected outline shape (on the preview while dragging). */
   _handles() {
+    const z = this._selZone();
+    if (z && this.tool === 'select' && !this.drag?.moved) return shapeHandles({ type: 'poly', pts: (this.previewZones?.find((q) => q.id === z.id) || z).outline });
     if (this.tool !== 'select' || this.selection.size !== 1 || this.hidden.has('Edge.Cuts') || this.drag?.moved) return [];
     const i = [...this.selection][0];
     const s = (this.preview || this.board.outline)[i];
@@ -687,12 +778,57 @@ export class BoardEditor {
 
   /** The handle under `w`, as { index, key, cursor }, or null. */
   _handleAt(w, tol) {
+    const z = this._selZone();
+    if (z && this.tool === 'select') { const hz = hitHandle({ type: 'poly', pts: z.outline }, w, tol); if (hz) return { zone: z.id, key: hz.key, cursor: hz.cursor }; }
     if (this.tool !== 'select' || this.selection.size !== 1 || this.hidden.has('Edge.Cuts')) return null;
     const index = [...this.selection][0];
     const s = this.board.outline[index];
     const h = s && hitHandle(s, w, tol);
     return h ? { index, key: h.key, cursor: h.cursor } : null;
   }
+
+  /** The one selected Zone (when nothing else is), on a shown layer. */
+  _selZone() {
+    if (this.zoneSel.size !== 1 || this.selection.size || this.fpSel.size) return null;
+    const z = this.board.zones.find((q) => this.zoneSel.has(q.id));
+    return z && !this.hidden.has(z.layer) ? z : null;
+  }
+
+  /** The Zone at `w`: near its edge, or inside it; the active layer's first, then front to back. */
+  _hitZone(w, tol) {
+    const order = [this.activeLayer, 'F.Cu', 'In1.Cu', 'In2.Cu', 'B.Cu'];
+    const zs = (this.board.zones || []).filter((z) => !this.hidden.has(z.layer)).sort((a, b) => order.indexOf(a.layer) - order.indexOf(b.layer) || b.priority - a.priority);
+    const edge = (z) => z.outline.some((p, i) => pointSeg2(w, p, z.outline[(i + 1) % z.outline.length]) <= tol * tol);
+    return zs.find(edge) || zs.find((z) => inPolygon(w, z.outline)) || null;
+  }
+
+  /** The Net a new Zone starting at `p` on `layer` takes: the pad's or track's there, else GND (if there is one). */
+  _zoneNet(p, layer) {
+    const hit = hitPad(this.project, p, { preferBack: layer.startsWith('B.') });
+    if (hit?.pad.net && (hit.pad.layers.includes(layer) || hit.pad.layers.includes('*.Cu'))) return hit.pad.net;
+    const tr = (this.board.tracks || []).find((t) => t.layer === layer && t.net && pointSeg2(p, t.a, t.b) <= (t.width / 2) ** 2);
+    if (tr) return tr.net;
+    return [...new Set(padNets(this.board).values())].find((n) => /^gnd$/i.test(n)) || '';
+  }
+
+  /** Close the Zone being drawn and add it (one undo step), selected. */
+  closeZone() {
+    const pts = this.pts?.zone;
+    this.pts = null;
+    if (!pts || pts.length < 3) { this.refresh(); return; }
+    const layer = copperLayerNames(this.board.stack.copper).includes(this.activeLayer) ? this.activeLayer : 'F.Cu';
+    const z = newZone(layer, this._zoneNet(pts[0], layer), pts);
+    this.app.edit('Add zone', (p) => { p.board.zones.push(z); });
+    this.tool = 'select';
+    if (this.ws) this.ws.view.canvas.style.cursor = '';
+    this.zoneSel = new Set([z.id]);
+    const pc = this.cards?.card('props'); if (pc && !pc.isOpen) pc.toggle(true);
+    toast(`Zone on ${layer}${z.net ? ` for ${z.net}` : ' with no net (set one in Properties)'}.`, 'info', 2200);
+    this.refresh();
+  }
+
+  /** Resolves once every Zone fill is up to date (for DRC and export). */
+  whenZonesFilled() { return this.zoneFiller.whenFilled(); }
 
   /**
    * Highlight outline shapes `outlineSel`, whole Footprints `fpIds` and single pads `padKeys`
@@ -702,11 +838,12 @@ export class BoardEditor {
     padKeys ||= new Set();
     const comps = new Set([...padKeys].map((k) => k.slice(0, k.lastIndexOf(':'))));
     const partial = new Set(board.footprints.filter((f) => !fpIds.has(f.id) && comps.has(f.componentId)).map((f) => f.id));
-    const sub = { ...board, outline: board.outline.filter((_, k) => outlineSel.has(k)), footprints: board.footprints.filter((f) => fpIds.has(f.id) || partial.has(f.id)) };
+    const sub = { ...board, outline: board.outline.filter((_, k) => outlineSel.has(k)), footprints: board.footprints.filter((f) => fpIds.has(f.id) || partial.has(f.id)), zones: (board.zones || []).filter((z) => trackIds.has(z.id)) };
     const nets = padNets(board), proj = { ...this.project, board };
     const boxes = [
       ...sub.outline.map((sh) => outlineBounds([sh])),
       ...(board.tracks || []).filter((t) => trackIds.has(t.id)).map((t) => ({ x0: Math.min(t.a[0], t.b[0]) - t.width / 2, y0: Math.min(t.a[1], t.b[1]) - t.width / 2, x1: Math.max(t.a[0], t.b[0]) + t.width / 2, y1: Math.max(t.a[1], t.b[1]) + t.width / 2 })),
+      ...sub.zones.map((z) => { const xs = z.outline.map((q) => q[0]), ys = z.outline.map((q) => q[1]); return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }; }),
       ...(board.vias || []).filter((v) => trackIds.has(v.id)).map((v) => ({ x0: v.at[0] - v.diameter / 2, y0: v.at[1] - v.diameter / 2, x1: v.at[0] + v.diameter / 2, y1: v.at[1] + v.diameter / 2 })),
       ...sub.footprints.filter((f) => !partial.has(f.id)).map((f) => { const q = footprintOutline(proj, f); const xs = q.map((p) => p[0]), ys = q.map((p) => p[1]); return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }; }),
       ...sub.footprints.filter((f) => partial.has(f.id)).flatMap((f) => placedPads(proj, f, nets).filter((p) => padKeys.has(`${f.componentId}:${p.number}`)).map((p) => { const r = Math.max(...p.size) / 2; return { x0: p.at[0] - r, y0: p.at[1] - r, x1: p.at[0] + r, y1: p.at[1] + r }; })),
@@ -886,6 +1023,15 @@ export class BoardEditor {
       if (r) this.addOutline('Outline circle', circleOutline(cpt, r)); else this.refresh();
       return;
     }
+    if (t === 'zone') {
+      // this.pts: { zone: [corner points] }
+      if (!this.pts) { this.pts = { zone: [p] }; this.refresh(); return; }
+      const Z = this.pts.zone;
+      if (Z.length >= 3 && same(p, Z[0])) { this.closeZone(); return; }
+      if (!same(p, Z[Z.length - 1])) Z.push(p);
+      this.refresh();
+      return;
+    }
     if (t === 'polygon') {
       // this.pts: { start, steps: [{ to } | { mid, to }], mid? (an arc side waiting for its end) }
       if (!this.pts) { this.pts = { start: p, steps: [] }; this.refresh(); return; }
@@ -906,6 +1052,11 @@ export class BoardEditor {
     if (!this.pts) return {};
     if (this.tool === 'outline' && cur) return { ghost: rectOutline(this.pts[0], cur, this.radius), ghostPts: [this.pts[0]] };
     if (this.tool === 'circle' && cur) { const r = Math.hypot(cur[0] - this.pts[0][0], cur[1] - this.pts[0][1]); return { ghost: r ? circleOutline(this.pts[0], r) : [], ghostPts: [this.pts[0]] }; }
+    if (this.tool === 'zone' && this.pts.zone) {
+      const Z = this.pts.zone;
+      const pts = cur && !same(cur, Z[Z.length - 1]) ? [...Z, cur] : Z;
+      return { ghost: pts.length > 1 ? [{ type: 'line', pts: [...pts, ...(pts.length > 2 ? [Z[0]] : [])] }] : [], ghostPts: Z, closeAt: Z.length >= 3 && same(cur, Z[0]) ? Z[0] : null };
+    }
     if (this.tool === 'polygon') {
       const P = this.pts;
       const steps = [...P.steps];
@@ -920,15 +1071,15 @@ export class BoardEditor {
   }
 
   draw(ctx, view, C) {
-    const board = { ...this.board, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints };
+    const board = { ...this.board, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints, zones: this.previewZones || this.board.zones };
     const labels = [];
-    drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: this._rats?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure, labels });
+    drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: this._rats?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure, labels, zones: { fills: this.zoneFiller.fills, outlineOnly: this._zonesAsOutlines(board) } });
     if (this.routeView) this._drawRoute(ctx, view, C);
     drawLabels(labels); // names, values and pad numbers over all the copper, the track being routed too
     // the selection, highlighted in the style chosen in Settings (the same in every editor)
-    if (this.selection.size || this.fpSel.size || this.netSel.size || this.trackSel.size) {
+    if (this.selection.size || this.fpSel.size || this.netSel.size || this.trackSel.size || this.zoneSel.size) {
       const t = this.netSel.size ? boardTargets({ ...this.project, board }, probeFromBoard(this.project, [], [...this.netSel])) : null;
-      this._highlightBoard(ctx, view, C, board, this.selection, this.fpSel, t?.pads, C, false, new Set([...this.trackSel, ...(t?.copper || [])]));
+      this._highlightBoard(ctx, view, C, board, this.selection, this.fpSel, t?.pads, C, false, new Set([...this.trackSel, ...this.zoneSel, ...(t?.copper || [])]));
     }
     // the Schematic's selection (cross-probing), in the theme's Highlight colour
     const probe = this.app.probeFor('board');
@@ -940,6 +1091,19 @@ export class BoardEditor {
     }
     drawHandles(ctx, view, C, this._handles(), this.handleDrag?.key);
     drawSnapMark(ctx, view, C, this.snapMark);
+  }
+
+  /**
+   * Zones drawn as outlines: while a drag or route is in progress, those it touches (their fill
+   * would change); otherwise those waiting for a refill. Their fill comes back when it's ready.
+   */
+  _zonesAsOutlines(board) {
+    if (!board.zones?.length) return new Set();
+    if (this.drag?.moved || this.handleDrag?.moved || this.routeView) {
+      const extra = (this.routeView?.segments || []).map((sg, i) => ({ id: `route${i}`, a: sg.a, b: sg.b, width: this.route.width, layer: sg.layer || this.route.layer, net: this.route.net }));
+      return this.zoneFiller.staleIds(zoneInput(this.project, board, extra));
+    }
+    return new Set(this.zoneFiller.pending.keys());
   }
 
   /** The track being routed: its segments in the layer's colour, those too close to other Nets in the DRC colour, and what they hit outlined. */
@@ -990,7 +1154,7 @@ export class BoardEditor {
     if (e.key === 'Escape') {
       if (this.pts || (this.measure && !this.measure.done)) { this.pts = null; this.arcNext = false; this.measure = null; this.refresh(); }
       else if (this.tool !== 'select') this.setTool('select');
-      else if (this.selection.size || this.fpSel.size || this.netSel.size || this.trackSel.size) { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); this.trackSel.clear(); this.refresh(); }
+      else if (this.selection.size || this.fpSel.size || this.netSel.size || this.trackSel.size || this.zoneSel.size) { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); this.trackSel.clear(); this.zoneSel.clear(); this.refresh(); }
       return true;
     }
     if (this.route) {
@@ -1008,6 +1172,10 @@ export class BoardEditor {
       if (e.key === 'Backspace') { if (this.route.points.length > 1) { this.route = routeBack(this.route); this._routeMove(); } else this.cancelRoute(); return true; }
       if (e.key === 'Enter') { this.finishRoute(); return true; }
     }
+    if (this.tool === 'zone' && this.pts?.zone) {
+      if (e.key === 'Enter') { this.closeZone(); return true; }
+      if (e.key === 'Backspace') { this.pts.zone.pop(); if (!this.pts.zone.length) this.pts = null; this.refresh(); return true; }
+    }
     if (this.tool === 'polygon' && this.pts) {
       if (k === 'a') { if (!this.pts.mid) this.arcNext = !this.arcNext; this.refresh(); return true; }
       if (e.key === 'Backspace') {
@@ -1018,9 +1186,9 @@ export class BoardEditor {
         return true;
       }
     }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && (this.selection.size || this.trackSel.size || this.fpSel.size)) { this.deleteSelection(); return true; }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && (this.selection.size || this.trackSel.size || this.fpSel.size || this.zoneSel.size)) { this.deleteSelection(); return true; }
     const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
-    if (arrows[e.key] && (this.selection.size || this.fpSel.size)) { const [dx, dy] = arrows[e.key]; this.nudge(dx * this.board.grid.main, dy * this.board.grid.main); return true; }
+    if (arrows[e.key] && (this.selection.size || this.fpSel.size || this.zoneSel.size)) { const [dx, dy] = arrows[e.key]; this.nudge(dx * this.board.grid.main, dy * this.board.grid.main); return true; }
     if (this.trackSel.size && this.tool === 'select' && e.key.toLowerCase() === 'u') { this.selectConnection(); return true; }
     if (this.fpSel.size && this.tool === 'select') {
       if (k === 'r') { this.rotateSel(e.shiftKey ? -90 : 90); return true; }
