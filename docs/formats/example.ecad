@@ -830,6 +830,7 @@
   "tracks": [],
   "vias": [],
   "zones": [],
+  "drawings": [],
   "rules": {
    "clearance": 200000,
    "trackWidth": 250000,

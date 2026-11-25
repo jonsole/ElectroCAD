@@ -327,7 +327,7 @@ The Board tab (#15) edits the board's layer stack and its Outline. Footprints, T
 
 - **LAYERS section.**
   - At the top: a **2 layers | 4 layers** segmented control and a board-thickness select (0.8–2.0 mm).
-  - Going back to 2 layers is refused, with a toast, while Tracks or Zones are on In1.Cu or In2.Cu.
+  - Going back to 2 layers is refused, with a toast, while Tracks, Zones or drawings are on In1.Cu or In2.Cu.
   - One row per layer, using KiCad names: copper (F.Cu, In1.Cu, In2.Cu, B.Cu), then silk, mask, paste, courtyard and fab for each side, then Edge.Cuts.
   - Each row has a coloured chip, the layer's name, and an eye button that shows or hides the layer.
   - Click a row to make that layer the **active layer**. The active layer is always shown.
@@ -340,6 +340,15 @@ The Board tab (#15) edits the board's layer stack and its Outline. Footprints, T
   - **P, Outline polygon:** click each corner. **A** makes the next side an arc: click a point it passes through, then where it ends. **Backspace** removes the last corner. Clicking the first corner closes the polygon; a ring marks it under the cursor.
   - **C, Circle:** click the centre, then the edge. Use it for a round board or a mounting hole.
   - The shape follows the cursor as a dashed preview. **Esc** cancels it, and a second Esc returns to Select.
+- **Board text and graphics** (#66; on the palette under the Outline tools). They draw on the **drawing layer** chosen in their strip: any silk, fab, courtyard, mask or paste layer, or copper. Top silk to start; the choice is remembered.
+  - **T, Text:** type the text and its size in the strip, then click to place it (centred on the click). Keep clicking to place more. Text uses the board's text font (Board setup → Text) and is mirrored on the bottom layers, as it reads from the back.
+  - **I, Line:** click points; double-click or **Enter** finishes, **Backspace** takes back a point.
+  - **Rectangle** and **Circle:** two clicks. **Width** in the strip sets the pen (the layer's default to start: 0.15 mm on silk); **Filled** fills them.
+  - **Selecting:** click a drawing (on a shown layer) to select it; drawings are picked before the footprints under them. Drag to move it, or use the arrow keys. A line, rectangle or circle shows the usual resize handles.
+    - **R** / **Shift+R** turn the selection about its middle; **F** flips it to the other side (F.SilkS ↔ B.SilkS, mirrored); **Del** deletes.
+    - The strip and PROPERTIES change the layer, the text, its size and angle, the pen width and the fill.
+  - **On copper** a drawing has no net: Zones pour round it, routing keeps clear of it, and DRC checks other copper's clearance to it (named "board text "REV A"" and so on). It goes in the copper Gerber with the NonConductor function.
+  - Every drawing goes into its layer's Gerber (silk, mask, paste and copper), drawn from the same geometry as the board view.
 - **M, Measure:** click two points. A label shows the distance and dx/dy in mm.
 - **Select (V):**
   - Click an outline shape to select it; Shift-click adds to the selection. A new rectangle or polygon starts with all its pieces selected; click one to pick it out.
@@ -633,6 +642,7 @@ Some of Eagle's implicit connections are made visible, because ElectroCAD joins 
 - **Hidden power pins.** A power gate Eagle never placed (a 74xx gate P, `addlevel=request`) is placed under the part's drawing. Each power pin no wire reaches gets a power label naming its net (VCC, GND…), as Eagle joins it by name.
 - **Bus entries.** Busses don't come over. A stub wire whose end lands on another net's wire (a bus entry over the dropped bus) is removed, and a longer wire is pulled back 1.27 mm, so the two nets don't merge. Both are counted in the summary.
 - **Mirrored parts.** Eagle turns a part and then mirrors it; ElectroCAD mirrors and then turns, so `MR90` becomes the back side at 270°.
+- **Board text and graphics** (`<plain>`, #66): text, wires, arcs, circles, rectangles and polygons on the silk, names, values, docu, stop, cream, keepout and copper layers become Board drawings. Text keeps Eagle's anchor (bottom-left unless aligned), and text turned past 90° is drawn the other way up from the opposite corner, as Eagle keeps it readable (spun `S` text excepted). Multi-line text becomes one drawing per line. Rectangles and width-0 circles are filled, as in Eagle. Drill legends and other user layers are listed as left out.
 
 **The import log.** Every import writes a plain-text log: the files and the Eagle version that saved them, what came in, both net checks with every difference listed, everything not carried over, and the DRC results once the Zones have filled (positions in Eagle's coordinates, mm with Y up, so you can find them in Eagle). **Copy log** and **Save log…** are on the summary, and **Import → Show the last import log** brings it back later, after a restart too. To report a problem with an import, paste the log into an issue.
 

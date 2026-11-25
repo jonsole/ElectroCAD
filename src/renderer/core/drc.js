@@ -86,6 +86,7 @@ function namer(project) {
     if (it.kind === 'pad') return `${ref(it.footprint)} pad ${it.item.number} (${net(it.net)})`;
     if (it.kind === 'via') return `via (${net(it.net)})`;
     if (it.kind === 'zone') return `zone (${net(it.net)})`;
+    if (it.kind === 'drawing') return it.item.type === 'text' ? `board text "${it.item.text}"` : `board ${it.item.type === 'poly' ? 'polygon' : it.item.type === 'rect' ? 'rectangle' : it.item.type}`;
     return `track (${net(it.net)})`; // the layer is in the violation's heading
   };
 }
@@ -118,6 +119,7 @@ export function runDrc(project, fills = new Map()) {
     for (const layer of it.layers) {
       for (const other of index.collisions(board, it.shape, layer, it.net, new Set([it.id]))) {
         if (it.kind === 'zone' && other.kind === 'zone') continue; // zone against zone: their priorities decide
+        if (it.kind === 'drawing' && other.kind === 'drawing') continue; // drawings may overlap one another
         const key = [it.id, other.id].sort().join('|') + '@' + layer;
         const d = shapeDistance(it.shape, other.shape);
         const prev = pairs.get(key);
@@ -142,10 +144,13 @@ export function runDrc(project, fills = new Map()) {
   const area = oc.closed ? boardArea(board.outline) : null;
   const rings = area ? area.map((path) => path.map((q) => [q.X, q.Y])) : null;
   const edge = rules.edgeClearance || 0;
+  const edgeSeen = new Set(); // a drawing is one item made of many segments: report it once
   for (const it of index.items) {
     if (it.kind === 'zone') continue; // fills are cut back from the edge
+    if (it.kind === 'drawing') { if (edgeSeen.has(it.id)) continue; }
     const probe = it.shape.type === 'capsule' ? it.shape.a : it.shape.pts[0];
     if (rings && !inRings(probe, rings)) {
+      edgeSeen.add(it.id);
       add({ rule: 'edge', severity: 'error', at: probe, box: boxAround(probe, 2_000_000), items: [it.id], layer: [...it.layers][0], message: `${name(it)} is off the board.` });
       continue;
     }
@@ -157,6 +162,7 @@ export function runDrc(project, fills = new Map()) {
     }
     if (worst) {
       const at = nearestPoint(it.shape, worst.e);
+      edgeSeen.add(it.id);
       add({ rule: 'edge', severity: 'error', at, box: boxAround(at, Math.max(edge * 6, 1_500_000)), items: [it.id], layer: [...it.layers][0], message: `${name(it)} is ${mmText(Math.max(0, worst.d))} from the board edge; ${mmText(edge)} needed.` });
     }
   }

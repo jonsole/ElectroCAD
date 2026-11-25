@@ -42,8 +42,8 @@ export function setCopperLayers(project, copper) {
   const b = project.board;
   if (copper === 2) {
     const inner = (x) => x.layer === 'In1.Cu' || x.layer === 'In2.Cu';
-    const n = b.tracks.filter(inner).length + b.zones.filter(inner).length;
-    if (n) throw new Error(`${n} track${n === 1 ? '' : 's'} or zone${n === 1 ? '' : 's'} use the inner layers. Move or delete them first.`);
+    const n = b.tracks.filter(inner).length + b.zones.filter(inner).length + (b.drawings || []).filter(inner).length;
+    if (n) throw new Error(`${n} track${n === 1 ? '' : 's'}, zone${n === 1 ? '' : 's'} or drawing${n === 1 ? '' : 's'} use the inner layers. Move or delete them first.`);
   }
   b.stack.copper = copper;
 }

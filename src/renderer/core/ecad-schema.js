@@ -317,6 +317,23 @@ export const ECAD_SCHEMA = {
         }
       }
     },
+    "boardDrawing": {
+      "description": "A Board drawing (#66), in board nm. Widths are pen widths in nm (absent: the layer's default); text is mirrored on the B.* layers.",
+      "oneOf": [
+        { "type": "object", "required": ["id", "type", "layer", "text", "at", "size"], "additionalProperties": false,
+          "properties": { "type": { "const": "text" }, "id": { "$ref": "#/$defs/id" }, "layer": { "type": "string" }, "text": { "type": "string", "minLength": 1 }, "at": { "$ref": "#/$defs/point", "description": "The centre of the text." }, "size": { "$ref": "#/$defs/nm", "description": "Text height, in the board's text font." }, "rot": { "type": "number", "description": "Degrees anticlockwise." } } },
+        { "type": "object", "required": ["id", "type", "layer", "pts"], "additionalProperties": false,
+          "properties": { "type": { "const": "line" }, "id": { "$ref": "#/$defs/id" }, "layer": { "type": "string" }, "pts": { "$ref": "#/$defs/points" }, "width": { "$ref": "#/$defs/nm" } } },
+        { "type": "object", "required": ["id", "type", "layer", "start", "mid", "end"], "additionalProperties": false,
+          "properties": { "type": { "const": "arc" }, "id": { "$ref": "#/$defs/id" }, "layer": { "type": "string" }, "start": { "$ref": "#/$defs/point" }, "mid": { "$ref": "#/$defs/point" }, "end": { "$ref": "#/$defs/point" }, "width": { "$ref": "#/$defs/nm" } } },
+        { "type": "object", "required": ["id", "type", "layer", "a", "b"], "additionalProperties": false,
+          "properties": { "type": { "const": "rect" }, "id": { "$ref": "#/$defs/id" }, "layer": { "type": "string" }, "a": { "$ref": "#/$defs/point" }, "b": { "$ref": "#/$defs/point" }, "width": { "$ref": "#/$defs/nm" }, "fill": { "$ref": "#/$defs/fill" } } },
+        { "type": "object", "required": ["id", "type", "layer", "c", "r"], "additionalProperties": false,
+          "properties": { "type": { "const": "circle" }, "id": { "$ref": "#/$defs/id" }, "layer": { "type": "string" }, "c": { "$ref": "#/$defs/point" }, "r": { "$ref": "#/$defs/nm" }, "width": { "$ref": "#/$defs/nm" }, "fill": { "$ref": "#/$defs/fill" } } },
+        { "type": "object", "required": ["id", "type", "layer", "pts"], "additionalProperties": false,
+          "properties": { "type": { "const": "poly" }, "id": { "$ref": "#/$defs/id" }, "layer": { "type": "string" }, "pts": { "$ref": "#/$defs/points" }, "width": { "$ref": "#/$defs/nm" }, "fill": { "$ref": "#/$defs/fill" } } }
+      ]
+    },
     "shape": {
       "oneOf": [
         {
@@ -889,6 +906,11 @@ export const ECAD_SCHEMA = {
               "$ref": "#/$defs/nm"
             }
           }
+        },
+        "drawings": {
+          "type": "array",
+          "description": "Text and graphics on the Board's own layers: silk, fab, courtyard, mask, paste or copper (#66; core/boardDrawings.js). Absent: none.",
+          "items": { "$ref": "#/$defs/boardDrawing" }
         },
         "textFont": {
           "enum": ["stroke", "vector"],

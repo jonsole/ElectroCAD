@@ -12,6 +12,7 @@ import { padNets } from '../../core/footprint.js';
 import { mm } from '../../core/units.js';
 import { nm, pt, len, rotOf, arcMid, arcPoints, restring, Report, placedRot } from './common.js';
 import { packageToFootprint } from './library.js';
+import { textCentre } from '../../core/boardDrawings.js';
 import { growOutline } from '../../core/zones.js';
 import { libraries } from './schematic.js';
 
@@ -109,6 +110,7 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
 
   // ---- the Outline (layer 20) and what else is drawn on the board
   b.outline = [];
+  b.drawings = [];
   const dims = [];
   for (const c of brd.path('plain')?.children || []) {
     const layer = Number(c.attr('layer'));
@@ -122,7 +124,13 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
     } else if (c.name === 'hole') report.add('Board holes (outside packages) were left out');
     else if (c.name === 'polygon' && layerName.has(layer)) {
       b.zones.push(zoneOf(c, layerName.get(layer), '', report, rules));
-    } else if (c.name === 'text' || c.name === 'wire' || c.name === 'circle' || c.name === 'rectangle' || c.name === 'polygon') report.add(`Board drawings on layer ${layer}${eagleLayerNames.get(layer) ? ` ${eagleLayerNames.get(layer)}` : ''} (${c.name}) were left out`);
+    } else if (['text', 'wire', 'circle', 'rectangle', 'polygon'].includes(c.name)) {
+      // the board's own text and graphics (#66): silk, names, values, docu, stop, cream and copper
+      const L = DRAWING_LAYER[layer] || layerName.get(layer);
+      const made = L ? plainDrawing(c, L) : [];
+      if (made.length) b.drawings.push(...made);
+      else report.add(`Board drawings on layer ${layer}${eagleLayerNames.get(layer) ? ` ${eagleLayerNames.get(layer)}` : ''} (${c.name}) were left out`);
+    }
   }
   b.outline = dims;
   if (!b.outline.length) report.add('The board has no outline on layer 20 (Dimension)');
@@ -251,4 +259,68 @@ function stubSchematic(project, brd, libs, signals, elements, rules, report) {
     if (row > mm(160)) { row = 0; col++; }
   }
   sheet.paper = { size: col > 3 ? 'A2' : col > 1 ? 'A3' : 'A4', orientation: 'landscape' };
+}
+
+// ---------------------------------------------------------------- board drawings (#66)
+
+/** Eagle's drawing layers -> ours (copper 1 and 16 come from the stack). */
+const DRAWING_LAYER = { 21: 'F.SilkS', 25: 'F.SilkS', 22: 'B.SilkS', 26: 'B.SilkS', 27: 'F.Fab', 51: 'F.Fab', 28: 'B.Fab', 52: 'B.Fab', 29: 'F.Mask', 30: 'B.Mask', 31: 'F.Paste', 32: 'B.Paste', 39: 'F.CrtYd', 40: 'B.CrtYd' };
+
+/**
+ * One Eagle <plain> item as Board drawings on `layer`: wires (straight or curved), circles (width 0:
+ * filled), rectangles (always filled, possibly turned), polygons (filled) and text (one drawing per
+ * line, in Eagle's vector-font metrics, anchored by its alignment).
+ */
+function plainDrawing(c, layer) {
+  const width = (w) => { const v = nm(w); return v > 0 ? { width: v } : {}; };
+  if (c.name === 'wire') {
+    const a = pt(c.attr('x1'), c.attr('y1')), e = pt(c.attr('x2'), c.attr('y2'));
+    const curve = Number(c.attr('curve', 0));
+    return [curve ? { id: uid('d'), type: 'arc', layer, start: a, mid: arcMid(a, e, curve), end: e, ...width(c.attr('width')) }
+      : { id: uid('d'), type: 'line', layer, pts: [a, e], ...width(c.attr('width')) }];
+  }
+  if (c.name === 'circle') {
+    const w = nm(c.attr('width'));
+    return [{ id: uid('d'), type: 'circle', layer, c: pt(c.attr('x'), c.attr('y')), r: nm(c.attr('radius')), ...(w > 0 ? { width: w } : { width: 0, fill: 'outline' }) }];
+  }
+  if (c.name === 'rectangle') {
+    const p1 = pt(c.attr('x1'), c.attr('y1')), p2 = pt(c.attr('x2'), c.attr('y2'));
+    const { rot } = rotOf(c.attr('rot'));
+    const a = [Math.min(p1[0], p2[0]), Math.min(p1[1], p2[1])], bb = [Math.max(p1[0], p2[0]), Math.max(p1[1], p2[1])];
+    if (!rot) return [{ id: uid('d'), type: 'rect', layer, a, b: bb, width: 0, fill: 'outline' }];
+    const cx = (a[0] + bb[0]) / 2, cy = (a[1] + bb[1]) / 2, t = (rot * Math.PI) / 180, co = Math.cos(t), si = Math.sin(t);
+    const turn = ([x, y]) => [Math.round(cx + (x - cx) * co + (y - cy) * si), Math.round(cy - (x - cx) * si + (y - cy) * co)];
+    return [{ id: uid('d'), type: 'poly', layer, pts: [a, [bb[0], a[1]], bb, [a[0], bb[1]]].map(turn), width: 0, fill: 'outline' }];
+  }
+  if (c.name === 'polygon') {
+    const v = c.all('vertex');
+    return v.length >= 3 ? [{ id: uid('d'), type: 'poly', layer, pts: v.map((x) => pt(x.attr('x'), x.attr('y'))), ...width(c.attr('width')), fill: 'outline' }] : [];
+  }
+  // text: Eagle anchors it at its alignment point (bottom left by default); ours is the centre
+  const lines = String(c.text || '').replace(/\r/g, '').split('\n').map((l) => l.trim());
+  const size = nm(c.attr('size', 1.778));
+  const r = rotOf(c.attr('rot'));
+  let rot = r.rot, align = c.attr('align', 'bottom-left');
+  const mirror = r.mirror;
+  // Eagle keeps text readable: turned past 90° (up to 270°) it's drawn the other way up, with the
+  // anchor on the opposite corner, unless it's spun ('S')
+  if (!r.spin && rot > 90 && rot <= 270) {
+    rot -= 180;
+    const flip = { bottom: 'top', top: 'bottom', left: 'right', right: 'left', center: 'center' };
+    align = align === 'center' ? 'center' : align.split('-').map((x) => flip[x]).join('-');
+  }
+  const ours = placedRot(rot, mirror);
+  const pitch = size * (1 + Number(c.attr('distance', 50)) / 100);
+  const at0 = pt(c.attr('x'), c.attr('y'));
+  const t = (ours * Math.PI) / 180, co = Math.cos(t), si = Math.sin(t);
+  // later lines go down the page in the text's own frame (multi-line text grows downwards from a bottom anchor's first line)
+  const down = ([x, y]) => [Math.round(x * co + y * si), Math.round(-x * si + y * co)];
+  const v = align.startsWith('bottom') ? -(lines.length - 1) : align.startsWith('top') ? 0 : -(lines.length - 1) / 2;
+  const out = [];
+  lines.forEach((line, i) => {
+    if (!line) return;
+    const [dx, dy] = down([0, (v + i) * pitch]);
+    out.push({ id: uid('d'), type: 'text', layer, text: line, size, rot: ours, at: textCentre(line, { at: [at0[0] + dx, at0[1] + dy], size, rot: ours, mirror, align, font: 'vector' }) });
+  });
+  return out;
 }

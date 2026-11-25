@@ -5,6 +5,7 @@
 //   { type: 'capsule', a, b, r }  a Track (a circle when a = b: a Via, a round pad)
 //   { type: 'poly', pts }          a rectangular pad (its corners, rotated)
 // An item is { kind: 'track' | 'via' | 'pad', id, net, layers: Set, shape, box }.
+import { copperDrawingItems } from './boardDrawings.js';
 import { placedPads, padNets } from './footprint.js';
 import { copperLayerNames } from './board.js';
 
@@ -140,5 +141,6 @@ export function copperIndex(project, board = project.board) {
       items.push({ kind: 'pad', id: `${bf.id}:${pad.number}:${pad.at.join(',')}`, net: pad.net, layers: new Set(layers), shape: padShape(pad), item: pad, footprint: bf });
     }
   }
+  items.push(...copperDrawingItems(board)); // text and shapes on copper (#66), with no net
   return new CopperIndex(items);
 }

@@ -10,6 +10,7 @@
 //   5. islands that touch none of the Zone's own Net's copper are removed (unless keepIslands).
 // Everything here is plain data in, plain data out, so the same code runs in the Web Worker
 // (board/zoneWorker.js) and, synchronously, in the tests. DOM-free.
+import { copperDrawingTracks } from './boardDrawings.js';
 import ClipperLib from 'clipper-lib';
 import { placedPads, padNets } from './footprint.js';
 import { copperLayerNames, outlineLoops } from './board.js';
@@ -138,7 +139,8 @@ export function zoneInput(project, board = project.board, extraTracks = []) {
   }
   return {
     rules: board.rules, netClasses: board.netClasses || {}, outline: board.outline || [], copper,
-    zones: board.zones || [], tracks: [...(board.tracks || []), ...extraTracks], vias: board.vias || [], pads,
+    // drawings on copper (#66) are net-less copper the pour keeps clear of
+    zones: board.zones || [], tracks: [...(board.tracks || []), ...copperDrawingTracks(board), ...extraTracks], vias: board.vias || [], pads,
   };
 }
 

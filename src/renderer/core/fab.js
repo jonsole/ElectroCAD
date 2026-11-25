@@ -13,6 +13,7 @@ import { footprintOf } from './project.js';
 import { padShape } from './collision.js';
 import { arcCircle } from './geom.js';
 import { fabSettings } from './presets.js';
+import { drawingGeometry } from './boardDrawings.js';
 import { strokeText, strokePen } from './strokefont.js';
 
 const CL = ClipperLib;
@@ -236,6 +237,14 @@ function gerberLayer(project, { layer, fn, polarity }, { fills, date, version })
       else pts = s.pts || [];
       g.stroke(EDGE_WIDTH, pts, 'Profile');
     }
+  }
+  // the Board's own text and graphics on this layer (#66): copper ones are NonConductor (no net)
+  const font = board.textFont || 'stroke', func = /\.Cu$/.test(layer) ? 'NonConductor' : null;
+  for (const d of board.drawings || []) {
+    if (d.layer !== layer) continue;
+    const geo = drawingGeometry(d, font);
+    for (const ring of geo.fills) g.region(ring, func);
+    for (const st of geo.strokes) g.stroke(st.width, st.pts, func);
   }
   return g.text();
 }

@@ -12,7 +12,7 @@ import {
   GRID_CHOICES, gridLabel, setGrid, snapToGrid,
   rectOutline, circleOutline, polygonOutline, checkOutline, outlineBounds, hitOutline, moveOutline,
 } from '../core/board.js';
-import { drawBoard, drawLabels } from './render.js';
+import { drawBoard, drawLabels, drawBoardDrawings } from './render.js';
 import { openAnnotateDialog } from './annotate-dialog.js';
 import { openBoardSetup } from './setup-dialog.js';
 import { netClassOf } from '../core/netclasses.js';
@@ -35,6 +35,8 @@ import { ContextStrip, stripLabel, stripSep, stripButton, stripNumber, stripSele
 import { CardSet } from '../ui/cards.js';
 import { highlight, screenBox, revealBox } from '../view/highlight.js';
 import { probeFromBoard, boardTargets } from '../core/probe.js';
+import { drawingLayers, defaultWidth, DEFAULT_TEXT_SIZE, hitDrawing, moveDrawings, rotateDrawings, drawingsCentre, drawingBox } from '../core/boardDrawings.js';
+import { uid } from '../core/project.js';
 
 const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
 
@@ -47,6 +49,10 @@ export const BOARD_TOOLS = {
   outline: { icon: 'outline', title: 'Outline rectangle (B): click two corners. Round the corners with Corner radius in Properties', key: 'b' },
   polygon: { icon: 'lpolygon', title: 'Outline polygon (P): click corners; A makes the next side an arc; click the first point to close', key: 'p' },
   circle: { icon: 'lellipse', title: 'Round outline or hole (C): click the centre, then the edge', key: 'c' },
+  text: { icon: 'ltext', title: 'Text (T): click to place text on the drawing layer (top silk to start); set the text, size and layer in the strip first, or change them after in Properties', key: 't' },
+  gline: { icon: 'lline', title: 'Line (I) on the drawing layer: click points; double-click or Enter to finish', key: 'i' },
+  grect: { icon: 'lrect', title: 'Rectangle on the drawing layer: click two corners (Fill in the strip fills it)' },
+  gcircle: { icon: 'lellipse', title: 'Circle on the drawing layer: click the centre, then the edge (Fill in the strip fills it)' },
   measure: { icon: 'ruler', title: 'Measure (M): click two points', key: 'm' },
   origin: { icon: 'target', title: 'Grid origin (O): click to move the origin there; it snaps onto handles. Reset it in the Grid card (toolbar)', key: 'o' },
 };
@@ -55,6 +61,16 @@ const pref = {
   get(k, d) { try { const v = localStorage.getItem(`electrocad.${k}`); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem(`electrocad.${k}`, JSON.stringify(v)); } catch { /* private mode */ } },
 };
+
+/** A text field for the context strip; onSet(text) on change. */
+function stripText({ label, value, onSet, width = 120, title = '' }) {
+  const i = h('input', { class: 'input', type: 'text', value: value ?? '', 'aria-label': label, style: { width: width + 'px' } });
+  i.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') i.blur(); });
+  i.addEventListener('change', () => onSet(i.value));
+  return h('label', { class: 'strip-field', title: title || label }, h('span', {}, label), i);
+}
+
+const DRAW_KIND = { text: 'Text', line: 'Line', arc: 'Arc', rect: 'Rectangle', circle: 'Circle', poly: 'Polygon' };
 
 const fmt = (nm) => toMm(nm).toFixed(2).replace(/\.?0+$/, '') || '0';
 
@@ -70,6 +86,12 @@ export class BoardEditor {
     this.netSel = new Set();    // Net names (as on the Board) selected by double-clicking a pad
     this.trackSel = new Set();  // ids of selected Tracks and Vias
     this.zoneSel = new Set();   // ids of selected Zones
+    this.drawSel = new Set();   // ids of selected Board drawings (#66)
+    this.drawLayer = pref.get('boardDrawLayer', 'F.SilkS'); // the layer the drawing tools draw on
+    this.drawText = 'TEXT';      // what the Text tool places
+    this.drawSize = DEFAULT_TEXT_SIZE;
+    this.drawWidth = null;      // pen width for new shapes (null: the layer's default)
+    this.drawFill = false;      // new rectangles and circles filled
     // Zone fills, refilled in a Web Worker after each edit (only the Zones it touched)
     this.zoneFiller = new ZoneFiller(() => { this._rats = ratsnest(this.project, this.board, this.zoneFiller.fills); this.renderProps(); this.ws?.renderBar(); this.ws?.view.invalidate(); });
     this.pair = pref.get('boardLayerPair', null); // the layers V switches between while routing (4-layer boards)
@@ -181,7 +203,7 @@ export class BoardEditor {
     const T = this.toolBtn;
     return [T.select, T.route, later({ icon: 'dragTrack', title: 'Drag track (D)' }, 31),
       T.via, T.zone, null,
-      T.outline, T.polygon, T.circle, null, later({ icon: 'ltext', title: 'Text' }, 19), T.measure, T.origin];
+      T.outline, T.polygon, T.circle, null, T.text, T.gline, T.grect, T.gcircle, null, T.measure, T.origin];
   }
 
   /** The Layers and Properties cards (floating, dockable; toolbar buttons open them). */
@@ -257,6 +279,7 @@ export class BoardEditor {
     if (zs.length === 1) parts.push(...this.zoneProps(zs[0]));
     else if (zs.length > 1) parts.push(h('div', { class: 'prop-title' }, `${zs.length} zones`), h('p', { class: 'side-note' }, 'Drag to move them; Del deletes.'));
     if (this.trackSel.size) parts.push(...this.copperProps());
+    if (this.drawSel.size) parts.push(...this.drawingProps());
     if (fps.length === 1 && !sel.length) parts.push(...this.footprintProps(fps[0]));
     else if (fps.length > 1) parts.push(h('div', { class: 'prop-title' }, `${fps.length} footprints${sel.length ? ` and ${sel.length} outline shape${sel.length === 1 ? '' : 's'}` : ''}`),
       h('p', { class: 'side-note' }, 'R rotates them 90° about their middle, F flips them to the other side, L locks them. Drag to move.'));
@@ -276,6 +299,42 @@ export class BoardEditor {
       }
     } else if (sel.length > 1) parts.push(h('div', { class: 'prop-title' }, `${sel.length} outline shapes`));
     el.replaceChildren(...parts);
+  }
+
+  /** PROPERTIES for the selected Board drawings (#66): layer, text, size, angle, pen width and fill. */
+  drawingProps() {
+    const ds = (this.board.drawings || []).filter((d) => this.drawSel.has(d.id));
+    if (ds.length !== 1) return [h('div', { class: 'prop-title' }, `${ds.length} drawings`), h('p', { class: 'side-note' }, 'Drag to move; R rotates them about their middle, F flips them to the other side; Del deletes.')];
+    const d = ds[0];
+    const stopKeys = (el) => { el.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter' && el.tagName === 'INPUT') el.blur(); }); return el; };
+    const num = (label, value, unit, onSet, step = '0.05', min = '0') => {
+      const i = stopKeys(h('input', { class: 'input', type: 'number', step, min, value: String(value), 'aria-label': label }));
+      i.addEventListener('change', () => { const v = parseFloat(i.value); if (Number.isFinite(v)) onSet(v); });
+      return h('label', { class: 'le-row' }, h('span', {}, label), i, h('em', {}, unit));
+    };
+    const layer = stopKeys(h('select', { class: 'select', 'aria-label': 'Layer' }, ...drawingLayers(this.board.stack.copper).map((l) => h('option', { value: l }, l))));
+    layer.value = d.layer;
+    layer.addEventListener('change', () => this.editDrawing(d.id, `Drawing to ${layer.value}`, (q) => { q.layer = layer.value; }));
+    const out = [h('div', { class: 'prop-title' }, `${DRAW_KIND[d.type] || 'Drawing'} on ${d.layer}`), h('label', { class: 'le-row' }, h('span', {}, 'Layer'), layer)];
+    if (d.type === 'text') {
+      const t = stopKeys(h('input', { class: 'input', type: 'text', value: d.text, 'aria-label': 'Text' }));
+      t.addEventListener('change', () => { if (t.value.trim()) this.editDrawing(d.id, 'Edit text', (q) => { q.text = t.value.trim(); }); });
+      out.push(h('label', { class: 'le-row' }, h('span', {}, 'Text'), t),
+        num('Size', fmt(d.size), 'mm', (v) => this.editDrawing(d.id, 'Text size', (q) => { q.size = mm(Math.max(0.1, v)); }), '0.1', '0.1'),
+        num('Angle', +(d.rot || 0).toFixed(2), '°', (v) => this.editDrawing(d.id, 'Text angle', (q) => { q.rot = ((v % 360) + 360) % 360; }), '1', '-360'),
+        h('p', { class: 'side-note' }, `In the board's ${this.board.textFont === 'vector' ? 'Eagle vector' : 'stroke'} font (Board setup → Text)${/^B\./.test(d.layer) ? '; mirrored, as it reads from the back' : ''}.`));
+    } else {
+      out.push(num('Width', fmt(d.width ?? defaultWidth(d.layer)), 'mm', (v) => this.editDrawing(d.id, 'Pen width', (q) => { q.width = mm(Math.max(0, v)); })));
+      if (d.type === 'rect' || d.type === 'circle' || d.type === 'poly') {
+        const f = h('input', { type: 'checkbox', checked: d.fill === 'outline', 'aria-label': 'Filled' });
+        f.addEventListener('change', () => this.editDrawing(d.id, f.checked ? 'Fill' : 'Unfill', (q) => { if (f.checked) q.fill = 'outline'; else delete q.fill; }));
+        out.push(h('label', { class: 'check-row' }, f, 'Filled'));
+      }
+      if (d.type === 'rect') out.push(h('p', { class: 'side-note' }, `${fmt(Math.abs(d.b[0] - d.a[0]))} × ${fmt(Math.abs(d.b[1] - d.a[1]))} mm`));
+      if (d.type === 'circle') out.push(num('Diameter', fmt(d.r * 2), 'mm', (v) => this.editDrawing(d.id, 'Circle size', (q) => { q.r = Math.round(mm(Math.max(0.01, v)) / 2); })));
+    }
+    if (/\.Cu$/.test(d.layer)) out.push(h('p', { class: 'side-note' }, 'On copper: no net. Zones pour round it and DRC keeps other copper clear of it.'));
+    return out;
   }
 
   /** PROPERTIES for selected Tracks and Vias: width and layer, drill and diameter; the whole connection (U). */
@@ -448,6 +507,8 @@ export class BoardEditor {
     for (const id of [...this.trackSel]) if (!tids.has(id)) this.trackSel.delete(id);
     const zids = new Set((this.board.zones || []).map((z) => z.id));
     for (const id of [...this.zoneSel]) if (!zids.has(id)) this.zoneSel.delete(id);
+    const dids = new Set((this.board.drawings || []).map((d) => d.id));
+    for (const id of [...this.drawSel]) if (!dids.has(id)) this.drawSel.delete(id);
     // the Properties card belongs to the selection it was opened for
     const pc = this.cards?.card('props');
     if (pc?.isOpen && (!this._propsFor || this._selSig() !== this._propsFor)) { pc.toggle(false); this._propsFor = null; }
@@ -507,8 +568,14 @@ export class BoardEditor {
         : `Zone on ${this.activeLayer}: click the next corner · click the first corner, double-click or Enter to close · Backspace undo corner · Esc cancel`; break;
       case 'via': t = 'Via: click to place a through via (F.Cu to B.Cu); it takes the net of the track or pad it lands on · Esc back to Select'; break;
       case 'origin': t = 'Grid origin: click where the grid, rulers and coordinates should measure from (outline corners attract it) · Esc back to Select'; break;
+      case 'text': t = `Text on ${this.drawLayer}: click to place "${String(this.drawText || '').trim() || 'TEXT'}" (set the text, size and layer in the strip) · Esc back to Select`; break;
+      case 'gline': t = this.pts?.line ? `Line on ${this.drawLayer}: click the next point · double-click or Enter to finish · Backspace undo point · Esc cancel` : `Line on ${this.drawLayer}: click the first point`; break;
+      case 'grect': t = this.pts ? 'Rectangle: click the opposite corner · Esc cancel' : `Rectangle on ${this.drawLayer}: click a corner`; break;
+      case 'gcircle': t = this.pts ? 'Circle: click a point on the edge · Esc cancel' : `Circle on ${this.drawLayer}: click the centre`; break;
       case 'measure': t = this.measure && !this.measure.done ? 'Measure: click the second point' : 'Measure: click two points · Esc to stop'; break;
-      default: t = this.zoneSel.size
+      default: t = this.drawSel.size
+        ? `${this.drawSel.size === 1 ? 'Drawing' : `${this.drawSel.size} drawings`} selected · drag to move${this._selDrawing() ? ', a handle to reshape' : ''} · R rotate (Shift+R back) · F flip to the other side · Del delete · arrows nudge · text, size, layer and width in Properties`
+        : this.zoneSel.size
         ? `${this.zoneSel.size === 1 ? 'Zone' : `${this.zoneSel.size} zones`} selected · drag a corner to reshape, the zone to move · Del deletes · arrows nudge · net, priority, clearance and thermal reliefs in Properties · it refills by itself after each change`
         : this.trackSel.size
         ? `${this.trackSel.size} track${this.trackSel.size === 1 ? '' : 's'} or via${this.trackSel.size === 1 ? '' : 's'} selected · U selects the whole connection · Del deletes · width, layer and via size in Properties`
@@ -527,9 +594,10 @@ export class BoardEditor {
     if (this.route && t !== 'route') this.finishRoute();
     if (t === 'route' && !copperLayerNames(this.board.stack.copper).includes(this.activeLayer)) this.activeLayer = 'F.Cu';
     this.tool = t; this.pts = null; this.arcNext = false; this.measure = null;
-    if (t !== 'select') { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); this.trackSel.clear(); this.zoneSel.clear(); }
+    if (t !== 'select') { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); this.trackSel.clear(); this.zoneSel.clear(); this.drawSel.clear(); }
     if (t === 'zone' && !copperLayerNames(this.board.stack.copper).includes(this.activeLayer)) this.activeLayer = 'F.Cu'; // zones are copper
     if (['outline', 'polygon', 'circle'].includes(t)) this.activeLayer = 'Edge.Cuts'; // the Outline lives on Edge.Cuts
+    if (['text', 'gline', 'grect', 'gcircle'].includes(t) && this.hidden.delete(this.drawLayer)) pref.set('boardHidden', [...this.hidden]); // see what you draw
     if (this.ws) this.ws.view.canvas.style.cursor = t === 'select' ? '' : 'crosshair';
     this.refresh();
   }
@@ -568,6 +636,11 @@ export class BoardEditor {
   }
 
   deleteSelection() {
+    if (this.drawSel.size) {
+      const del = new Set(this.drawSel); this.drawSel.clear();
+      this.app.edit(del.size === 1 ? 'Delete drawing' : `Delete ${del.size} drawings`, (p) => { p.board.drawings = (p.board.drawings || []).filter((d) => !del.has(d.id)); });
+      if (!this.selection.size && !this.zoneSel.size && !this.trackSel.size) return;
+    }
     if (this.zoneSel.size) {
       const del = new Set(this.zoneSel); this.zoneSel.clear();
       this.app.edit(del.size === 1 ? 'Delete zone' : `Delete ${del.size} zones`, (p) => { p.board.zones = p.board.zones.filter((z) => !del.has(z.id)); });
@@ -586,8 +659,9 @@ export class BoardEditor {
   }
 
   nudge(dx, dy) {
-    const sel = [...this.selection], fps = [...this.fpSel], zs = new Set(this.zoneSel);
-    this.app.edit(fps.length ? 'Move' : zs.size && !sel.length ? 'Move zone' : 'Move outline', (p) => { moveOutline(sel.map((i) => p.board.outline[i]), [dx, dy]); moveFootprints(p, fps, [dx, dy]); moveZones(p.board.zones, zs, [dx, dy]); });
+    const sel = [...this.selection], fps = [...this.fpSel], zs = new Set(this.zoneSel), ds = new Set(this.drawSel);
+    const label = fps.length ? 'Move' : zs.size && !sel.length ? 'Move zone' : ds.size && !sel.length ? (ds.size === 1 ? 'Move drawing' : 'Move drawings') : 'Move outline';
+    this.app.edit(label, (p) => { moveOutline(sel.map((i) => p.board.outline[i]), [dx, dy]); moveFootprints(p, fps, [dx, dy]); moveZones(p.board.zones, zs, [dx, dy]); moveDrawings((p.board.drawings || []).filter((d) => ds.has(d.id)), [dx, dy]); });
   }
 
   _lockedNote(ids) {
@@ -597,6 +671,12 @@ export class BoardEditor {
 
   rotateSel(deg) {
     const ids = [...this.fpSel];
+    if (!ids.length && this.drawSel.size) {
+      const ds = new Set(this.drawSel), font = this.board.textFont || 'stroke';
+      const about = this.snapPt(drawingsCentre(this.board.drawings.filter((d) => ds.has(d.id)), font));
+      this.app.edit(`Rotate ${deg}°`, (p) => rotateDrawings(p.board.drawings.filter((d) => ds.has(d.id)), deg, about));
+      return;
+    }
     if (!ids.length) return;
     this.app.edit(`Rotate ${deg}°`, (p) => rotateFootprints(p, ids, deg));
     this._lockedNote(ids);
@@ -604,6 +684,23 @@ export class BoardEditor {
 
   flipSel() {
     const ids = [...this.fpSel];
+    if (!ids.length && this.drawSel.size) {
+      // drawings go to the other side's layer, mirrored about their middle (copper: top <-> bottom)
+      const ds = new Set(this.drawSel), font = this.board.textFont || 'stroke';
+      const cx = drawingsCentre(this.board.drawings.filter((d) => ds.has(d.id)), font)[0];
+      const other = (l) => (l.startsWith('F.') ? 'B.' + l.slice(2) : l.startsWith('B.') ? 'F.' + l.slice(2) : l);
+      this.app.edit('Flip to the other side', (p) => {
+        for (const d of p.board.drawings.filter((q) => ds.has(q.id))) {
+          d.layer = other(d.layer);
+          const mx = ([x, y]) => [2 * cx - x, y];
+          for (const k of ['a', 'b', 'c', 'at', 'start', 'mid', 'end']) if (d[k]) d[k] = mx(d[k]);
+          if (d.pts) d.pts = d.pts.map(mx);
+          if (d.type === 'rect') { const a = d.a, b = d.b; d.a = [Math.min(a[0], b[0]), Math.min(a[1], b[1])]; d.b = [Math.max(a[0], b[0]), Math.max(a[1], b[1])]; }
+          if (d.type === 'text' && d.rot) d.rot = (360 - d.rot) % 360;
+        }
+      });
+      return;
+    }
     if (!ids.length) return;
     this.app.edit('Flip to the other side', (p) => flipFootprints(p, ids));
     this._lockedNote(ids);
@@ -636,11 +733,12 @@ export class BoardEditor {
         return;
       }
       if (this.tool === 'zone' && e.detail >= 2 && this.pts?.zone?.length >= 3) { this.closeZone(); return; }
+      if (this.tool === 'gline' && e.detail >= 2 && this.pts?.line) { this.finishLine(); return; }
       if (this.tool === 'select') {
         const tol = 5 / ws.view.view.scale;
         const handle = this._handleAt(w, tol);
         if (handle && !e.shiftKey) {
-          this.handleDrag = { ...handle, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), zoneSnapshot: handle.zone ? structuredClone(this.board.zones.find((z) => z.id === handle.zone).outline) : null, moved: false };
+          this.handleDrag = { ...handle, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), zoneSnapshot: handle.zone ? structuredClone(this.board.zones.find((z) => z.id === handle.zone).outline) : null, drawShape: handle.drawing ? structuredClone(this.board.drawings.find((d) => d.id === handle.drawing)) : null, moved: false };
           try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
           return;
         }
@@ -652,6 +750,18 @@ export class BoardEditor {
           return;
         }
         if (!e.shiftKey) this.trackSel.clear();
+        // the Board's own drawings (#66): over the footprints they're drawn on
+        const dr = this._hitDrawing(w, tol);
+        if (dr) {
+          if (e.shiftKey) { if (this.drawSel.has(dr.id)) this.drawSel.delete(dr.id); else this.drawSel.add(dr.id); this.refresh(); return; }
+          if (!this.drawSel.has(dr.id)) { this.drawSel = new Set([dr.id]); this.selection.clear(); this.fpSel.clear(); this.zoneSel.clear(); this.netSel.clear(); }
+          const anchor = dr.type === 'text' ? dr.at : this._nearestHandle(dr, w);
+          this.drag = { start: w, anchor, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), fpSnapshot: structuredClone(this.board.footprints), zoneSnapshot: structuredClone(this.board.zones), drawSnapshot: structuredClone(this.board.drawings || []), moved: false, delta: [0, 0], onlyDrawing: dr.id };
+          try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+          this.refresh();
+          return;
+        }
+        if (!e.shiftKey) this.drawSel.clear();
         const fp = hitFootprint(this.project, w, { preferBack: this.activeLayer.startsWith('B.'), hidden: this.hidden });
         const hit = fp || this.hidden.has('Edge.Cuts') ? null : hitOutline(this.board.outline, w, tol);
         if (fp) {
@@ -659,7 +769,7 @@ export class BoardEditor {
           if (!this.fpSel.has(fp.id)) { this.fpSel = new Set([fp.id]); this.selection.clear(); this.zoneSel.clear(); }
           this.netSel.clear();
           // Footprints move by their origin, which lands on the grid
-          this.drag = { start: w, anchor: fp.at, fpAnchor: true, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), fpSnapshot: structuredClone(this.board.footprints), zoneSnapshot: structuredClone(this.board.zones), moved: false, delta: [0, 0], onlyFp: fp.id };
+          this.drag = { start: w, anchor: fp.at, fpAnchor: true, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), fpSnapshot: structuredClone(this.board.footprints), zoneSnapshot: structuredClone(this.board.zones), drawSnapshot: structuredClone(this.board.drawings || []), moved: false, delta: [0, 0], onlyFp: fp.id };
           try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
           this.refresh();
           return;
@@ -672,14 +782,14 @@ export class BoardEditor {
           // the selection moves by its handle nearest the pointer, so that handle lands on the grid or another object
           const anchors = handlePoints(this.board.outline.filter((_, k) => this.selection.has(k)));
           const anchor = anchors.reduce((b, p) => (Math.hypot(p[0] - w[0], p[1] - w[1]) < Math.hypot(b[0] - w[0], b[1] - w[1]) ? p : b), anchors[0] || w);
-          this.drag = { start: w, anchor, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), fpSnapshot: structuredClone(this.board.footprints), zoneSnapshot: structuredClone(this.board.zones), moved: false, delta: [0, 0], only: i };
+          this.drag = { start: w, anchor, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), fpSnapshot: structuredClone(this.board.footprints), zoneSnapshot: structuredClone(this.board.zones), drawSnapshot: structuredClone(this.board.drawings || []), moved: false, delta: [0, 0], only: i };
           try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
         } else if (!hit && (zn = this._hitZone(w, tol))) {
           // a Zone: by its edge, or inside it where nothing else is
           if (e.shiftKey) { if (this.zoneSel.has(zn.id)) this.zoneSel.delete(zn.id); else this.zoneSel.add(zn.id); this.refresh(); return; }
           if (!this.zoneSel.has(zn.id)) { this.zoneSel = new Set([zn.id]); this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); }
           const anchor = zn.outline.reduce((b, p) => (Math.hypot(p[0] - w[0], p[1] - w[1]) < Math.hypot(b[0] - w[0], b[1] - w[1]) ? p : b), zn.outline[0]);
-          this.drag = { start: w, anchor, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), fpSnapshot: structuredClone(this.board.footprints), zoneSnapshot: structuredClone(this.board.zones), moved: false, delta: [0, 0], onlyZone: zn.id };
+          this.drag = { start: w, anchor, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), fpSnapshot: structuredClone(this.board.footprints), zoneSnapshot: structuredClone(this.board.zones), drawSnapshot: structuredClone(this.board.drawings || []), moved: false, delta: [0, 0], onlyZone: zn.id };
           try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
         } else { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); this.zoneSel.clear(); }
         this.refresh();
@@ -692,6 +802,7 @@ export class BoardEditor {
       this.setAlt(e.altKey);
       this.snapMark = null;
       if (this.handleDrag?.zone) { const d = this.handleDrag; this.cursor = this.snapAt(w, new Set(), shapeHandles({ type: 'poly', pts: d.zoneSnapshot }).find((x) => x.key === d.key)?.at); }
+      else if (this.handleDrag?.drawing) { const d = this.handleDrag; this.cursor = this.snapAt(w, new Set(), shapeHandles(d.drawShape).find((x) => x.key === d.key)?.at); }
       else if (this.handleDrag) { const d = this.handleDrag; this.cursor = this.snapAt(w, new Set([d.index]), shapeHandles(d.snapshot[d.index]).find((x) => x.key === d.key)?.at); }
       else if (this.tool !== 'select') this.cursor = this.snapAt(w);
       else this.cursor = this.snapPt(w);
@@ -702,6 +813,9 @@ export class BoardEditor {
         if (d.zone) {
           const pts = dragHandle({ type: 'poly', pts: d.zoneSnapshot }, d.key, this.cursor).pts;
           this.previewZones = this.board.zones.map((z) => (z.id === d.zone ? { ...z, outline: pts } : z));
+        } else if (d.drawing) {
+          const shape = { ...d.drawShape, ...dragHandle(d.drawShape, d.key, this.cursor) };
+          this.previewDrawings = this.board.drawings.map((q) => (q.id === d.drawing ? shape : q));
         } else this.preview = dragOutlineHandle(d.snapshot, d.index, d.key, this.cursor);
         ws.view.invalidate();
         return;
@@ -712,7 +826,7 @@ export class BoardEditor {
         if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 4) return;
         d.moved = true;
         const raw = [d.anchor[0] + w[0] - d.start[0], d.anchor[1] + w[1] - d.start[1]];
-        const to = d.fpAnchor ? this.snapPt(raw) : this.snapAt(raw, this.selection, d.onlyZone ? d.anchor : null);
+        const to = d.fpAnchor ? this.snapPt(raw) : this.snapAt(raw, this.selection, d.onlyZone || d.onlyDrawing ? d.anchor : null);
         d.delta = [to[0] - d.anchor[0], to[1] - d.anchor[1]];
         const moved = structuredClone(d.snapshot);
         moveOutline([...this.selection].map((i) => moved[i]), d.delta);
@@ -728,6 +842,11 @@ export class BoardEditor {
           const zs = structuredClone(d.zoneSnapshot);
           moveZones(zs, this.zoneSel, d.delta);
           this.previewZones = zs;
+        }
+        if (this.drawSel.size) {
+          const ds = structuredClone(d.drawSnapshot);
+          moveDrawings(ds.filter((q) => this.drawSel.has(q.id)), d.delta);
+          this.previewDrawings = ds;
         }
         ws.view.invalidate();
       } else if (this.tool !== 'select') {
@@ -745,6 +864,13 @@ export class BoardEditor {
         else this.refresh();
         return;
       }
+      if (this.handleDrag?.drawing) {
+        const d = this.handleDrag; this.handleDrag = null;
+        const shape = this.previewDrawings?.find((q) => q.id === d.drawing); this.previewDrawings = null;
+        if (d.moved && shape && JSON.stringify(shape) !== JSON.stringify(d.drawShape)) this.app.edit('Reshape drawing', (p) => { p.board.drawings = p.board.drawings.map((q) => (q.id === d.drawing ? structuredClone(shape) : q)); });
+        else this.refresh();
+        return;
+      }
       if (this.handleDrag) {
         const d = this.handleDrag; this.handleDrag = null;
         const result = this.preview; this.preview = null;
@@ -753,11 +879,12 @@ export class BoardEditor {
         return;
       }
       if (!this.drag) return;
-      const d = this.drag; this.drag = null; this.preview = null; this.previewFps = null; this.previewZones = null;
+      const d = this.drag; this.drag = null; this.preview = null; this.previewFps = null; this.previewZones = null; this.previewDrawings = null;
       if (d.moved && (d.delta[0] || d.delta[1])) { this.nudge(...d.delta); this._lockedNote([...this.fpSel]); }
       else {
         // a click picks one item out of a group
-        if (!d.moved && d.onlyFp) { this.fpSel = new Set([d.onlyFp]); this.selection.clear(); this.zoneSel.clear(); }
+        if (!d.moved && d.onlyFp) { this.fpSel = new Set([d.onlyFp]); this.selection.clear(); this.zoneSel.clear(); this.drawSel.clear(); }
+        else if (!d.moved && d.onlyDrawing) { this.drawSel = new Set([d.onlyDrawing]); this.selection.clear(); this.fpSel.clear(); this.zoneSel.clear(); }
         else if (!d.moved && d.onlyZone) { this.zoneSel = new Set([d.onlyZone]); this.selection.clear(); this.fpSel.clear(); }
         else if (!d.moved && d.only !== undefined) { this.selection = new Set([d.only]); this.fpSel.clear(); }
         this.refresh();
@@ -789,6 +916,8 @@ export class BoardEditor {
 
   /** The handles shown: those of the one selected outline shape (on the preview while dragging). */
   _handles() {
+    const dsel = this._selDrawing();
+    if (dsel && this.tool === 'select' && !this.drag?.moved) return shapeHandles(this.previewDrawings?.find((q) => q.id === dsel.id) || dsel);
     const z = this._selZone();
     if (z && this.tool === 'select' && !this.drag?.moved) return shapeHandles({ type: 'poly', pts: (this.previewZones?.find((q) => q.id === z.id) || z).outline });
     if (this.tool !== 'select' || this.selection.size !== 1 || this.hidden.has('Edge.Cuts') || this.drag?.moved) return [];
@@ -799,6 +928,8 @@ export class BoardEditor {
 
   /** The handle under `w`, as { index, key, cursor }, or null. */
   _handleAt(w, tol) {
+    const dsel = this._selDrawing();
+    if (dsel && this.tool === 'select') { const hd = hitHandle(dsel, w, tol); if (hd) return { drawing: dsel.id, key: hd.key, cursor: hd.cursor }; }
     const z = this._selZone();
     if (z && this.tool === 'select') { const hz = hitHandle({ type: 'poly', pts: z.outline }, w, tol); if (hz) return { zone: z.id, key: hz.key, cursor: hz.cursor }; }
     if (this.tool !== 'select' || this.selection.size !== 1 || this.hidden.has('Edge.Cuts')) return null;
@@ -808,11 +939,31 @@ export class BoardEditor {
     return h ? { index, key: h.key, cursor: h.cursor } : null;
   }
 
-  /** What is at `w`, in the order a click picks it: { kind: 'track' | 'footprint' | 'outline' | 'zone', item, index? }. */
+  /** The one selected drawing that has handles (not text), or null. */
+  _selDrawing() {
+    if (this.drawSel.size !== 1 || this.selection.size || this.fpSel.size || this.zoneSel.size || this.trackSel.size) return null;
+    const d = (this.board.drawings || []).find((q) => this.drawSel.has(q.id));
+    return d && d.type !== 'text' && !this.hidden.has(d.layer) ? d : null;
+  }
+
+  /** The Board drawing under `w` on a shown layer (#66), or null. */
+  _hitDrawing(w, tol) {
+    return hitDrawing(this.board.drawings, w, tol, { font: this.board.textFont || 'stroke', visible: (l) => !this.hidden.has(l) });
+  }
+
+  /** The handle of drawing `d` nearest `w` (what a move snaps by). */
+  _nearestHandle(d, w) {
+    const hs = shapeHandles(d).filter((x) => !x.side).map((x) => x.at);
+    return hs.reduce((b, p) => (Math.hypot(p[0] - w[0], p[1] - w[1]) < Math.hypot(b[0] - w[0], b[1] - w[1]) ? p : b), hs[0] || w);
+  }
+
+  /** What is at `w`, in the order a click picks it: { kind: 'track' | 'drawing' | 'footprint' | 'outline' | 'zone', item, index? }. */
   _hitAny(w) {
     const tol = 5 / (this.ws?.view.view.scale || 1);
     const tr = this._hitTrack(w, tol);
     if (tr) return { kind: 'track', item: tr };
+    const dr = this._hitDrawing(w, tol);
+    if (dr) return { kind: 'drawing', item: dr };
     const fp = hitFootprint(this.project, w, { preferBack: this.activeLayer.startsWith('B.'), hidden: this.hidden });
     if (fp) return { kind: 'footprint', item: fp };
     const o = this.hidden.has('Edge.Cuts') ? null : hitOutline(this.board.outline, w, tol);
@@ -824,15 +975,16 @@ export class BoardEditor {
 
   /** Select just that hit. */
   _selectOnly(hit) {
-    this.selection.clear(); this.fpSel.clear(); this.trackSel.clear(); this.zoneSel.clear(); this.netSel.clear();
+    this.selection.clear(); this.fpSel.clear(); this.trackSel.clear(); this.zoneSel.clear(); this.netSel.clear(); this.drawSel.clear();
     if (hit.kind === 'track') this.trackSel.add(hit.item.id);
+    else if (hit.kind === 'drawing') this.drawSel.add(hit.item.id);
     else if (hit.kind === 'footprint') this.fpSel.add(hit.item.id);
     else if (hit.kind === 'outline') this.selection.add(hit.index);
     else if (hit.kind === 'zone') this.zoneSel.add(hit.item.id);
   }
 
-  _selSig() { return `${[...this.fpSel].sort()}|${[...this.trackSel].sort()}|${[...this.zoneSel].sort()}|${[...this.selection].sort()}`; }
-  _anySelected() { return !!(this.fpSel.size || this.trackSel.size || this.zoneSel.size || this.selection.size); }
+  _selSig() { return `${[...this.fpSel].sort()}|${[...this.trackSel].sort()}|${[...this.zoneSel].sort()}|${[...this.selection].sort()}|${[...this.drawSel].sort()}`; }
+  _anySelected() { return !!(this.fpSel.size || this.trackSel.size || this.zoneSel.size || this.selection.size || this.drawSel.size); }
 
   /** Show the selection's Properties card, until the selection changes or it's closed. */
   openProperties() {
@@ -850,9 +1002,9 @@ export class BoardEditor {
     if (this.tool !== 'select') { this.setTool('select'); return; }
     const v = this.ws.view, w = v.view.toWorld(v.local(e));
     const hit = this._hitAny(w);
-    const sameSel = hit && ((hit.kind === 'track' && this.trackSel.has(hit.item.id)) || (hit.kind === 'footprint' && this.fpSel.has(hit.item.id)) || (hit.kind === 'zone' && this.zoneSel.has(hit.item.id)) || (hit.kind === 'outline' && this.selection.has(hit.index)));
+    const sameSel = hit && ((hit.kind === 'track' && this.trackSel.has(hit.item.id)) || (hit.kind === 'footprint' && this.fpSel.has(hit.item.id)) || (hit.kind === 'zone' && this.zoneSel.has(hit.item.id)) || (hit.kind === 'outline' && this.selection.has(hit.index)) || (hit.kind === 'drawing' && this.drawSel.has(hit.item.id)));
     if (hit && !sameSel) this._selectOnly(hit);
-    if (!hit) { this.selection.clear(); this.fpSel.clear(); this.trackSel.clear(); this.zoneSel.clear(); this.netSel.clear(); }
+    if (!hit) { this.selection.clear(); this.fpSel.clear(); this.trackSel.clear(); this.zoneSel.clear(); this.netSel.clear(); this.drawSel.clear(); }
     this.refresh();
     const at = { x: e.clientX, y: e.clientY };
     const pad = hitPad(this.project, w, { preferBack: this.activeLayer.startsWith('B.') });
@@ -877,6 +1029,13 @@ export class BoardEditor {
         { label: 'Flip to the other side', icon: 'flip', shortcut: 'F', disabled: locked, onClick: () => this.flipSel() },
         { label: locked ? 'Unlock' : 'Lock', icon: locked ? 'unlock' : 'lock', shortcut: 'L', onClick: () => this.lockSel() },
         selectNet ? 'sep' : null, selectNet], at);
+      return;
+    }
+    if (this.drawSel.size) {
+      popupMenu([props, 'sep',
+        { label: `Rotate ${this.rotStep}° anticlockwise`, icon: 'rotateLeft', shortcut: 'R', onClick: () => this.rotateSel(this.rotStep) },
+        { label: `Rotate ${this.rotStep}° clockwise`, icon: 'rotateRight', shortcut: 'Shift+R', onClick: () => this.rotateSel(-this.rotStep) },
+        { label: 'Flip to the other side', icon: 'flip', shortcut: 'F', onClick: () => this.flipSel() }, 'sep', del], at);
       return;
     }
     if (this.trackSel.size) {
@@ -996,12 +1155,13 @@ export class BoardEditor {
       ...sub.outline.map((sh) => outlineBounds([sh])),
       ...(board.tracks || []).filter((t) => trackIds.has(t.id)).map((t) => ({ x0: Math.min(t.a[0], t.b[0]) - t.width / 2, y0: Math.min(t.a[1], t.b[1]) - t.width / 2, x1: Math.max(t.a[0], t.b[0]) + t.width / 2, y1: Math.max(t.a[1], t.b[1]) + t.width / 2 })),
       ...sub.zones.map((z) => { const xs = z.outline.map((q) => q[0]), ys = z.outline.map((q) => q[1]); return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }; }),
+      ...(board.drawings || []).filter((d) => trackIds.has(d.id)).map((d) => drawingBox(d, board.textFont || 'stroke')),
       ...(board.vias || []).filter((v) => trackIds.has(v.id)).map((v) => ({ x0: v.at[0] - v.diameter / 2, y0: v.at[1] - v.diameter / 2, x1: v.at[0] + v.diameter / 2, y1: v.at[1] + v.diameter / 2 })),
       ...sub.footprints.filter((f) => !partial.has(f.id)).map((f) => { const q = footprintOutline(proj, f); const xs = q.map((p) => p[0]), ys = q.map((p) => p[1]); return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }; }),
       ...sub.footprints.filter((f) => partial.has(f.id)).flatMap((f) => placedPads(proj, f, nets).filter((p) => padKeys.has(`${f.componentId}:${p.number}`)).map((p) => { const r = Math.max(...p.size) / 2; return { x0: p.at[0] - r, y0: p.at[1] - r, x1: p.at[0] + r, y1: p.at[1] + r }; })),
     ].filter(Boolean).map((b) => screenBox(view, b));
     const style = this.app.highlightStyle() === 'fade' && noFade ? 'glow' : this.app.highlightStyle();
-    highlight(ctx, C2, style, (c, Cx) => drawBoard(c, view, Cx, sub, { project: this.project, hidden: this.hidden, only: true, padsOnly: partial, padKeys, trackIds }), boxes);
+    highlight(ctx, C2, style, (c, Cx) => drawBoard(c, view, Cx, sub, { project: this.project, hidden: this.hidden, only: true, padsOnly: partial, padKeys, trackIds, drawingIds: trackIds }), boxes);
   }
 
   /** Tell the Schematic what is selected here (when this is the workspace being used). */
@@ -1157,6 +1317,20 @@ export class BoardEditor {
         this.pts ? stripButton({ icon: 'undo', label: 'Undo corner', title: 'Take back the last corner (Backspace)', onClick: () => this.onKey({ key: 'Backspace' }) }) : null]);
       return;
     }
+    if (['text', 'gline', 'grect', 'gcircle'].includes(t)) {
+      const layers = drawingLayers(this.board.stack.copper);
+      const setLayer = (v) => { this.drawLayer = v; pref.set('boardDrawLayer', v); if (this.hidden.delete(v)) pref.set('boardHidden', [...this.hidden]); this.refresh(); };
+      const w = this.drawWidth ?? defaultWidth(this.drawLayer);
+      s.show(`draw|${t}|${this.drawLayer}|${this.drawText}|${this.drawSize}|${w}|${this.drawFill}`, () => [
+        stripLabel(BOARD_TOOLS[t].title.split(/[ :(]/)[0], BOARD_TOOLS[t].icon), stripSep(),
+        stripSelect({ label: 'Layer', value: layers.includes(this.drawLayer) ? this.drawLayer : 'F.SilkS', options: layers.map((l) => [l, l]), onSet: setLayer, title: 'The layer new text and shapes go on (bottom layers are mirrored)' }),
+        t === 'text' ? stripText({ label: 'Text', value: this.drawText, onSet: (v) => { this.drawText = v; this.refresh(); } }) : null,
+        t === 'text' ? stripNumber({ label: 'Size', value: fmt(this.drawSize), unit: 'mm', step: '0.1', min: '0.1', width: 56, title: 'Text height', onSet: (v) => { this.drawSize = mm(Math.max(0.1, v)); this.refresh(); } }) : null,
+        t !== 'text' ? stripNumber({ label: 'Width', value: fmt(w), unit: 'mm', step: '0.05', min: '0', width: 56, title: 'Pen width', onSet: (v) => { this.drawWidth = mm(Math.max(0, v)); this.refresh(); } }) : null,
+        t === 'grect' || t === 'gcircle' ? stripSegmented({ label: 'Fill', value: this.drawFill ? 'fill' : 'outline', items: [['outline', 'Outline'], ['fill', 'Filled']], onPick: (id) => { this.drawFill = id === 'fill'; this.refresh(); } }) : null,
+        t === 'gline' && this.pts?.line?.length >= 2 ? stripButton({ icon: 'check', label: 'Finish', title: 'Finish the line (Enter)', onClick: () => this.finishLine() }) : null]);
+      return;
+    }
     if (t === 'zone') {
       const nets = [...new Set([...padNets(this.board).values()].filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
       const n = this.pts?.zone?.length || 0;
@@ -1174,6 +1348,23 @@ export class BoardEditor {
     const del = (title) => stripButton({ icon: 'trash', title: `${title} (Del)`, danger: true, onClick: () => this.deleteSelection() });
     const pOpen = !!this.cards?.card('props')?.isOpen;
     const propsBtn = () => stripProps({ open: pOpen, onToggle: () => (pOpen ? this.closeProperties() : this.openProperties()) });
+    const drawings = (this.board.drawings || []).filter((d) => this.drawSel.has(d.id));
+    if (drawings.length && !fps.length) {
+      const one = drawings.length === 1 ? drawings[0] : null;
+      const layers = drawingLayers(this.board.stack.copper);
+      const ids = new Set(drawings.map((d) => d.id));
+      const allLayer = drawings.every((d) => d.layer === drawings[0].layer) ? drawings[0].layer : '';
+      s.show(`draw-sel|${pOpen}|${JSON.stringify(drawings)}|${this.rotStep}`, () => [
+        stripLabel(one ? `${DRAW_KIND[one.type] || 'Drawing'} on ${one.layer}` : `${drawings.length} drawings`, one?.type === 'text' ? 'ltext' : 'lline'), stripSep(),
+        stripSelect({ label: 'Layer', value: allLayer, options: [...(allLayer ? [] : [['', 'Mixed']]), ...layers.map((l) => [l, l])], onSet: (v) => { if (v) this.app.edit(`Drawings to ${v}`, (p) => { for (const d of p.board.drawings) if (ids.has(d.id)) d.layer = v; }); } }),
+        one?.type === 'text' ? stripText({ label: 'Text', value: one.text, onSet: (v) => { if (v.trim()) this.editDrawing(one.id, 'Edit text', (d) => { d.text = v.trim(); }); } }) : null,
+        one?.type === 'text' ? stripNumber({ label: 'Size', value: fmt(one.size), unit: 'mm', step: '0.1', min: '0.1', width: 56, onSet: (v) => this.editDrawing(one.id, 'Text size', (d) => { d.size = mm(Math.max(0.1, v)); }) }) : null,
+        stripButton({ icon: 'rotateLeft', title: `Rotate ${this.rotStep}° anticlockwise (R)`, onClick: () => this.rotateSel(this.rotStep) }),
+        stripButton({ icon: 'rotateRight', title: `Rotate ${this.rotStep}° clockwise (Shift+R)`, onClick: () => this.rotateSel(-this.rotStep) }),
+        stripButton({ icon: 'flip', label: 'Flip', title: 'Flip to the other side (F)', onClick: () => this.flipSel() }),
+        stripSep(), del(drawings.length === 1 ? 'Delete' : 'Delete them'), stripSep(), propsBtn()]);
+      return;
+    }
     if (fps.length) {
       const one = fps.length === 1 ? fps[0] : null;
       const ref = (f) => this.board.annotation?.components?.[f.componentId]?.ref || this.project.components[f.componentId]?.ref || '?';
@@ -1311,6 +1502,28 @@ export class BoardEditor {
   /** A click of a drawing tool at grid point `p`. */
   click(p) {
     const t = this.tool;
+    if (t === 'text') {
+      const text = String(this.drawText || '').trim() || 'TEXT';
+      this.addDrawing('Add text', { type: 'text', text, at: p, size: this.drawSize, rot: 0 });
+      return;
+    }
+    if (t === 'gline') {
+      if (!this.pts?.line) { this.pts = { line: [p] }; this.refresh(); return; }
+      const L = this.pts.line;
+      if (!same(p, L[L.length - 1])) L.push(p);
+      this.refresh();
+      return;
+    }
+    if (t === 'grect' || t === 'gcircle') {
+      if (!this.pts) { this.pts = [p]; this.refresh(); return; }
+      const a = this.pts[0];
+      this.pts = null;
+      const fill = this.drawFill ? { fill: 'outline' } : {};
+      if (t === 'grect' && a[0] !== p[0] && a[1] !== p[1]) this.addDrawing('Add rectangle', { type: 'rect', a: [Math.min(a[0], p[0]), Math.min(a[1], p[1])], b: [Math.max(a[0], p[0]), Math.max(a[1], p[1])], ...this._penWidth(), ...fill });
+      else if (t === 'gcircle' && !same(a, p)) this.addDrawing('Add circle', { type: 'circle', c: a, r: Math.round(Math.hypot(p[0] - a[0], p[1] - a[1])), ...this._penWidth(), ...fill });
+      else this.refresh();
+      return;
+    }
     if (t === 'measure') {
       if (!this.measure || this.measure.done) this.measure = { a: p, b: p, done: false };
       else { this.measure.b = p; this.measure.done = true; }
@@ -1356,9 +1569,41 @@ export class BoardEditor {
     }
   }
 
+  /** The pen width for new shapes: the strip's, else the layer's default. */
+  _penWidth() { return { width: this.drawWidth ?? defaultWidth(this.drawLayer) }; }
+
+  /** Add one Board drawing on the drawing layer (one undo step) and select it. */
+  addDrawing(label, d) {
+    const id = uid('d');
+    this.app.edit(label, (p) => { p.board.drawings = [...(p.board.drawings || []), { id, layer: this.drawLayer, ...d }]; });
+    if (this.tool === 'text') { this.refresh(); return; } // keep placing; each one is selectable after
+    this.refresh();
+  }
+
+  /** Finish the line being drawn (Enter or double-click). */
+  finishLine() {
+    const L = this.pts?.line || [];
+    this.pts = null;
+    if (L.length >= 2) this.addDrawing('Add line', { type: 'line', pts: L, ...this._penWidth() });
+    else this.refresh();
+  }
+
+  /** Change one Board drawing (one undo step). */
+  editDrawing(id, label, fn) {
+    this.app.edit(label, (p) => { const d = (p.board.drawings || []).find((q) => q.id === id); if (d) fn(d, p); });
+  }
+
   /** The shapes the drawing tools show at the cursor. */
   _ghost() {
     const cur = this.cursor;
+    if (this.tool === 'gline' && this.pts?.line) {
+      const L = this.pts.line, pts = cur && !same(cur, L[L.length - 1]) ? [...L, cur] : L;
+      return { ghost: pts.length > 1 ? [{ type: 'line', pts }] : [], ghostPts: L };
+    }
+    if ((this.tool === 'grect' || this.tool === 'gcircle') && this.pts && cur) {
+      const a = this.pts[0];
+      return { ghost: this.tool === 'grect' ? [{ type: 'rect', a, b: cur }] : [{ type: 'circle', c: a, r: Math.hypot(cur[0] - a[0], cur[1] - a[1]) }], ghostPts: [a] };
+    }
     if (!this.pts) return {};
     if (this.tool === 'outline' && cur) return { ghost: rectOutline(this.pts[0], cur, this.radius), ghostPts: [this.pts[0]] };
     if (this.tool === 'circle' && cur) { const r = Math.hypot(cur[0] - this.pts[0][0], cur[1] - this.pts[0][1]); return { ghost: r ? circleOutline(this.pts[0], r) : [], ghostPts: [this.pts[0]] }; }
@@ -1381,15 +1626,17 @@ export class BoardEditor {
   }
 
   draw(ctx, view, C) {
-    const board = { ...this.board, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints, zones: this.previewZones || this.board.zones };
+    const board = { ...this.board, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints, zones: this.previewZones || this.board.zones, drawings: this.previewDrawings || this.board.drawings || [] };
     const labels = [];
     drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: this._rats?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure, labels, zones: { fills: this.zoneFiller.fills, outlineOnly: this._zonesAsOutlines(board) } });
     if (this.routeView) this._drawRoute(ctx, view, C);
-    drawLabels(labels); // names, values and pad numbers over all the copper, the track being routed too
+    drawLabels(labels);
+    // the Text tool: the text it would place, at the cursor
+    if (this.tool === 'text' && this.cursor) drawBoardDrawings(ctx, view, C, board, new Set(), { list: [{ id: 'ghost', type: 'text', layer: this.drawLayer, text: String(this.drawText || '').trim() || 'TEXT', at: this.cursor, size: this.drawSize, rot: 0 }], color: C.selection }); // names, values and pad numbers over all the copper, the track being routed too
     // the selection, highlighted in the style chosen in Settings (the same in every editor)
-    if (this.selection.size || this.fpSel.size || this.netSel.size || this.trackSel.size || this.zoneSel.size) {
+    if (this.selection.size || this.fpSel.size || this.netSel.size || this.trackSel.size || this.zoneSel.size || this.drawSel.size) {
       const t = this.netSel.size ? boardTargets({ ...this.project, board }, probeFromBoard(this.project, [], [...this.netSel])) : null;
-      this._highlightBoard(ctx, view, C, board, this.selection, this.fpSel, t?.pads, C, false, new Set([...this.trackSel, ...this.zoneSel, ...(t?.copper || [])]));
+      this._highlightBoard(ctx, view, C, board, this.selection, this.fpSel, t?.pads, C, false, new Set([...this.trackSel, ...this.zoneSel, ...this.drawSel, ...(t?.copper || [])]));
     }
     // the Schematic's selection (cross-probing), in the theme's Highlight colour
     const probe = this.app.probeFor('board');
@@ -1487,7 +1734,7 @@ export class BoardEditor {
     if (e.key === 'Escape') {
       if (this.pts || (this.measure && !this.measure.done)) { this.pts = null; this.arcNext = false; this.measure = null; this.refresh(); }
       else if (this.tool !== 'select') this.setTool('select');
-      else if (this.selection.size || this.fpSel.size || this.netSel.size || this.trackSel.size || this.zoneSel.size) { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); this.trackSel.clear(); this.zoneSel.clear(); this.refresh(); }
+      else if (this.selection.size || this.fpSel.size || this.netSel.size || this.trackSel.size || this.zoneSel.size || this.drawSel.size) { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); this.trackSel.clear(); this.zoneSel.clear(); this.drawSel.clear(); this.refresh(); }
       return true;
     }
     if (this.route) {
@@ -1505,6 +1752,10 @@ export class BoardEditor {
       if (e.key === 'Backspace') { if (this.route.points.length > 1) { this.route = routeBack(this.route); this._routeMove(); } else this.cancelRoute(); return true; }
       if (e.key === 'Enter') { this.finishRoute(); return true; }
     }
+    if (this.tool === 'gline' && this.pts?.line) {
+      if (e.key === 'Enter') { this.finishLine(); return true; }
+      if (e.key === 'Backspace') { this.pts.line.pop(); if (!this.pts.line.length) this.pts = null; this.refresh(); return true; }
+    }
     if (this.tool === 'zone' && this.pts?.zone) {
       if (e.key === 'Enter') { this.closeZone(); return true; }
       if (e.key === 'Backspace') { this.pts.zone.pop(); if (!this.pts.zone.length) this.pts = null; this.refresh(); return true; }
@@ -1519,10 +1770,14 @@ export class BoardEditor {
         return true;
       }
     }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && (this.selection.size || this.trackSel.size || this.fpSel.size || this.zoneSel.size)) { this.deleteSelection(); return true; }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && (this.selection.size || this.trackSel.size || this.fpSel.size || this.zoneSel.size || this.drawSel.size)) { this.deleteSelection(); return true; }
     const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
-    if (arrows[e.key] && (this.selection.size || this.fpSel.size || this.zoneSel.size)) { const [dx, dy] = arrows[e.key]; this.nudge(dx * this.board.grid.main, dy * this.board.grid.main); return true; }
+    if (arrows[e.key] && (this.selection.size || this.fpSel.size || this.zoneSel.size || this.drawSel.size)) { const [dx, dy] = arrows[e.key]; this.nudge(dx * this.board.grid.main, dy * this.board.grid.main); return true; }
     if (this.trackSel.size && this.tool === 'select' && e.key.toLowerCase() === 'u') { this.selectConnection(); return true; }
+    if (this.drawSel.size && !this.fpSel.size && this.tool === 'select') {
+      if (k === 'r') { this.rotateSel(e.shiftKey ? -this.rotStep : this.rotStep); return true; }
+      if (k === 'f') { this.flipSel(); return true; }
+    }
     if (this.fpSel.size && this.tool === 'select') {
       if (k === 'r') { this.rotateSel(e.shiftKey ? -this.rotStep : this.rotStep); return true; }
       if (k === 'f') { this.flipSel(); return true; }

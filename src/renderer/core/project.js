@@ -57,7 +57,7 @@ export function newBoard(copper = 2) {
     stack: { copper, thickness: mm(1.6) },
     preset: `generic-${copper}`,
     outline: [],
-    footprints: [], tracks: [], vias: [], zones: [],
+    footprints: [], tracks: [], vias: [], zones: [], drawings: [],
     rules: { // the Generic preset's (core/presets.js)
       clearance: mm(copper === 4 ? 0.15 : 0.2), trackWidth: mm(copper === 4 ? 0.2 : 0.25), viaDrill: mm(0.3), viaDiameter: mm(0.6),
       minHole: mm(0.3), annularRing: mm(0.13), edgeClearance: mm(0.3),

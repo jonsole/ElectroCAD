@@ -2,6 +2,7 @@
 // open ends of an unclosed Outline, and the shape being drawn. Footprints, Tracks and Zones join
 // with their tickets. Screen space is the world scaled (+Y down on both), so angles match.
 import { vectorLayout } from '../core/strokefont.js';
+import { drawingGeometry } from '../core/boardDrawings.js';
 import { arcCircle } from '../core/geom.js';
 import { outlineLoops, checkOutline } from '../core/board.js';
 import { mm } from '../core/units.js';
@@ -87,6 +88,12 @@ export function drawBoard(ctx, view, C, board, opts = {}) {
       drawTracks(ctx, view, C, board, hidden, opts.only ? opts.trackIds : null);
       drawVias(ctx, view, C, board, hidden, opts.only ? opts.trackIds : null);
     }
+    // the Board's own drawings (#66): copper ones with the copper, the rest over it with the text
+    if (!opts.only || opts.drawingIds) {
+      const ids = opts.only ? opts.drawingIds : null;
+      drawBoardDrawings(ctx, view, C, board, hidden, { ids, copper: true });
+      labels.push(() => drawBoardDrawings(ctx, view, C, board, hidden, { ids, copper: false }));
+    }
     if (!opts.labels) drawLabels(labels);
     // the Ratsnest: a thin line for each unrouted connection
     if (opts.rats?.length) {
@@ -154,6 +161,39 @@ export function drawZones(ctx, view, C, board, hidden, z = {}) {
     ctx.beginPath();
     zn.outline.forEach((q, i) => { const [x, y] = view.toScreen(q); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
     ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
+/**
+ * The Board's drawings (#66) in their layers' colours, from the same geometry as the Gerbers (text
+ * in the board's font, mirrored on the back). `copper`: true for those on copper layers, false for
+ * the rest; `ids`: only these (highlighting); `color`: one colour for all (the selection).
+ */
+export function drawBoardDrawings(ctx, view, C, board, hidden, { ids = null, copper = null, color = null, list = null } = {}) {
+  const font = board.textFont || 'stroke';
+  const back = (l) => (/^B\./.test(l) ? 0 : /^In/.test(l) ? 1 : 2);
+  const ds = (list || board.drawings || []).filter((d) => !hidden.has(d.layer) && (!ids || ids.has(d.id)) && (copper === null || /\.Cu$/.test(d.layer) === copper))
+    .sort((a, b) => back(a.layer) - back(b.layer));
+  if (!ds.length) return;
+  ctx.save();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.setLineDash([]);
+  for (const d of ds) {
+    const col = color || C[d.layer] || '#ccc';
+    const g = drawingGeometry(d, font);
+    ctx.fillStyle = col; ctx.strokeStyle = col;
+    if (g.fills.length) {
+      ctx.beginPath();
+      for (const ring of g.fills) { ring.forEach((q, i) => { const [x, y] = view.toScreen(q); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); }); ctx.closePath(); }
+      ctx.fill('evenodd');
+    }
+    for (const st of g.strokes) {
+      ctx.lineWidth = Math.max(1, st.width * view.scale);
+      ctx.beginPath();
+      st.pts.forEach((q, i) => { const [x, y] = view.toScreen(q); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+      if (st.pts.length === 1) { const [x, y] = view.toScreen(st.pts[0]); ctx.lineTo(x + 0.01, y); }
+      ctx.stroke();
+    }
   }
   ctx.restore();
 }
