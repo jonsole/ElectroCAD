@@ -8,7 +8,7 @@
 //   fabFiles(project, { fills, date, version }) -> [{ name, kind: 'gerber' | 'drill', layer, text }]
 import ClipperLib from 'clipper-lib';
 import { copperLayerNames } from './board.js';
-import { placedPads, padNets, fpTransform, flipLayer } from './footprint.js';
+import { placedPads, padNets, fpTransform, flipLayer, padOnLayer } from './footprint.js';
 import { footprintOf } from './project.js';
 import { padShape } from './collision.js';
 import { arcCircle } from './geom.js';
@@ -191,7 +191,7 @@ function gerberLayer(project, { layer, fn, polarity }, { fills, date, version })
     for (const v of board.vias || []) g.flash(`C,${mm6(v.diameter)}`, v.at, 'ViaPad');
     for (const p of pads) {
       const tht = p.layers.includes('*.Cu');
-      if (tht || p.layers.includes(layer)) plotPad(g, p, 0, tht ? 'ComponentPad' : 'SMDPad,CuDef');
+      if (tht || p.layers.includes(layer)) plotPad(g, padOnLayer(p, layer), 0, tht ? 'ComponentPad' : 'SMDPad,CuDef');
     }
   } else if (/Mask$/.test(layer)) {
     for (const p of pads) if (p.layers.includes(layer) || p.layers.includes('*.Mask')) plotPad(g, p, MASK_MARGIN, null);

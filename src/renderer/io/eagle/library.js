@@ -107,7 +107,9 @@ export function packageToFootprint(pkg, { report = new Report(), rules = DEFAULT
         pad = { shape: 'circle', size: [d, d] };
         if (shape === 'octagon') report.add('Octagonal pads became round');
       }
-      pads.push({ number: c.attr('name'), at: pt(c.attr('x'), c.attr('y')), ...pad, drill, layers: c.attr('stop') === 'no' ? ['*.Cu'] : ['*.Cu', '*.Mask'] });
+      // on the inner layers Eagle makes it round, its size from the inner restring only (#82)
+      const inner = rules.innerRatio != null ? drill + 2 * restring(drill, rules.innerRatio, rules.innerMin, rules.innerMax) : 0;
+      pads.push({ number: c.attr('name'), at: pt(c.attr('x'), c.attr('y')), ...pad, drill, ...(inner ? { innerSize: inner } : {}), layers: c.attr('stop') === 'no' ? ['*.Cu'] : ['*.Cu', '*.Mask'] });
     } else if (c.name === 'hole') {
       const drill = nm(c.attr('drill'));
       // a non-plated hole: no copper, and the solder mask opened over it (as Eagle does)

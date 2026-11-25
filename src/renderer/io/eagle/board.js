@@ -32,6 +32,7 @@ export function designRules(boardEl) {
     edge: L('mdCopperDimension', 1_016_000),
     restring: {
       padRatio: R('rvPadTop', 0.25), padMin: L('rlMinPadTop', 254_000), padMax: L('rlMaxPadTop', 508_000),
+      innerRatio: R('rvPadInner', 0.25), innerMin: L('rlMinPadInner', 254_000), innerMax: L('rlMaxPadInner', 508_000),
       viaRatio: R('rvViaOuter', 0.25), viaMin: L('rlMinViaOuter', 203_200), viaMax: L('rlMaxViaOuter', 508_000),
     },
     layerSetup: p.get('layerSetup') || '',
@@ -225,6 +226,8 @@ function zoneOf(c, layer, net, report, rules = null) {
     clearance: len(c.attr('isolate', '0')), connect: thermals ? 'thermal' : 'solid',
     thermal: { gap: rules?.thermalIsolate || 254_000, spoke: Math.max(width, 127_000) },
     ...(c.attr('orphans') === 'yes' ? { keepIslands: true } : {}),
+    // Eagle fills with a pen this wide: nothing narrower survives (#82)
+    minWidth: width,
   };
 }
 

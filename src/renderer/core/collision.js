@@ -6,7 +6,7 @@
 //   { type: 'poly', pts }          a rectangular pad (its corners, rotated)
 // An item is { kind: 'track' | 'via' | 'pad', id, net, layers: Set, shape, box }.
 import { copperDrawingItems } from './boardDrawings.js';
-import { placedPads, padNets } from './footprint.js';
+import { placedPads, padNets, padByLayers } from './footprint.js';
 import { copperLayerNames } from './board.js';
 
 const low = (s) => String(s || '').toLowerCase();
@@ -138,7 +138,8 @@ export function copperIndex(project, board = project.board) {
   for (const bf of board.footprints) {
     for (const pad of placedPads(view, bf, nets)) {
       const layers = pad.layers.includes('*.Cu') ? copper : pad.layers.filter((l) => copper.includes(l));
-      items.push({ kind: 'pad', id: `${bf.id}:${pad.number}:${pad.at.join(',')}`, net: pad.net, layers: new Set(layers), shape: padShape(pad), item: pad, footprint: bf });
+      // a pad with an inner size is two items: its outer shape and its inner one (#82), one id
+      for (const { pad: q, layers: ls } of padByLayers(pad, layers)) items.push({ kind: 'pad', id: `${bf.id}:${pad.number}:${pad.at.join(',')}`, net: pad.net, layers: new Set(ls), shape: padShape(q), item: pad, footprint: bf });
     }
   }
   items.push(...copperDrawingItems(board)); // text and shapes on copper (#66), with no net

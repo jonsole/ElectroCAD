@@ -199,6 +199,8 @@ export class FootprintEditor {
         p.shape === 'circle' ? null : num('Height', fmt(p.size[1]), (v) => set('Pad size', (x) => { x.size = [x.size[0], mm(v)]; })),
         select('Type', tht ? 'tht' : 'smd', [['smd', 'SMD (top: copper, paste, mask)'], ['tht', 'Through-hole (all copper, mask)']], (v) => set('Pad type', (x) => { x.layers = v === 'tht' ? [...THT_LAYERS] : [...SMD_LAYERS]; if (v === 'tht') x.drill ||= Math.round(Math.min(x.size[0], x.size[1]) * 0.55); else delete x.drill; })),
         tht ? num('Drill', fmt(p.drill || 0), (v) => set('Pad drill', (x) => { x.drill = mm(v); })) : null,
+        // on inner copper layers a through-hole pad can be smaller, and is round (#82); 0 = as on top and bottom
+        tht ? num('Inner size', fmt(p.innerSize || 0), (v) => set('Pad inner size', (x) => { if (v > 0) x.innerSize = mm(v); else delete x.innerSize; })) : null,
         num('X', fmt(p.at[0]), (v) => set('Move pad', (x) => { x.at = [mm(v), x.at[1]]; })),
         num('Y', fmt(p.at[1]), (v) => set('Move pad', (x) => { x.at = [x.at[0], mm(v)]; }))].filter(Boolean));
       return;

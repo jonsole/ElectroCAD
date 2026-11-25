@@ -96,6 +96,8 @@ Every shape may have `fill` (`none`, `background` = the theme's symbol fill, `ou
 
 Footprint text (#84) can carry `rot` (degrees, relative to the Footprint; it turns with it and is kept readable), `align` (Eagle's anchors: `at` is that point of the text, placed with the real string) and `spin` (never turned the other way up). Text without `rot` is drawn upright, centred on `at`.
 
+Through-hole pads may carry `innerSize` (#82): their diameter on the inner copper layers, where they are round. Zones may carry `minWidth` (#82): copper narrower than it is left out of the fill.
+
 ## Component
 
 | Key | Type | Meaning |

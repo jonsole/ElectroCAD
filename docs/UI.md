@@ -477,7 +477,7 @@ A small floating toolbar at the top of the canvas (`ui/contextStrip.js`, styled 
   - **Placing a part:** rotate, mirror, and stop.
   - **Label, power and ground tools:** rotate.
   - **A selection:** rotate, mirror and **Fields** (parts), duplicate, copy, delete.
-- **Library** (Symbol and Footprint editors): the selection's turn (pins or pads), delete and Properties; the Pad tool's **New pads** (shape, size, SMD or through-hole, drill).
+- **Library** (Symbol and Footprint editors): the selection's turn (pins or pads), delete and Properties; the Pad tool's **New pads** (shape, size, SMD or through-hole, drill). A through-hole pad's Properties also have **Inner size** (#82): its diameter on the inner copper layers, where it is round (0: as on top and bottom).
 
 The strip rebuilds only when its context changes, so a field being typed in keeps its focus. Clicks on it don't reach the canvas.
 
@@ -593,7 +593,7 @@ Checked against a real board: a 4-layer design imported from Eagle and compared 
 - **Clearance** (error): copper of different nets closer than the larger of their classes' clearance. This covers pads, tracks, vias and zone fills, on each copper layer, using the collision engine.
 - **Edge clearance** (error): copper nearer the board edge than the edge clearance, or off the board.
 - **Track width** (error): a track narrower than its net class's width.
-- **Annular ring** (error): a via or plated pad whose copper ring round the drill is under the annular ring.
+- **Annular ring** (error): a via or plated pad whose copper ring round the drill is under the annular ring (on a 4-layer board, a pad's inner-layer size counts too).
 - **Hole size** (error): a drill under the minimum hole.
 - **Courtyard overlap** (error): two footprints on the same side whose courtyards overlap.
 - **Board outline** (error): the Outline isn't closed.
@@ -626,6 +626,7 @@ Using the card:
   - **Priority:** higher fills first and wins overlaps with other Nets' Zones; the lower one keeps its clearance from the higher one's fill.
   - **Clearance:** the gap kept from other Nets' copper. The Net classes' clearance applies when it is larger; 0 means the classes' alone.
   - **Pads: Thermal | Solid:** how the Zone's own Net's pads join it. Thermal leaves a gap round each pad, crossed by up to four spokes along the pad's axes (thermal gap and spoke width are settings). A spoke that would break clearance, or would end in nothing, is left out.
+  - **Min width** (#82): copper narrower than this is left out of the fill, as if a pen that wide filled it, so slivers between clearances go. 0 (the default) keeps everything. Eagle imports use the polygon's width.
   - How the fill went: pieces, islands removed, thermal reliefs (and any pad with fewer than two spokes).
 - **The fill** (`core/zones.js`, clipper-lib) is computed, not saved:
   - the outline, inside the board's Outline less the edge clearance;
@@ -654,6 +655,7 @@ Some of Eagle's implicit connections are made visible, because ElectroCAD joins 
 - **Hidden power pins.** A power gate Eagle never placed (a 74xx gate P, `addlevel=request`) is placed under the part's drawing. Each power pin no wire reaches gets a power label naming its net (VCC, GND…), as Eagle joins it by name.
 - **Bus entries.** Busses don't come over. A stub wire whose end lands on another net's wire (a bus entry over the dropped bus) is removed, and a longer wire is pulled back 1.27 mm, so the two nets don't merge. Both are counted in the summary.
 - **Labels** (#81). Eagle's plain labels come over as text on the wire and its cross-reference labels (`xref`) as flags, each at Eagle's size, whatever nets they join. Cross-reference labels on nets that span sheets show their sheet references (#76): the other sheet numbers, not Eagle's frame column and row, which ElectroCAD has no frame grid for. The Project default is off, so Eagle's plain labels don't show them. Labels the import adds for nets Eagle names without one are text.
+- **Inner layers of through-hole pads** (#82): on the inner copper layers a pad is round and sized by Eagle's inner restring (`rvPadInner`, `rlMinPadInner`, `rlMaxPadInner`); its shape (square, long, first) is kept on top and bottom only. Polygons keep their width as the zone's minimum width.
 - **Moved ("smashed") NAME and VALUE** (#65). On the board they become each footprint's own Reference and Value text (position, size, angle, layer; `display="off"` and a smashed element's deleted NAME or VALUE are hidden). Values on Eagle's tValues/bValues layers go to F.Fab/B.Fab, so, as in Eagle's Gerbers, they aren't on the silk. On the schematic they become the symbol's pinned field positions.
 - **Mirrored parts.** Eagle turns a part and then mirrors it; ElectroCAD mirrors and then turns, so `MR90` becomes the back side at 270°.
 - **Text inside packages** (#84): kept with Eagle's anchor, alignment and angle. On the board it is placed with the real string (the Reference for `>NAME`) and the board's font, turns with the footprint and is kept readable as Eagle keeps it (unless it's spun), so the pin numbers along a header line up with Eagle's Gerbers. Symbol text is centred where Eagle's anchored text has it.

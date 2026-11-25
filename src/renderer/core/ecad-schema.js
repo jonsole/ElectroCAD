@@ -571,6 +571,10 @@ export const ECAD_SCHEMA = {
           "$ref": "#/$defs/nm",
           "description": "Through-hole pads only."
         },
+        "innerSize": {
+          "$ref": "#/$defs/nm",
+          "description": "Through-hole pads (#82): the pad's diameter on the inner copper layers, where it is round (Eagle's inner restring). Absent: the same as on top and bottom."
+        },
         "layers": {
           "type": "array",
           "items": {
@@ -1405,6 +1409,10 @@ export const ECAD_SCHEMA = {
             "solid"
           ],
           "description": "How same-Net pads join the fill: thermal reliefs (gap and spokes) or solid. Thermal when absent."
+        },
+        "minWidth": {
+          "$ref": "#/$defs/nm",
+          "description": "The narrowest copper the fill keeps (#82): parts narrower are taken away, as a pen this wide fills it (Eagle's polygon width). Absent or 0: no minimum."
         },
         "keepIslands": {
           "type": "boolean",

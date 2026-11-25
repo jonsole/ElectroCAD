@@ -43,10 +43,29 @@ export function placedPads(project, bf, nets = padNets(project.board)) {
   if (!fp) return [];
   const T = fpTransform(bf);
   return fp.pads.map((p) => ({
-    number: p.number, at: T(p.at), size: p.size, shape: p.shape, drill: p.drill || 0,
+    number: p.number, at: T(p.at), size: p.size, shape: p.shape, drill: p.drill || 0, ...(p.innerSize ? { innerSize: p.innerSize } : {}),
     layers: (p.layers || []).map((l) => flipLayer(l, bf.side)), rot: ((bf.rot || 0) + (p.rot || 0)) % 360,
     net: nets.get(`${bf.componentId}:${p.number}`) || '',
   }));
+}
+
+/** Is this an inner copper layer (In1.Cu, In2.Cu)? */
+export const isInnerLayer = (layer) => /^In\d+\.Cu$/.test(layer);
+
+/**
+ * A pad as it is on one copper layer (#82): a through-hole pad with an inner size is round, that
+ * size, on the inner layers (Eagle's inner restring); everywhere else it is itself.
+ */
+export const padOnLayer = (pad, layer) => (pad.innerSize && isInnerLayer(layer) ? { ...pad, shape: 'circle', size: [pad.innerSize, pad.innerSize] } : pad);
+
+/**
+ * A placed pad split by the copper layers it is on, for code that keeps one shape per item: [{ pad,
+ * layers }], the outer layers with the pad as it is, the inner ones with its inner shape (#82).
+ */
+export function padByLayers(pad, layers) {
+  if (!pad.innerSize) return [{ pad, layers }];
+  const inner = layers.filter(isInnerLayer), outer = layers.filter((l) => !isInnerLayer(l));
+  return [...(outer.length ? [{ pad, layers: outer }] : []), ...(inner.length ? [{ pad: padOnLayer(pad, inner[0]), layers: inner }] : [])];
 }
 
 // ---------------------------------------------------------------- editing placed Footprints (#17)

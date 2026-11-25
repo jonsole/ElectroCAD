@@ -239,7 +239,8 @@ export function runDrc(project, fills = new Map(), { areas = null, rats = null }
     for (const pad of placedPads(view, bf, nets)) {
       if (!(pad.drill > 0)) continue;
       const tht = pad.layers.some((l) => /Cu$/.test(l));
-      holes.push({ id: `${bf.id}:${pad.number}:${pad.at.join(',')}`, at: pad.at, drill: pad.drill, copper: tht ? Math.min(...pad.size) : null, what: `${name({ kind: 'pad', footprint: bf, item: pad, net: pad.net })}` });
+      // the ring on the inner layers counts too (#82)
+      holes.push({ id: `${bf.id}:${pad.number}:${pad.at.join(',')}`, at: pad.at, drill: pad.drill, copper: tht ? Math.min(...pad.size, ...(pad.innerSize && board.stack.copper > 2 ? [pad.innerSize] : [])) : null, what: `${name({ kind: 'pad', footprint: bf, item: pad, net: pad.net })}` });
     }
   }
   for (const hl of holes) {

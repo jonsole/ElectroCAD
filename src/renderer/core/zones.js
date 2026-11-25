@@ -12,7 +12,7 @@
 // (board/zoneWorker.js) and, synchronously, in the tests. DOM-free.
 import { copperDrawingTracks } from './boardDrawings.js';
 import ClipperLib from 'clipper-lib';
-import { placedPads, padNets } from './footprint.js';
+import { placedPads, padNets, padByLayers } from './footprint.js';
 import { copperLayerNames, outlineLoops } from './board.js';
 import { arcCircle } from './geom.js';
 import { padShape, netRules } from './collision.js';
@@ -42,10 +42,10 @@ function circlePts(c, r, n = 48) {
 }
 
 /** Paths grown (or shrunk, d < 0) by d with round corners. */
-function offset(paths, d, open = false) {
+function offset(paths, d, open = false, tol = ARC_TOL) {
   if (!paths.length) return [];
   if (!d && !open) return paths;
-  const co = new CL.ClipperOffset(2, ARC_TOL);
+  const co = new CL.ClipperOffset(2, tol);
   co.AddPaths(paths, CL.JoinType.jtRound, open ? CL.EndType.etOpenRound : CL.EndType.etClosedPolygon);
   const out = new CL.Paths();
   co.Execute(out, d);
@@ -134,7 +134,8 @@ export function zoneInput(project, board = project.board, extraTracks = []) {
   for (const bf of board.footprints || []) {
     for (const pad of placedPads(view, bf, nets)) {
       const layers = pad.layers.includes('*.Cu') ? copper : pad.layers.filter((l) => copper.includes(l));
-      pads.push({ key: `${bf.componentId}:${pad.number}`, at: pad.at, size: pad.size, shape: pad.shape, rot: pad.rot || 0, net: pad.net || '', layers, drill: pad.drill || 0 });
+      // inner layers see a through-hole pad's inner shape (#82)
+      for (const { pad: q, layers: ls } of padByLayers(pad, layers)) pads.push({ key: `${bf.componentId}:${pad.number}`, at: q.at, size: q.size, shape: q.shape, rot: q.rot || 0, net: q.net || '', layers: ls, drill: q.drill || 0 });
     }
   }
   return {
@@ -164,6 +165,17 @@ function above(input, z) {
   return input.zones.filter((o) => o.id !== z.id && o.layer === z.layer && (o.priority > z.priority || (o.priority === z.priority && o.id < z.id)) && boxesMeet(b, zoneBox(o)));
 }
 const maxClearance = (input) => Math.max(input.rules.clearance || 0, input.rules.edgeClearance || 0, ...Object.values(input.netClasses).map((c) => c.clearance || 0), ...input.zones.map((z) => z.clearance || 0));
+
+/**
+ * The fill with every part narrower than `w` taken away (#82): shrunk by half of it and grown back,
+ * as a pen that wide fills it (Eagle's polygon width; KiCad's minimum width). Necks and slivers
+ * between clearances go; wider copper keeps its shape.
+ */
+function minWidthOnly(fill, w) {
+  if (!(w > 0) || !fill.length) return fill;
+  const shrunk = offset(fill, -w / 2);
+  return shrunk.length ? offset(shrunk, w / 2) : [];
+}
 
 /** Fill order: highest priority first (ties by id, so the order is stable). */
 export const fillOrder = (zones) => [...zones].sort((a, b) => b.priority - a.priority || (a.id < b.id ? -1 : 1));
@@ -239,8 +251,11 @@ export function fillZone(input, z, higher = new Map()) {
       }
       thermals.push({ key: pad.key, spokes: n });
     }
+    fill = minWidthOnly(fill, z.minWidth);
     if (spokes.length) fill = union(fill, inter(spokes, allowed));
   }
+
+  if (z.connect === 'solid' || !own.length) fill = minWidthOnly(fill, z.minWidth);
 
   // islands: keep the pieces that touch this Net's copper (a Zone with no Net keeps them all)
   const tree = new CL.PolyTree();

@@ -410,6 +410,7 @@ export class BoardEditor {
       row('Net', net), row('Layer', layer),
       num('Priority', z.priority, (v) => set('Zone priority', (q) => { q.priority = v; }), { int: true }),
       num('Clearance', z.clearance, (v) => set('Zone clearance', (q) => { q.clearance = v; })),
+      num('Min width', z.minWidth || 0, (v) => set('Zone minimum width', (q) => { if (v > 0) q.minWidth = v; else delete q.minWidth; })),
       h('p', { class: 'side-note' }, `The larger of this and the net classes' clearance (${fmt(this.board.rules.clearance)} mm by default) is kept from other nets. Higher priority fills first and wins overlaps.`),
       row('Pads', conn),
       ...(solid ? [] : [
