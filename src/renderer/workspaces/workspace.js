@@ -71,10 +71,11 @@ export class Workspace {
       h('div', { class: 'bottom-bar' }, this.chipStrip, this.statusText));
     const splitL = addResizer(this.dockL, { side: 'left', key: `${cfg.id}-dock-left`, min: 220, max: 560 });
     const splitR = addResizer(this.dockR, { side: 'right', key: `${cfg.id}-dock-right`, min: 220, max: 560 });
-    // a column with no card showing takes no room, nor does its splitter
+    // a column with no card showing takes no room, nor does its splitter (an empty card, such as
+    // Properties with nothing to show, doesn't count)
     const tidy = () => {
       for (const [col, split] of [[this.dockL, splitL], [this.dockR, splitR]]) {
-        const empty = ![...col.children].some((c) => c.style.display !== 'none');
+        const empty = ![...col.children].some((c) => c.style.display !== 'none' && !c.matches(':empty'));
         col.classList.toggle('empty', empty); split.classList.toggle('empty', empty);
       }
     };

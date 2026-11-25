@@ -633,8 +633,6 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .dock-col > .docked + .docked { border-top: 1px solid var(--border); }
 .dock-col > .parts-card.docked { flex: 1 1 0; min-height: 220px; overflow: hidden; }
 .dock-col > .inspector.docked { flex: 0 1 auto; max-height: 60% !important; }
-.dock-col > .inspector.docked:empty { display: block; }
-.dock-col > .inspector.docked:empty::before { content: 'Double-click a part, or right-click it and choose Properties…, to see its properties here. Drag this panel\'s header out to float it.'; display: block; padding: 16px 14px; color: var(--muted); font-size: 12.5px; }
 .card.docked::after { display: none; }
 .card.dragging { opacity: .92; z-index: 30 !important; }
 .dock-hint { position: absolute; top: 0; bottom: 0; width: 0; z-index: 29; pointer-events: none; background: var(--accent-soft); border: 2px dashed var(--accent); opacity: 0; transition: opacity .12s; }
