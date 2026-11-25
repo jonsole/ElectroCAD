@@ -14,6 +14,8 @@ import {
 } from '../core/board.js';
 import { drawBoard, drawLabels } from './render.js';
 import { openAnnotateDialog } from './annotate-dialog.js';
+import { openBoardSetup } from './setup-dialog.js';
+import { netClassOf } from '../core/netclasses.js';
 import { hitPad, footprintOutline, placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation } from '../core/footprint.js';
 import { ratsnest } from '../core/ratsnest.js';
 import { copperIndex, pointSeg2 } from '../core/collision.js';
@@ -280,7 +282,7 @@ export class BoardEditor {
     const nets = [...new Set([...tracks, ...vias].map((x) => x.net || '(no net)'))];
     const len = tracks.reduce((a, t) => a + Math.hypot(t.b[0] - t.a[0], t.b[1] - t.a[1]), 0);
     const out = [h('div', { class: 'prop-title' }, [tracks.length ? `${tracks.length} track${tracks.length === 1 ? '' : 's'}` : '', vias.length ? `${vias.length} via${vias.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')),
-      h('p', { class: 'side-note' }, `Net ${nets.join(', ')}${tracks.length ? ` · ${fmt(Math.round(len))} mm long` : ''}`)];
+      h('p', { class: 'side-note' }, `Net ${nets.map((n) => (n === '(no net)' ? n : `${n} (${netClassOf(this.board, n)} class)`)).join(', ')}${tracks.length ? ` · ${fmt(Math.round(len))} mm long` : ''}`)];
     if (tracks.length) {
       const ids = tracks.map((t) => t.id);
       out.push(num('Width', one(tracks, 'width'), (w) => this.app.edit('Track width', (p) => setTrackWidth(p, ids, w))));
@@ -482,7 +484,7 @@ export class BoardEditor {
           : 'Outline polygon: click the next corner · A arc side · Backspace undo corner · click the first corner to close · Esc cancel'; break;
       case 'circle': t = p ? 'Circle: click a point on the edge' : 'Circle: click the centre (a round board, or a hole inside the board)'; break;
       case 'route': t = this.route
-        ? `Routing ${this.route.net} on ${this.route.layer} (${fmt(this.route.width)} mm): click to place a corner · click a ${this.route.net} pad to finish · V drops a via and goes to ${this.route.layer === this.route.pair[0] ? this.route.pair[1] : this.route.pair[0]} · double-click or Enter ends here · / flips the bend · Backspace undoes a corner · Esc cancels${this.routeView?.collisions.length ? ' · red: too close to another net' : ''}${this.routeView?.blocked ? ' · no clear way to the pointer: the track stops at the obstacle' : ''}`
+        ? `Routing ${this.route.net} on ${this.route.layer} (${fmt(this.route.width)} mm, ${netClassOf(this.board, this.route.net)} class): click to place a corner · click a ${this.route.net} pad to finish · V drops a via and goes to ${this.route.layer === this.route.pair[0] ? this.route.pair[1] : this.route.pair[0]} · double-click or Enter ends here · / flips the bend · Backspace undoes a corner · Esc cancels${this.routeView?.collisions.length ? ' · red: too close to another net' : ''}${this.routeView?.blocked ? ' · no clear way to the pointer: the track stops at the obstacle' : ''}`
         : `Route (${this.routeMode === 'walkaround' ? 'Walkaround: tracks go round other nets' : 'Free: tracks go where you draw'}): click a pad on ${this.activeLayer} to start a track (corners: ${this.corner === 'any' ? 'any angle' : this.corner + '°'}${this.chamfer ? `, chamfer ${fmt(this.chamfer)} mm` : ''})`; break;
       case 'zone': t = !p ? `Zone on ${this.activeLayer}: click its first corner (the net comes from the pad or track there, else GND; change it in Properties)`
         : `Zone on ${this.activeLayer}: click the next corner · click the first corner, double-click or Enter to close · Backspace undo corner · Esc cancel`; break;
@@ -986,6 +988,9 @@ export class BoardEditor {
     this.trackSel = connection(this.board, [...this.trackSel]);
     this.refresh();
   }
+
+  /** Board setup: Fab preset, Design rules, Fab output and Net classes (#24). */
+  setup(tab) { return openBoardSetup(this.app, { tab }); }
 
   /** Forward annotation: list what the Schematic changes on the Board, then apply it in one step. */
   annotate() { openAnnotateDialog(this.app); }

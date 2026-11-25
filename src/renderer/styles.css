@@ -695,3 +695,34 @@ body.resizing iframe, body.resizing canvas { pointer-events: none; }
 .tool-strip-label { font-size: 12.5px; color: var(--muted); }
 .tool-strip .sep { width: 1px; height: 22px; background: var(--border); margin: 0 2px; }
 .tool-strip .chamfer-box { margin-left: 0; }
+
+/* ---------- Board setup (#24) ---------- */
+.board-setup .modal-body { padding-top: 12px; }
+.setup-tabs { margin-bottom: 14px; }
+.preset-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
+.preset-row .field { margin-bottom: 0; }
+.preset-row .btn { height: 32px; }
+.preset-note { margin: 6px 0 8px; }
+.preset-state { margin: 4px 0 6px; }
+.board-setup .outline-state .btn { margin-left: auto; height: 26px; }
+.rule-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 12px; }
+.rule-grid .field { margin-bottom: 0; }
+.unit-input { display: flex; align-items: center; gap: 6px; }
+.unit-input .input { height: 30px; flex: 1; min-width: 0; }
+.unit-input em { font-style: normal; font-size: 11px; color: var(--muted); }
+.rule-field.edited .unit-input .input { border-color: var(--accent); }
+.edited-dot { color: var(--accent); }
+.nc-table { display: flex; flex-direction: column; gap: 4px; }
+.nc-row { display: grid; grid-template-columns: 1.3fr repeat(4, 1fr) 44px 30px; gap: 6px; align-items: center; }
+.nc-row .input { height: 28px; min-width: 0; padding: 0 6px; }
+.nc-head span { font-size: 11px; color: var(--muted); font-weight: 600; }
+.nc-default { padding: 4px 0; border-bottom: 1px solid var(--border); }
+.nc-name { font-weight: 600; padding-left: 6px; }
+.nc-val { font-variant-numeric: tabular-nums; padding-left: 7px; color: var(--muted); }
+.nc-count { text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
+.nc-actions { margin-top: 8px; }
+.nc-nets { margin-top: 8px; max-height: 220px; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 4px 14px; }
+.nc-net { display: grid; grid-template-columns: 1fr 130px; gap: 8px; align-items: center; padding: 2px 0; }
+.nc-net-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.nc-net .select { height: 26px; }
+.gerber-preset { display: flex; flex-direction: column; gap: 6px; }

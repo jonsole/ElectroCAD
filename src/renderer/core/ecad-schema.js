@@ -873,7 +873,27 @@ export const ECAD_SCHEMA = {
         },
         "preset": {
           "type": "string",
-          "description": "Fab preset id (#24)."
+          "description": "The Fab preset the rules came from, for reference (core/presets.js ids, e.g. jlcpcb-2; #24)."
+        },
+        "fab": {
+          "type": "object",
+          "description": "Fab output settings, filled by a Fab preset and editable (#24; used by the Fab output, #26).",
+          "additionalProperties": false,
+          "properties": {
+            "naming": {
+              "enum": [
+                "protel",
+                "kicad"
+              ],
+              "description": "Gerber file names: Protel extensions (.GTL, .GBL…) or descriptive names (-F_Cu.gbr…)."
+            },
+            "drillUnits": {
+              "enum": [
+                "mm",
+                "inch"
+              ]
+            }
+          }
         },
         "grid": {
           "type": "object",

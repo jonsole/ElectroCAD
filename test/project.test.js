@@ -46,7 +46,7 @@ test('a new Project follows the v1 schema', () => {
   const s = p.schematic.sheets[0];
   for (const k of ['symbols', 'wires', 'labels', 'noConnects']) assert.deepEqual(s[k], [], k);
   assert.equal(p.board.stack.copper, 2);
-  assert.equal(p.board.preset, 'generic');
+  assert.equal(p.board.preset, 'generic-2');
   for (const k of ['outline', 'footprints', 'tracks', 'vias', 'zones']) assert.deepEqual(p.board[k], [], k);
   assert.ok(p.board.rules.annularRing > 0);
 });

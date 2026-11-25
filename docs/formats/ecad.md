@@ -166,7 +166,8 @@ The shapes are fixed by [ADR-0015](../adr/0015-board-objects-in-the-native-forma
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `stack` | `{ copper: 2 \| 4, thickness }` | Layer stack. Copper layers: `F.Cu`, `B.Cu`, plus `In1.Cu`, `In2.Cu` for 4 layers. |
-| `preset` | string | Fab preset id (`generic` today; #24). |
+| `preset` | string | The Fab preset the rules came from, for reference only (#24): `generic-2`, `generic-4`, `jlcpcb-2`, `jlcpcb-4`, `pcbway-2`, `pcbway-4`, `oshpark-2`, `oshpark-4` (`core/presets.js`). The rules can be edited after applying it. |
+| `fab` | `{ naming: 'protel' \| 'kicad', drillUnits: 'mm' \| 'inch' }` (optional) | Fab output settings, filled by the preset, editable; used by the Fab output (#26). |
 | `rules` | `{ clearance, trackWidth, viaDrill, viaDiameter, minHole, annularRing, edgeClearance }` | Design rules, all nm. |
 | `outline` | `[Shape]` | Edge.Cuts (#15): `rect` and `circle` shapes, and `line` (two points) and `arc` (start, mid, end) segments that must form closed loops. Segment ends must meet **exactly**, to the nanometre. A rounded rectangle or a polygon is stored as lines and arcs. A loop inside another loop's extents is a cut-out. Layer visibility and the active layer are per-browser settings and are not saved here. |
 | `footprints` | `[{ id, componentId, at, rot, side, locked }]` | Where each Component sits (#17). `rot` is any angle (degrees, [0, 360), to 0.01°); `side` is `F` or `B`. Pads and graphics come from the Component's footprint, not copied. |

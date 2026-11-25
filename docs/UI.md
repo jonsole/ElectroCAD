@@ -461,6 +461,22 @@ Selecting something in one editor highlights the same thing in the other (#18). 
   - a "Whole connection (U)" button and Delete.
   - Mixed values show blank or "Mixed". Every edit is one undo step.
 
+## Board setup: Fab presets, Design rules and Net classes
+
+**Board setup** (Board toolbar; or **Board setup…** on the Gerber tab) has two tabs (#24). Every change is its own undo step and shows at once.
+- **Design rules:**
+  - **Fab preset:** pick a board house (Generic, JLCPCB, PCBWay, OSH Park; the board's layer count picks its 2- or 4-layer preset) and **Apply preset**. It copies the house's values into the Design rules and the Fab output settings (`core/presets.js`).
+    - The values are the houses' standard-price capabilities, a little inside their minimums; a note under the picker gives the house's minimums.
+    - The board keeps its own copy, so every rule stays editable. The preset name is shown for reference only, with "edited" and the changed rules once they differ (an edited rule has an accent border and a dot; its tooltip gives the preset's value).
+    - A preset for the other layer count is flagged, with a button for the right one.
+  - **Rules** (mm): clearance, track width, via drill, via diameter, minimum hole, annular ring, edge clearance. These are the **Default** net class.
+  - **Fab output:** Gerber file names (Protel extensions or descriptive) and drill file units, used by the Fab output (#26).
+- **Net classes:**
+  - A table of classes: **Default** (the Design rules, read-only here), then each class's name, track width, clearance, via drill and via diameter (all editable), its net count and Delete. **Add net class** starts from the Design rules.
+  - **Nets:** every net on the board with a class picker (filterable). A net is in one class at a time; deleting a class puts its nets back in Default.
+  - New tracks take their net's class width and via size; the clearance between two nets is the larger of their classes'. Zones (and DRC, #25) use the same rules. The routing hint and a selected track's Properties name the class.
+- The Gerber tab's **Fab preset** section shows the preset the rules came from.
+
 ## Zones
 
 **Zone (Z)** draws a copper pour (#23):

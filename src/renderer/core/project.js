@@ -55,13 +55,14 @@ export function newSheet(name) {
 export function newBoard(copper = 2) {
   return {
     stack: { copper, thickness: mm(1.6) },
-    preset: 'generic',
+    preset: `generic-${copper}`,
     outline: [],
     footprints: [], tracks: [], vias: [], zones: [],
-    rules: {
-      clearance: mm(0.2), trackWidth: mm(0.25), viaDrill: mm(0.3), viaDiameter: mm(0.6),
+    rules: { // the Generic preset's (core/presets.js)
+      clearance: mm(copper === 4 ? 0.15 : 0.2), trackWidth: mm(copper === 4 ? 0.2 : 0.25), viaDrill: mm(0.3), viaDiameter: mm(0.6),
       minHole: mm(0.3), annularRing: mm(0.13), edgeClearance: mm(0.3),
     },
+    fab: { naming: 'protel', drillUnits: 'mm' },
     netClasses: {},
     grid: { main: mm(0.5), alt: mm(0.1) },
     origin: [0, 0],

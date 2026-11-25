@@ -824,7 +824,7 @@
    "copper": 2,
    "thickness": 1600000
   },
-  "preset": "generic",
+  "preset": "generic-2",
   "outline": [],
   "footprints": [],
   "tracks": [],
@@ -838,6 +838,10 @@
    "minHole": 300000,
    "annularRing": 130000,
    "edgeClearance": 300000
+  },
+  "fab": {
+   "naming": "protel",
+   "drillUnits": "mm"
   },
   "netClasses": {},
   "grid": {

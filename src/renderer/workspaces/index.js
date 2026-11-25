@@ -9,6 +9,8 @@ import { SchematicEditor } from '../schematic/editor.js';
 import { LibraryEditor } from '../libedit/editor.js';
 import { FootprintEditor } from '../libedit/fpeditor.js';
 import { openPrintDialog } from '../print/dialog.js';
+import { openBoardSetup } from '../board/setup-dialog.js';
+import { presetState } from '../core/presets.js';
 
 
 function schematic(app) {
@@ -44,6 +46,7 @@ function board(app) {
     grid: app.project.board.grid.main, home: { x0: -10e6, y0: -10e6, x1: 110e6, y1: 90e6 },
     toolbar: [...editor.toolbar(), sep(),
       button({ label: 'Update from Schematic', icon: 'annotate', title: 'Forward annotation: list what the Schematic changes on the Board (new parts, removed parts, values, nets), then apply it (F8)', onClick: () => editor.annotate() }),
+      button({ label: 'Board setup', icon: 'settings', title: 'Board setup: Fab preset, Design rules, Fab output settings and Net classes', onClick: () => editor.setup() }),
       later({ label: 'DRC', icon: 'erc', title: 'Design rule check' }, 25), spacer(),
       editor.modeGroup(later),
       sep(), segmented([['2d', '2D', 'twoD', '2D board view'], ['3d', '3D', 'cube', '3D board preview', 40]], '2d')],
@@ -60,8 +63,17 @@ function board(app) {
 
 function gerber(app) {
   const outputs = [['Gerber X2 (copper, mask, paste, silk, Edge.Cuts)', true], ['Excellon drill (PTH / NPTH)', true], ['BOM (CSV)', false], ['Pick-and-place (CSV)', false]];
+  // the Fab preset: which one the rules came from, and Board setup to change it (#24)
+  const presetName = h('div', { class: 'outline-state ok' });
+  const showPreset = () => {
+    const st = presetState(app.project.board);
+    presetName.replaceChildren(icon(st.mismatch ? 'info' : 'check', 16), h('span', {}, `${st.name}${st.edited.length ? ' (edited)' : ''}${st.mismatch ? ` · for ${st.preset.copper}-layer boards` : ''}`));
+    presetName.className = `outline-state ${st.mismatch ? 'bad' : 'ok'}`;
+  };
+  showPreset();
   const side = h('div', { class: 'side-panel' },
-    section('Fab preset', h('select', { class: 'select', disabled: true, style: { width: '100%' }, title: 'Fab presets (coming in #24)' }, h('option', {}, 'Generic'))),
+    section('Fab preset', h('div', { class: 'gerber-preset' }, presetName,
+      button({ label: 'Board setup…', icon: 'settings', cls: 'btn-outline', title: 'Choose a Fab preset and edit the Design rules and Fab output settings', onClick: () => openBoardSetup(app) }))),
     section('Layers', h('p', { class: 'side-note' }, 'Generate to see each Gerber and drill file here.')),
     section('Output', ...outputs.map(([label, on]) => h('label', { class: 'check-row' }, h('input', { type: 'checkbox', checked: on, disabled: true }), label))),
     section('Checks', h('p', { class: 'side-note' }, 'DRC summary and missing-layer warnings appear here.')));
@@ -76,6 +88,7 @@ function gerber(app) {
     hint: 'Nothing generated yet. Choose a Fab preset and outputs on the right, then Generate.',
     tools: [toolButton('select', 'Pan and inspect', { active: true }), toolButton('ruler', 'Measure', { ticket: 28 })],
     side,
+    onRefresh: showPreset,
     status: () => 'No files',
   });
 }
