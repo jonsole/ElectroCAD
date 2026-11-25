@@ -7,6 +7,8 @@
 //   it reaches more than one sheet, or has a power symbol)
 // After the import the Netlist is compared with Eagle's nets, pin by pin (verify()).
 import { newProject, newSheet, uid, pinPositions } from '../../core/project.js';
+import { symbolBounds } from '../../core/schematic.js';
+import { labelBounds } from '../../core/labels.js';
 import { buildNetlist } from '../../core/netlist.js';
 import { PAPER_SIZES } from '../../core/drawings.js';
 import { rot90 as r90geom } from '../../core/geom.js';
@@ -175,6 +177,7 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
     }
   }
   trimForeignEnds(project, parts, segWires, report);
+  const invented = []; // segments that need a label Eagle didn't draw
   for (const [netName, segs] of netsByName) {
     const sheetsOf = new Set(segs.map((s) => s.si));
     const scope = sheetsOf.size > 1 || powered.has(netName) ? 'global' : 'local';
@@ -187,13 +190,14 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
       // where a label sits: Eagle's labels, moved onto their wire; else the first wire's start, or the first pin
       const spots = [];
       for (const l of seg.all('label')) spots.push({ at: nearestOnWires(T(l.attr('x'), l.attr('y')), wires), rot: labelRot(l.attr('rot')) });
-      if (!spots.length) {
-        const at = wires[0]?.a || pinAt(project, parts, seg.child('pinref'));
-        if (at) spots.push({ at, rot: 0 });
-      }
       for (const s of spots) if (s.at) sheet.labels.push({ id: uid('l'), at: s.at, rot: s.rot, net: netName, scope, style: 'label' });
+      // Eagle named the net without drawing a label: one is needed here, placed once Eagle's own are down
+      if (!spots.length) invented.push({ sheet, wires, seg, net: netName, scope });
     }
   }
+  const inventedReport = placeInventedLabels(project, parts, invented);
+  if (inventedReport.moved) report.add('Nets Eagle names without a label got one, placed clear of pins and other labels', inventedReport.moved);
+  if (inventedReport.crowded) report.add('Labels added for named nets with no fully clear spot (placed where they overlap least)', inventedReport.crowded);
   if (!project.schematic.sheets.length) project.schematic.sheets.push(newSheet('Sheet 1'));
   const result = { project, report, eagle: { parts, netsByName, pinNet } };
   result.verify = () => verifySchematic(project, parts, netsByName, report);
@@ -300,6 +304,90 @@ function trimForeignEnds(project, parts, segWires, report) {
 export function labelRot(r) {
   const { rot, mirror } = rotOf(r);
   return rot90(mirror ? 180 - rot : rot);
+}
+
+/**
+ * Labels for nets Eagle names without drawing one (#75). Each goes where it collides with nothing:
+ * not over a pin, a symbol or another label, nor where another net's wire crosses. It tries a loose
+ * wire end first (reading outward), then half-grid points along the segment's wires (longest wire,
+ * middle first, reading either way); when none is fully clear it takes the one that overlaps least.
+ * A segment with no wire gets its label at its first pin, the only place it can connect.
+ */
+function placeInventedLabels(project, parts, invented) {
+  let moved = 0, crowded = 0;
+  const G = 2_540_000;
+  const blockersOf = new Map(); // sheet -> { boxes, pins }
+  const blockers = (sheet) => {
+    if (!blockersOf.has(sheet)) {
+      const boxes = [], pins = [];
+      for (const y of sheet.symbols) {
+        const b = symbolBounds(project, y);
+        if (b) boxes.push(b);
+        for (const q of pinPositions(project, y)) pins.push(q.at);
+      }
+      blockersOf.set(sheet, { boxes, pins, labels: sheet.labels.map((l) => labelBounds(l)) });
+    }
+    return blockersOf.get(sheet);
+  };
+  const meets = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
+  const has = (b, q) => q[0] >= b.x0 && q[0] <= b.x1 && q[1] >= b.y0 && q[1] <= b.y1;
+  const dirRot = (dx, dy) => (Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? 0 : 180) : (dy < 0 ? 90 : 270));
+  for (const { sheet, wires, seg, net, scope } of invented) {
+    const B = blockers(sheet);
+    const make = (at, rot) => ({ id: uid('l'), at, rot, net, scope, style: 'label' });
+    // a label joins every wire through its point: never where another net's wire crosses this one
+    const foreignWires = sheet.wires.filter((w) => !wires.includes(w));
+    const onForeign = (q) => foreignWires.some((w) => onWire(q, w));
+    // how badly a label at this spot collides: 0 is clear. A covered pin counts most, then the area
+    // it shares with symbols and other labels. 0.25 mm of slack, so a symbol hanging from the same
+    // wire (its outline starts at the wire) doesn't count as a meeting.
+    const overlap = (a, x) => Math.max(0, Math.min(a.x1, x.x1) - Math.max(a.x0, x.x0)) * Math.max(0, Math.min(a.y1, x.y1) - Math.max(a.y0, x.y0));
+    const cost = (l) => {
+      if (onForeign(l.at)) return Infinity;
+      const b = labelBounds(l), e = 250_000;
+      const shrunk = { x0: b.x0 + e, y0: b.y0 + e, x1: b.x1 - e, y1: b.y1 - e };
+      const area = Math.max(1, (shrunk.x1 - shrunk.x0) * (shrunk.y1 - shrunk.y0));
+      let c = 0;
+      for (const q of B.pins) if (has(shrunk, q) && (q[0] !== l.at[0] || q[1] !== l.at[1])) c += 10;
+      for (const x of B.boxes) if (meets(shrunk, x)) c += 1 + overlap(shrunk, x) / area;
+      for (const x of B.labels) if (meets(shrunk, x)) c += 3 + overlap(shrunk, x) / area;
+      return c;
+    };
+    let chosen = null;
+    if (wires.length) {
+      const key = (q) => `${q[0]},${q[1]}`;
+      const pinSet = new Set(B.pins.map(key)), ends = new Map();
+      for (const w of wires) for (const q of [w.a, w.b]) ends.set(key(q), (ends.get(key(q)) || 0) + 1);
+      const cands = [];
+      // 1. a loose end, reading away from its wire
+      for (const w of wires) for (const [e, o] of [[w.a, w.b], [w.b, w.a]]) {
+        if (pinSet.has(key(e)) || ends.get(key(e)) > 1) continue;
+        cands.push(make(e, dirRot(e[0] - o[0], e[1] - o[1])));
+      }
+      // 2. along the wires, longest first, from the middle outward, either way along
+      const byLen = [...wires].sort((a, b) => Math.hypot(b.b[0] - b.a[0], b.b[1] - b.a[1]) - Math.hypot(a.b[0] - a.a[0], a.b[1] - a.a[1]));
+      for (const w of byLen) {
+        const dx = w.b[0] - w.a[0], dy = w.b[1] - w.a[1], L = Math.hypot(dx, dy);
+        const n = Math.max(1, Math.floor(L / (G / 2))); // every half grid step
+        const order = Array.from({ length: n + 1 }, (_, k) => k).sort((p, q) => Math.abs(p - n / 2) - Math.abs(q - n / 2));
+        for (const k of order) {
+          const at = [Math.round(w.a[0] + (dx * k) / n), Math.round(w.a[1] + (dy * k) / n)];
+          if (pinSet.has(key(at))) continue;
+          const r = dirRot(dx, dy);
+          cands.push(make(at, r), make(at, (r + 180) % 360));
+        }
+      }
+      // the first clear spot (in the order above), else the least-bad one, else the old spot
+      let best = null, bestCost = Infinity;
+      for (const c of cands) { const k = cost(c); if (k === 0) { best = c; bestCost = 0; break; } if (k < bestCost) { best = c; bestCost = k; } }
+      if (best && bestCost === 0) { chosen = best; moved++; } else { chosen = best || make(wires[0].a, 0); crowded++; }
+    } else {
+      const at = pinAt(project, parts, seg.child('pinref'));
+      if (at) chosen = make(at, 0);
+    }
+    if (chosen) { sheet.labels.push(chosen); B.labels.push(labelBounds(chosen)); }
+  }
+  return { moved, crowded };
 }
 
 /** The nearest point on a set of wires (on a wire end or its run), for a label to sit on. */

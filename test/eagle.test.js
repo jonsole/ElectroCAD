@@ -307,3 +307,25 @@ test('Eagle rectangles and polygons import filled, in symbols and packages (#72)
   assert.deepEqual(fp.graphics.filter((g) => (g.type === 'rect' || g.type === 'poly') && g.layer === 'F.SilkS').map((g) => [g.type, g.fill]), [['rect', 'outline'], ['poly', 'outline']]);
   assert.ok(p.schematic.sheets.length > 0);
 });
+
+test('a label the import adds for a named net goes clear of pins (#75)', async () => {
+  const { pinPositions } = await import('../src/renderer/core/project.js');
+  // R1's stub net, given a real name and no label: Eagle names it, so the import must add a label
+  const sch = SCH.replace('<net name="N$1" class="0">', '<net name="R1_OUT" class="0">');
+  assert.notEqual(sch, SCH);
+  const r = importEagle({ sch, name: 'reg' });
+  assert.equal(r.check.schematic.ok, true, r.check.schematic.mismatches.join('\n'));
+  const s = r.project.schematic.sheets[0];
+  const l = s.labels.find((x) => x.net === 'R1_OUT');
+  assert.ok(l, 'a label was added');
+  const pins = new Set(s.symbols.flatMap((y) => pinPositions(r.project, y).map((q) => q.at.join(','))));
+  assert.ok(!pins.has(l.at.join(',')), `not on a pin: ${l.at}`);
+  // R1's wire runs from its pin 2 to a loose end 5.08 mm to the right: the label takes the loose end, reading right
+  const w = s.wires.find((x) => pins.has(x.a.join(',')) !== pins.has(x.b.join(',')) && (x.a[0] === l.at[0] || x.b[0] === l.at[0]));
+  assert.ok(w, 'the label sits on the end of R1\'s wire');
+  const pinEnd = pins.has(w.a.join(',')) ? w.a : w.b, loose = pinEnd === w.a ? w.b : w.a;
+  assert.deepEqual(l.at, loose);
+  assert.equal(loose[0] - pinEnd[0], 5_080_000);
+  assert.equal(l.rot, 0);
+  assert.ok(r.report.some((t) => /got one, placed clear of pins/.test(t)), r.report.join('\n'));
+});
