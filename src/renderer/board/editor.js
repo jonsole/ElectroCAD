@@ -12,7 +12,7 @@ import {
   GRID_CHOICES, gridLabel, setGrid, snapToGrid,
   rectOutline, circleOutline, polygonOutline, checkOutline, outlineBounds, hitOutline, moveOutline,
 } from '../core/board.js';
-import { drawBoard } from './render.js';
+import { drawBoard, drawLabels } from './render.js';
 import { openAnnotateDialog } from './annotate-dialog.js';
 import { hitPad, footprintOutline, placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation } from '../core/footprint.js';
 import { ratsnest } from '../core/ratsnest.js';
@@ -921,7 +921,10 @@ export class BoardEditor {
 
   draw(ctx, view, C) {
     const board = { ...this.board, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints };
-    drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: this._rats?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure });
+    const labels = [];
+    drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: this._rats?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure, labels });
+    if (this.routeView) this._drawRoute(ctx, view, C);
+    drawLabels(labels); // names, values and pad numbers over all the copper, the track being routed too
     // the selection, highlighted in the style chosen in Settings (the same in every editor)
     if (this.selection.size || this.fpSel.size || this.netSel.size || this.trackSel.size) {
       const t = this.netSel.size ? boardTargets({ ...this.project, board }, probeFromBoard(this.project, [], [...this.netSel])) : null;
@@ -935,7 +938,6 @@ export class BoardEditor {
       const copper = new Set([...t.copper].filter((id) => !this.trackSel.has(id)));
       if (fps.size || t.pads.size || copper.size) this._highlightBoard(ctx, view, C, board, new Set(), fps, t.pads, { ...C, selection: C.highlight || C.selection }, this.selection.size || this.fpSel.size, copper);
     }
-    if (this.routeView) this._drawRoute(ctx, view, C);
     drawHandles(ctx, view, C, this._handles(), this.handleDrag?.key);
     drawSnapMark(ctx, view, C, this.snapMark);
   }

@@ -76,11 +76,15 @@ export function drawBoard(ctx, view, C, board, opts = {}) {
   }
   if (opts.project) {
     const view2 = { ...opts.project, board };
-    drawFootprints(ctx, view, C, view2, board, hidden, opts.padsOnly, opts.padKeys);
+    // the Footprints' text (Reference, Value, pad numbers and Nets) goes on top of the copper: drawn
+    // after the Tracks and Vias here, or left in opts.labels for the caller to draw last
+    const labels = opts.labels || [];
+    drawFootprints(ctx, view, C, view2, board, hidden, opts.padsOnly, opts.padKeys, labels);
     if (!opts.only || opts.trackIds) {
       drawTracks(ctx, view, C, board, hidden, opts.only ? opts.trackIds : null);
       drawVias(ctx, view, C, board, hidden, opts.only ? opts.trackIds : null);
     }
+    if (!opts.labels) drawLabels(labels);
     // the Ratsnest: a thin line for each unrouted connection
     if (opts.rats?.length) {
       ctx.save(); ctx.strokeStyle = C.ratsnest || '#98a2b3'; ctx.lineWidth = 1;
@@ -122,8 +126,14 @@ export function drawBoard(ctx, view, C, board, opts = {}) {
  * in the through-hole colour, with the drill), courtyards dashed, the Reference on silk above and
  * the Value on fab below; when zoomed in far enough, each pad shows its number and Net.
  */
-/** `padsOnly`: Footprint ids drawn as just the pads in `padKeys` ("componentId:pad"), for highlighting a Net. */
-function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, padKeys = null) {
+/** Draw text deferred by drawBoard (opts.labels): over the copper. */
+export function drawLabels(labels) { for (const f of labels || []) f(); }
+
+/**
+ * `padsOnly`: Footprint ids drawn as just the pads in `padKeys` ("componentId:pad"), for highlighting a Net.
+ * Text is pushed onto `labels` (functions) to be drawn after the copper.
+ */
+function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, padKeys = null, labels = []) {
   const nets = padNets(board);
   const ann = board.annotation?.components || {};
   const fps = [...board.footprints].sort((a, b) => (a.side === b.side ? 0 : a.side === 'B' ? -1 : 1));
@@ -138,7 +148,7 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
     const ref = ann[bf.componentId]?.ref ?? comp?.ref ?? '';
     const value = ann[bf.componentId]?.value ?? comp?.value ?? '';
     // silk, courtyard and fab graphics (and its own ${REF} / ${VALUE} text)
-    const own = partial ? { ref: true, value: true } : drawFootprintGraphics(ctx, view, C, fp, T, { side: bf.side, visible, ref, value });
+    const own = partial ? { ref: true, value: true } : drawFootprintGraphics(ctx, view, C, fp, T, { side: bf.side, visible, ref, value, labels });
     // pads
     for (const pad of placedPads(project, bf, nets)) {
       if (partial && !padKeys?.has(`${bf.componentId}:${pad.number}`)) continue;
@@ -157,10 +167,12 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
       else ctx.rect(-w / 2, -hgt / 2, w, hgt);
       ctx.fill();
       if (pad.drill) { ctx.fillStyle = C.drill || '#000'; ctx.beginPath(); ctx.arc(0, 0, (pad.drill * view.scale) / 2, 0, TAU); ctx.fill(); }
-      // number and Net, when the pad is big enough to read
+      ctx.restore();
+      // number and Net, when the pad is big enough to read (over the copper)
       const small = Math.min(w, hgt);
-      if (small >= 14) {
-        ctx.rotate((pad.rot * Math.PI) / 180); // text stays upright
+      if (small >= 14) labels.push(() => {
+        ctx.save();
+        ctx.translate(cx, cy);
         ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.shadowColor = 'rgba(0,0,0,.8)'; ctx.shadowBlur = 2;
         const fs = Math.min(13, small * 0.38);
@@ -170,8 +182,8 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
           const label = shortNet(pad.net, ctx, Math.max(w, hgt) * 0.95);
           ctx.fillText(label, 0, fs * 0.55);
         } else { ctx.font = `600 ${fs}px system-ui, sans-serif`; ctx.fillText(pad.number, 0, 0); }
-      }
-      ctx.restore();
+        ctx.restore();
+      });
     }
     if (partial) continue;
     // Reference on silk above the courtyard, Value on fab below it
@@ -183,9 +195,11 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
       const px = size * view.scale;
       if (px < 4) return;
       const [x, y] = S(local);
-      ctx.save(); ctx.fillStyle = C[layer] || '#ddd'; ctx.font = `600 ${px}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      if (bf.side === 'B') { ctx.translate(x, y); ctx.scale(-1, 1); ctx.fillText(str, 0, 0); } else ctx.fillText(str, x, y);
-      ctx.restore();
+      labels.push(() => {
+        ctx.save(); ctx.fillStyle = C[layer] || '#ddd'; ctx.font = `600 ${px}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        if (bf.side === 'B') { ctx.translate(x, y); ctx.scale(-1, 1); ctx.fillText(str, 0, 0); } else ctx.fillText(str, x, y);
+        ctx.restore();
+      });
     };
     if (!own.ref) text(flipLayer('F.SilkS', bf.side), ref, [0, top - mm(0.8)], mm(1));
     const bottom = crt ? Math.max(crt.a[1], crt.b[1]) : mm(1);
@@ -206,7 +220,7 @@ function shortNet(net, ctx, maxPx) {
  * `${VALUE}` in text are filled in with `ref` / `value`. Returns { ref, value }: whether it drew
  * its own Reference / Value text. Shared by the Board and the Footprint editor.
  */
-export function drawFootprintGraphics(ctx, view, C, fp, T, { side = 'F', visible = () => true, ref = 'REF**', value = 'VALUE', only = null } = {}) {
+export function drawFootprintGraphics(ctx, view, C, fp, T, { side = 'F', visible = () => true, ref = 'REF**', value = 'VALUE', only = null, labels = null } = {}) {
   const S = (p) => view.toScreen(T(p));
   const own = { ref: false, value: false };
   const lw = (layer) => Math.max(1, mm(/SilkS/.test(layer) ? 0.12 : 0.1) * view.scale);
@@ -232,8 +246,13 @@ export function drawFootprintGraphics(ctx, view, C, fp, T, { side = 'F', visible
       if (px >= 4) {
         const str = String(g.text).replace(/\$\{REF\}/g, ref).replace(/\$\{VALUE\}/g, value);
         const [x, y] = S(g.at);
-        ctx.font = `600 ${px}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        if (side === 'B') { ctx.translate(x, y); ctx.scale(-1, 1); ctx.fillText(str, 0, 0); } else ctx.fillText(str, x, y);
+        const draw = () => {
+          ctx.save(); ctx.fillStyle = col;
+          ctx.font = `600 ${px}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          if (side === 'B') { ctx.translate(x, y); ctx.scale(-1, 1); ctx.fillText(str, 0, 0); } else ctx.fillText(str, x, y);
+          ctx.restore();
+        };
+        if (labels) labels.push(draw); else draw(); // with `labels`, over the copper later
       }
     }
     ctx.restore();
