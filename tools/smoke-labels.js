@@ -99,7 +99,7 @@ box3.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })
 check('local-stays-separate', netOf('R1', '2').pins.length === 1 && netOf('R3', '2').pins.length === 1);
 // the inspector makes it Global: now one EN Net across both Sheets
 key('Escape');
-ed.selection = new Set([app.project.schematic.sheets[1].labels[0].id]); ed.refresh();
+ed.selection = new Set([app.project.schematic.sheets[1].labels[0].id]); ed.openProperties(); // right-click → Properties…
 const scope = document.querySelector('.inspector select[aria-label="Label scope"]');
 scope.value = 'global'; scope.dispatchEvent(new Event('change'));
 app.edit('global on sheet 1', (p) => { p.schematic.sheets[0].labels.find((l) => l.net === 'EN').scope = 'global'; });

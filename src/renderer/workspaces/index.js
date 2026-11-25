@@ -135,6 +135,7 @@ function library(app) {
   });
   sym.attach(ws);
   fpe.attach(ws);
+  ws.view.onContextMenu = (e) => cur().contextMenu?.(e); // right-click: the shown editor's menu
   symCards.mount(ws);
   fpCards.mount(ws);
   setMode(app.libMode);

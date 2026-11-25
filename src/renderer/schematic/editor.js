@@ -92,6 +92,8 @@ export class SchematicEditor {
     this.app = app;
     this.selection = new Set();
     this.placing = null; // { part, rot, mirror, drag, at }
+    this.propsOpen = false; // the Properties card (the inspector): opened by double-click or right-click → Properties…
+    this._propsFor = null;  // the selection it was opened for; it closes when the selection changes
     this.tool = 'select'; // 'select' | 'wire'
     this.wiring = null;   // { points: [committed…], cursor, posture: 'h' | 'v' }
     this.netlistOpen = false;
@@ -251,6 +253,8 @@ export class SchematicEditor {
     const anySym = this.sheet.symbols.some((y) => this.selection.has(y.id));
     const anyLabel = (this.sheet.labels || []).some((l) => this.selection.has(l.id)) || (this.sheet.drawings || []).some((d) => this.selection.has(d.id));
     popupMenu([
+      { label: 'Properties…', icon: 'sliders', shortcut: 'Double-click', onClick: () => this.openProperties() },
+      'sep',
       { label: 'Copy', icon: 'copy', shortcut: 'Ctrl+C', onClick: () => this.copy() },
       { label: 'Paste', icon: 'paste', shortcut: 'Ctrl+V', disabled: !this.clipboard, onClick: () => this.paste() },
       { label: 'Duplicate', icon: 'duplicate', shortcut: 'Ctrl+D', onClick: () => this.duplicate() },
@@ -500,6 +504,7 @@ export class SchematicEditor {
     // drop selected ids that no longer exist (after undo, delete, project switch)
     const ids = new Set(this._allIds());
     for (const id of [...this.selection]) if (!ids.has(id)) this.selection.delete(id);
+    if (this.propsOpen && this._selSig() !== this._propsFor) { this.propsOpen = false; this._propsFor = null; }
     if (this.btn) {
       this.btn.undo.disabled = !this.app.history.canUndo;
       this.btn.redo.disabled = !this.app.history.canRedo;
@@ -632,7 +637,11 @@ export class SchematicEditor {
       if (d && d.type === 'text') { e.preventDefault(); this.editText({ drawing: d }); return; }
       const tb = titleBlockLayout(this.sheet).box;
       if (!f && world[0] >= tb.x0 && world[0] <= tb.x1 && world[1] >= tb.y0 && world[1] <= tb.y1) { e.preventDefault(); this.sheetSetup(); return; }
-      if (f && (f.key === 'reference' || f.key === 'value')) { e.preventDefault(); this.editField(f.symbolId, f.key); }
+      if (f && (f.key === 'reference' || f.key === 'value')) { e.preventDefault(); this.editField(f.symbolId, f.key); return; }
+      // double-clicking a part (or a line, rectangle, circle or arc) opens its Properties
+      const sym = !f && hitSymbol(this.project, this.sheet, world, 3 / ws.view.view.scale);
+      const item = sym || (d && d.type !== 'text' ? d : null) || (f && this.sheet.symbols.find((y) => y.id === f.symbolId));
+      if (item) { e.preventDefault(); this.selection = new Set([item.id]); this.openProperties(); }
     });
     c.addEventListener('pointerup', (e) => {
       if (e.button !== 0) return;
@@ -1433,6 +1442,19 @@ export class SchematicEditor {
   /** Every selectable item on the current Sheet. */
   _allIds() { return [...this.sheet.symbols.map((y) => y.id), ...this.sheet.wires.map((w) => w.id), ...(this.sheet.labels || []).map((l) => l.id), ...(this.sheet.noConnects || []).map((n) => n.id), ...(this.sheet.drawings || []).map((d) => d.id)]; }
 
+  _selSig() { return `${this.sheet.id}|${[...this.selection].sort().join()}`; }
+
+  /** Show the selection's Properties (the inspector card), until the selection changes or it's closed. */
+  openProperties() {
+    if (!this.selection.size) return;
+    this.propsOpen = true;
+    this._propsFor = this._selSig();
+    this._avoidSig = null; // let it step aside from the selection again
+    this.refresh();
+  }
+
+  closeProperties() { this.propsOpen = false; this._propsFor = null; this.refresh(); }
+
   /** The context strip: what's being placed, the label tool's options, or actions for the selection. */
   _updateStrip() {
     const s = this.strip;
@@ -1457,14 +1479,15 @@ export class SchematicEditor {
     const parts = [[syms, 'part'], [wires, 'wire'], [labels, 'label'], [drawings, 'drawing'], [ncs, 'no-connect']].filter(([k]) => k).map(([k, w]) => `${k} ${w}${k === 1 ? '' : 's'}`);
     let title = parts.join(', ');
     if (syms === 1 && sel.size === 1) { const y = sh.symbols.find((q) => sel.has(q.id)); title = this.project.components[y.componentId]?.ref || title; }
-    s.show(`sel|${[...sel].sort().join()}`, () => [stripLabel(title, syms ? 'parts' : wires ? 'wire' : labels ? 'netLabel' : 'select'), stripSep(),
+    s.show(`sel|${[...sel].sort().join()}|${this.propsOpen}`, () => [stripLabel(title, syms ? 'parts' : wires ? 'wire' : labels ? 'netLabel' : 'select'), stripSep(),
       syms || labels || drawings ? stripButton({ icon: 'rotate', title: 'Rotate 90° (R)', onClick: () => this.rotate() }) : null,
       syms ? stripButton({ icon: 'mirror', title: 'Mirror (X)', onClick: () => this.mirror() }) : null,
       syms ? stripButton({ icon: 'ltext', label: 'Fields', title: 'Field style for the selected parts', onClick: (e) => this.fieldsMenu(e.currentTarget) }) : null,
       stripSep(),
       stripButton({ icon: 'duplicate', title: 'Duplicate (Ctrl+D)', onClick: () => this.duplicate() }),
       stripButton({ icon: 'copy', title: 'Copy (Ctrl+C)', onClick: () => { this.copy(); this.refresh(); } }),
-      stripButton({ icon: 'trash', title: 'Delete (Del)', danger: true, onClick: () => this.deleteSelection() })]);
+      stripButton({ icon: 'trash', title: 'Delete (Del)', danger: true, onClick: () => this.deleteSelection() }),
+      stripSep(), stripButton({ icon: 'sliders', title: 'Properties (double-click, or right-click → Properties…)', active: this.propsOpen, onClick: () => (this.propsOpen ? this.closeProperties() : this.openProperties()) })]);
   }
 
   rotate() {

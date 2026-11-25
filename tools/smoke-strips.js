@@ -1,5 +1,6 @@
 // Context strips journey: the main toolbars no longer carry selection-only buttons; a strip over
-// the canvas shows the tool's options or the selection's actions, in every editor.
+// the canvas shows the tool's options or the selection's actions, in every editor. Properties
+// open only from a double-click or right-click → Properties…, and close when the selection changes.
 const app = window.electrocad;
 const fails = [];
 const check = (name, cond, info) => { if (!cond) fails.push(name + (info !== undefined ? ' -> ' + JSON.stringify(info) : '')); };
@@ -55,6 +56,18 @@ const w = strip('board').querySelector('input[aria-label="Width"]'); w.value = '
 check('track-width', app.project.board.tracks[0].width === 400000);
 btn('board', 'Delete').click();
 check('track-deleted', app.project.board.tracks.length === 0 && strip('board').hidden);
+// right-click a footprint → Properties… opens its Properties; selecting something else closes it
+check('props-closed', !ed.cards.card('props').isOpen);
+{
+  const v = app.workspace('board').view, r = v.canvas.getBoundingClientRect(), [sx, sy] = v.view.toScreen(app.project.board.footprints[0].at);
+  ed.contextMenu({ clientX: r.left + sx, clientY: r.top + sy });
+  const item = [...document.querySelectorAll('.menu .menu-item')].find((m) => m.textContent.includes('Properties…'));
+  check('menu-props', !!item && ed.fpSel.has(app.project.board.footprints[0].id));
+  item?.click();
+  check('props-open', ed.cards.card('props').isOpen && /Reference/.test(ed.propsEl.textContent));
+  ed.fpSel.clear(); ed.refresh(); // the selection changes
+  check('props-follow-close', !ed.cards.card('props').isOpen);
+}
 // ---- Library: the Footprint editor's strip shows only in Footprint mode
 app.setWorkspace('library'); await raf();
 check('lib-toolbar-slim', !document.querySelector('[data-ws="library"] .toolbar button[title="Delete (Del)"]'));

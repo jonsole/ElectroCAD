@@ -128,7 +128,7 @@ export class LibraryEditor {
       this.libList,
       h('div', { class: 'lib-actions' }, button({ icon: 'plus', label: 'New library', cls: 'btn-outline', onClick: () => this.createLibrary() }))] });
     this.cards.add({ id: 'part', title: 'Part', icon: 'parts', cls: 'lib-side', tip: 'Part: name, prefix, Value, Units and Preferred footprints', body: [this.partEl] });
-    this.cards.add({ id: 'props', title: 'Properties', icon: 'sliders', cls: 'lib-side', tip: 'Properties: the selected Pin or graphic', body: [this.propsEl] });
+    this.cards.add({ id: 'props', title: 'Properties', icon: 'sliders', cls: 'lib-side', tip: 'Properties: the selected Pin or graphic', body: [this.propsEl], open: false, toolbar: false, onClose: () => { this._propsFor = null; } }).toggle(false); // opened by double-click or right-click → Properties…
     return this.cards;
   }
 
@@ -364,6 +364,9 @@ export class LibraryEditor {
       const [k, i] = s.split(':');
       if (!u || (k === 'pin' ? !u.pins[+i] : !u.graphics[+i])) this.selection.delete(s);
     }
+    // the Properties card belongs to the selection it was opened for
+    const pc = this.cards?.card('props');
+    if (pc?.isOpen && (!this._propsFor || this._selSig() !== this._propsFor)) { pc.toggle(false); this._propsFor = null; }
     if (this.btn) {
       this.btn.undo.disabled = !this.history.canUndo;
       this.btn.redo.disabled = !this.history.canRedo;
@@ -405,6 +408,15 @@ export class LibraryEditor {
     this.strip.mount(ws.view.el);
     const c = ws.view.canvas;
     const world = (e) => ws.view.view.toWorld(ws.view.local(e));
+    // double-clicking a pin, pad or graphic opens its Properties
+    c.addEventListener('dblclick', (e) => {
+      if (!this.active || this.tool !== 'select' || !this.draft) return;
+      const hit = this.hitTest(world(e), 5 / ws.view.view.scale);
+      if (!hit) return;
+      e.preventDefault();
+      this.selection = new Set([hit]);
+      this.openProperties();
+    });
     watchAlt(ws, (on) => this.setAlt(on));
     this.gridCard.mount(ws);
     c.addEventListener('pointerdown', (e) => {
@@ -668,6 +680,35 @@ export class LibraryEditor {
     this.setUnit(Math.max(0, i - 1));
   }
 
+  _selSig() { return [...this.selection].sort().join(); }
+
+  /** Show the selection's Properties card, until the selection changes or it's closed. */
+  openProperties() {
+    if (!this.selection.size) return;
+    this._propsFor = this._selSig();
+    this.cards.card('props').toggle(true);
+    this.refresh();
+  }
+
+  closeProperties() { this._propsFor = null; this.cards.card('props').toggle(false); this.refresh(); }
+
+  /** Right-click: select what's under the pointer and offer what applies to it. */
+  contextMenu(e) {
+    if (!this.active || !this.draft) return;
+    if (this.tool !== 'select') { this.setTool('select'); return; }
+    const v = this.ws.view, w = v.view.toWorld(v.local(e));
+    const hit = this.hitTest(w, 5 / v.view.scale);
+    if (hit && !this.selection.has(hit)) this.selection = new Set([hit]);
+    if (!hit) this.selection.clear();
+    this.refresh();
+    const at = { x: e.clientX, y: e.clientY };
+    if (!hit) { popupMenu([{ label: 'Fit in view', icon: 'fit', shortcut: 'Home', onClick: () => v.fitHome() }], at); return; }
+    const turn = [...this.selection].some((x) => x.startsWith('pin:'));
+    popupMenu([{ label: 'Properties…', icon: 'sliders', shortcut: 'Double-click', onClick: () => this.openProperties() }, 'sep',
+      turn ? { label: 'Turn', icon: 'rotate', shortcut: 'R', onClick: () => this.rotatePins() } : null,
+      { label: 'Delete', icon: 'trash', shortcut: 'Del', onClick: () => this.deleteSelection() }], at);
+  }
+
   /** The context strip: actions for the selection (only while this editor is the one shown). */
   _updateStrip() {
     const s = this.strip;
@@ -676,9 +717,10 @@ export class LibraryEditor {
     const sel = [...this.selection];
     const nK = sel.filter((x) => x.startsWith('pin:')).length, nG = sel.length - nK;
     const what = [[nK, 'pin'], [nG, 'shape']].filter(([k]) => k).map(([k, w]) => `${k} ${w}${k === 1 ? '' : 's'}`).join(', ');
-    s.show(`sel|${sel.sort().join()}`, () => [stripLabel(what, nK ? 'pin' : 'select'), stripSep(),
+    s.show(`sel|${sel.sort().join()}|${!!this.cards?.card('props')?.isOpen}`, () => [stripLabel(what, nK ? 'pin' : 'select'), stripSep(),
       nK ? stripButton({ icon: 'rotate', title: 'Turn the selected pins (R)', onClick: () => this.rotatePins() }) : null,
-      stripButton({ icon: 'trash', title: 'Delete (Del)', danger: true, onClick: () => this.deleteSelection() })]);
+      stripButton({ icon: 'trash', title: 'Delete (Del)', danger: true, onClick: () => this.deleteSelection() }),
+      stripSep(), stripButton({ icon: 'sliders', title: 'Properties (double-click, or right-click → Properties…)', active: !!this.cards?.card('props')?.isOpen, onClick: () => (this.cards.card('props').isOpen ? this.closeProperties() : this.openProperties()) })]);
   }
 
   deleteSelection() {

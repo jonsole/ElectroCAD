@@ -30,7 +30,7 @@ check('text', note?.text === 'Power (${SHEET_NAME})', note);
 key('i'); click(60, 10); click(50, 20); click(50, 20, 2); // a real double-click: a click, then the second click
 const line = sheet().drawings.find((d) => d.type === 'line');
 check('line', line && line.pts.length === 2, line);
-ed.selection = new Set([line.id]); ed.refresh();
+ed.selection = new Set([line.id]); ed.openProperties(); // double-click or right-click → Properties…
 const arrow = [...document.querySelectorAll('.inspector .check-row')].find((l) => /Arrow at end/.test(l.textContent))?.querySelector('input');
 arrow.checked = true; arrow.dispatchEvent(new Event('change'));
 check('arrow', sheet().drawings.find((d) => d.type === 'line').arrowEnd === true);

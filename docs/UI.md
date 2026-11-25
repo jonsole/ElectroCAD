@@ -412,6 +412,16 @@ Selecting something in one editor highlights the same thing in the other (#18). 
   - The choice is remembered.
 - Clearing the selection clears the highlight.
 
+## Properties
+
+Everywhere (the Schematic, the Board and both Library editors), an item's **Properties** card opens only when you ask for it:
+- **Opening it:** double-click the item (a part, footprint, track, via, zone, outline shape, pin, pad or graphic), or right-click it and choose **Properties…**. The context strip's Properties button toggles it too.
+- **Closing it:** it belongs to the selection it was opened for, so selecting something else, or clearing the selection, closes it. Its × closes it as well.
+- **Double-click exceptions:** on the Schematic, double-clicking a Reference or Value still edits it in place, a net label is renamed in place, a text note is edited in place, and a wire selects its net.
+- **Select net:** on the Board, a pad's net is selected from its right-click menu (**Select net …**).
+- **Right-click menus:** the Board and the Library editors now have one, like the Schematic. On an item it offers Properties… and the item's actions (rotate, flip, lock, select the connection or net, delete); on empty board it offers Fit, Update from Schematic, Board setup and Run DRC.
+- **Not in Properties:** board information isn't a property. Whether the Outline is closed, with its size, shows at the bottom of the Layers card and in the status bar. The Footprint editor's **New pads** settings are on the Pad tool's context strip.
+
 ## Context strips
 
 A small floating toolbar at the top of the canvas (`ui/contextStrip.js`, styled like the routing strip) shows the options for the tool in use or the actions for what is selected. The main toolbar keeps only what always applies: undo and redo, paste, the cards, the grid, and the workspace's own commands. Delete, rotate, flip, lock, mirror and Fields are off it now.
@@ -431,7 +441,7 @@ A small floating toolbar at the top of the canvas (`ui/contextStrip.js`, styled 
   - **Placing a part:** rotate, mirror, and stop.
   - **Label, power and ground tools:** rotate.
   - **A selection:** rotate, mirror and **Fields** (parts), duplicate, copy, delete.
-- **Library** (Symbol and Footprint editors): the selection's turn (pins or pads) and delete.
+- **Library** (Symbol and Footprint editors): the selection's turn (pins or pads), delete and Properties; the Pad tool's **New pads** (shape, size, SMD or through-hole, drill).
 
 The strip rebuilds only when its context changes, so a field being typed in keeps its focus. Clicks on it don't reach the canvas.
 

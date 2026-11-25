@@ -4,7 +4,7 @@
 //
 // Layer visibility and the corner radius for new rectangles are per-browser preferences, like the
 // picker's view; the stack and the Outline are saved in the Project.
-import { h, button, icon, toast } from '../ui/dom.js';
+import { h, button, icon, toast, popupMenu } from '../ui/dom.js';
 import { section } from '../workspaces/workspace.js';
 import { mm, toMm } from '../core/units.js';
 import {
@@ -190,8 +190,10 @@ export class BoardEditor {
     this.layerList = h('div', { class: 'layer-list', role: 'listbox', 'aria-label': 'Layers' });
     this.propsEl = h('div', { class: 'board-props' });
     this.cards = new CardSet('board');
-    this.cards.add({ id: 'layers', title: 'Layers', icon: 'layers', body: [this.stackEl, this.layerList], tip: 'Layers: the copper stack, which layers show, and the active layer' });
-    this.cards.add({ id: 'props', title: 'Properties', icon: 'sliders', body: [this.propsEl], tip: 'Properties: the selected footprint or outline shape, and the Outline' });
+    this.outlineEl = h('div', { class: 'outline-state-row' }); // the Outline's state: board information, always shown
+    this.cards.add({ id: 'layers', title: 'Layers', icon: 'layers', body: [this.stackEl, this.layerList, this.outlineEl], tip: 'Layers: the copper stack, which layers show, the active layer, and whether the Outline is closed' });
+    // Properties: opened by double-clicking something or right-click → Properties…, for that selection
+    this.cards.add({ id: 'props', title: 'Properties', icon: 'sliders', body: [this.propsEl], open: false, toolbar: false, onClose: () => { this._propsFor = null; } }).toggle(false);
     // DRC results: opened by the DRC button, which also runs it (so no card button of its own)
     this.drcEl = h('div', { class: 'drc-body' });
     this.drcCard = this.cards.add({ id: 'drc', title: 'DRC', icon: 'erc', body: [this.drcEl], open: false, toolbar: false, onClose: () => { this.drcFocus = null; this.ws?.view.invalidate(); } });
@@ -226,6 +228,16 @@ export class BoardEditor {
       button({ label: 'Show all', cls: 'btn-ghost', title: 'Show every layer', onClick: () => this.showLayers('all') }),
       button({ label: 'Only active', cls: 'btn-ghost', title: 'Hide every layer but the active one and Edge.Cuts', onClick: () => this.showLayers('active') }));
     this.layerList.replaceChildren(...rows, all);
+  }
+
+  /** Whether the Outline is closed, its size, pieces and cut-outs, or what's wrong with it. */
+  renderOutlineState() {
+    if (!this.outlineEl) return;
+    const outline = this.board.outline;
+    const c = checkOutline(outline), b = outlineBounds(outline), ok = c.closed;
+    this.outlineEl.replaceChildren(h('div', { class: 'outline-state ' + (ok ? 'ok' : 'bad'), role: 'status' },
+      icon(ok ? 'check' : 'info', 16),
+      h('span', {}, ok ? `Outline closed · ${fmt(b.x1 - b.x0)} × ${fmt(b.y1 - b.y0)} mm${c.pieces > 1 ? ` · ${c.pieces} separate pieces` : ''}${c.cutouts ? ` · ${c.cutouts} cut-out${c.cutouts > 1 ? 's' : ''}` : ''}` : c.problems.join(' '))));
   }
 
   renderProps() {
@@ -263,13 +275,6 @@ export class BoardEditor {
         parts.push(h('p', { class: 'side-note' }, `From ${this.rel(e[0])} to ${this.rel(e[1])} mm`));
       }
     } else if (sel.length > 1) parts.push(h('div', { class: 'prop-title' }, `${sel.length} outline shapes`));
-    // the Outline's state, always
-    const c = checkOutline(outline);
-    const b = outlineBounds(outline);
-    const ok = c.closed;
-    parts.push(h('div', { class: 'outline-state ' + (ok ? 'ok' : 'bad'), role: 'status' },
-      icon(ok ? 'check' : 'info', 16),
-      h('span', {}, ok ? `Outline closed · ${fmt(b.x1 - b.x0)} × ${fmt(b.y1 - b.y0)} mm${c.pieces > 1 ? ` · ${c.pieces} separate pieces` : ''}${c.cutouts ? ` · ${c.cutouts} cut-out${c.cutouts > 1 ? 's' : ''}` : ''}` : c.problems.join(' '))));
     el.replaceChildren(...parts);
   }
 
@@ -422,7 +427,7 @@ export class BoardEditor {
 
   status() {
     const b = outlineBounds(this.board.outline);
-    const size = b ? `${fmt(b.x1 - b.x0)} × ${fmt(b.y1 - b.y0)} mm` : 'no outline';
+    const size = !b ? 'no outline' : checkOutline(this.board.outline).closed ? `${fmt(b.x1 - b.x0)} × ${fmt(b.y1 - b.y0)} mm` : 'outline not closed';
     const un = Object.values(this._rats?.unrouted || {}).reduce((a, b) => a + b, 0);
     return `${this.board.stack.copper}-layer · ${fmt(this.board.stack.thickness)} mm · ${size} · ${this.board.footprints.length} footprints${this.board.footprints.length ? ` · ${un} unrouted` : ''} ${this.board.zones?.length ? ` · ${this.board.zones.length} zone${this.board.zones.length === 1 ? '' : 's'}${this.zoneFiller.busy ? ' (filling…)' : ''}` : ''} · active ${this.activeLayer} · grid ${gridLabel(this.gridStep)}${this.alt ? ' (Alt)' : ''}`;
   }
@@ -438,6 +443,9 @@ export class BoardEditor {
     for (const id of [...this.trackSel]) if (!tids.has(id)) this.trackSel.delete(id);
     const zids = new Set((this.board.zones || []).map((z) => z.id));
     for (const id of [...this.zoneSel]) if (!zids.has(id)) this.zoneSel.delete(id);
+    // the Properties card belongs to the selection it was opened for
+    const pc = this.cards?.card('props');
+    if (pc?.isOpen && (!this._propsFor || this._selSig() !== this._propsFor)) { pc.toggle(false); this._propsFor = null; }
     this.zoneFiller.update(this.project);
     this._rats = ratsnest(this.project);
     if (!copperLayerNames(this.board.stack.copper).includes(this.activeLayer) && /^In\d/.test(this.activeLayer)) this.activeLayer = 'F.Cu';
@@ -456,7 +464,7 @@ export class BoardEditor {
       if (this.pairSel.options.length !== pairs.length) this.pairSel.replaceChildren(...pairs.map((q) => h('option', { value: q.join('|') }, q.join(' ↔ '))));
       this.pairSel.value = cur;
     }
-    if (this.stackEl) { this.renderStack(); this.renderLayers(); this.renderProps(); this.renderDrc(); }
+    if (this.stackEl) { this.renderStack(); this.renderLayers(); this.renderOutlineState(); this.renderProps(); this.renderDrc(); }
     this._updateStrip();
     this._home();
     if (this.ws) { this.ws.view.grid = this.gridStep; this.ws.view.origin = this.board.origin; }
@@ -749,17 +757,16 @@ export class BoardEditor {
       }
     };
     c.addEventListener('pointerup', up);
-    // double-clicking a pad selects its Net (its pads light up, here and on the Schematic)
+    // double-clicking a footprint, track, via, zone or outline shape opens its Properties
     c.addEventListener('dblclick', (e) => {
       if (this.tool !== 'select') return;
-      const hit = hitPad(this.project, world(e), { preferBack: this.activeLayer.startsWith('B.') });
-      if (!hit?.pad.net) return;
+      const hit = this._hitAny(world(e));
+      if (!hit) return;
       e.preventDefault();
-      this.netSel = new Set([hit.pad.net]); this.fpSel.clear(); this.selection.clear();
-      const n = [...padNets(this.board).values()].filter((x) => x.toLowerCase() === hit.pad.net.toLowerCase()).length;
-      toast(`Net ${hit.pad.net}: ${n} pad${n === 1 ? '' : 's'}`, 'info', 1800);
-      this.refresh();
+      this._selectOnly(hit);
+      this.openProperties();
     });
+    ws.view.onContextMenu = (e) => this.contextMenu(e);
     watchAlt(ws, (on) => this.setAlt(on));
     this.gridCard.mount(ws);
     this.cards.mount(ws);
@@ -790,6 +797,91 @@ export class BoardEditor {
     const s = this.board.outline[index];
     const h = s && hitHandle(s, w, tol);
     return h ? { index, key: h.key, cursor: h.cursor } : null;
+  }
+
+  /** What is at `w`, in the order a click picks it: { kind: 'track' | 'footprint' | 'outline' | 'zone', item, index? }. */
+  _hitAny(w) {
+    const tol = 5 / (this.ws?.view.view.scale || 1);
+    const tr = this._hitTrack(w, tol);
+    if (tr) return { kind: 'track', item: tr };
+    const fp = hitFootprint(this.project, w, { preferBack: this.activeLayer.startsWith('B.'), hidden: this.hidden });
+    if (fp) return { kind: 'footprint', item: fp };
+    const o = this.hidden.has('Edge.Cuts') ? null : hitOutline(this.board.outline, w, tol);
+    if (o) return { kind: 'outline', item: o, index: this.board.outline.indexOf(o) };
+    const z = this._hitZone(w, tol);
+    if (z) return { kind: 'zone', item: z };
+    return null;
+  }
+
+  /** Select just that hit. */
+  _selectOnly(hit) {
+    this.selection.clear(); this.fpSel.clear(); this.trackSel.clear(); this.zoneSel.clear(); this.netSel.clear();
+    if (hit.kind === 'track') this.trackSel.add(hit.item.id);
+    else if (hit.kind === 'footprint') this.fpSel.add(hit.item.id);
+    else if (hit.kind === 'outline') this.selection.add(hit.index);
+    else if (hit.kind === 'zone') this.zoneSel.add(hit.item.id);
+  }
+
+  _selSig() { return `${[...this.fpSel].sort()}|${[...this.trackSel].sort()}|${[...this.zoneSel].sort()}|${[...this.selection].sort()}`; }
+  _anySelected() { return !!(this.fpSel.size || this.trackSel.size || this.zoneSel.size || this.selection.size); }
+
+  /** Show the selection's Properties card, until the selection changes or it's closed. */
+  openProperties() {
+    if (!this._anySelected()) return;
+    this._propsFor = this._selSig();
+    this.cards.card('props').toggle(true);
+    this.refresh();
+  }
+
+  closeProperties() { this._propsFor = null; this.cards.card('props').toggle(false); this.refresh(); }
+
+  /** Right-click: select what's under the pointer and offer what applies to it. */
+  contextMenu(e) {
+    if (this.route) { this.finishRoute(); return; }
+    if (this.tool !== 'select') { this.setTool('select'); return; }
+    const v = this.ws.view, w = v.view.toWorld(v.local(e));
+    const hit = this._hitAny(w);
+    const sameSel = hit && ((hit.kind === 'track' && this.trackSel.has(hit.item.id)) || (hit.kind === 'footprint' && this.fpSel.has(hit.item.id)) || (hit.kind === 'zone' && this.zoneSel.has(hit.item.id)) || (hit.kind === 'outline' && this.selection.has(hit.index)));
+    if (hit && !sameSel) this._selectOnly(hit);
+    if (!hit) { this.selection.clear(); this.fpSel.clear(); this.trackSel.clear(); this.zoneSel.clear(); this.netSel.clear(); }
+    this.refresh();
+    const at = { x: e.clientX, y: e.clientY };
+    const pad = hitPad(this.project, w, { preferBack: this.activeLayer.startsWith('B.') });
+    const net = pad?.pad.net || (hit?.kind === 'track' ? hit.item.net : null) || (hit?.kind === 'zone' ? hit.item.net : null);
+    const selectNet = net ? { label: `Select net ${net}`, icon: 'wire', onClick: () => this.selectNetOnBoard(net) } : null;
+    if (!hit) {
+      popupMenu([selectNet, selectNet ? 'sep' : null,
+        { label: 'Fit the board in view', icon: 'fit', shortcut: 'Home', onClick: () => v.fitHome() },
+        { label: 'Update from Schematic…', icon: 'annotate', shortcut: 'F8', onClick: () => this.annotate() },
+        { label: 'Board setup…', icon: 'settings', onClick: () => this.setup() },
+        { label: 'Run DRC', icon: 'erc', onClick: () => this.runDrc() }], at);
+      return;
+    }
+    const props = { label: 'Properties…', icon: 'sliders', shortcut: 'Double-click', onClick: () => this.openProperties() };
+    const del = { label: 'Delete', icon: 'trash', shortcut: 'Del', onClick: () => this.deleteSelection() };
+    if (this.fpSel.size) {
+      const locked = this.board.footprints.filter((f) => this.fpSel.has(f.id)).every((f) => f.locked);
+      popupMenu([props, 'sep',
+        { label: `Rotate ${this.rotStep}° anticlockwise`, icon: 'rotateLeft', shortcut: 'R', onClick: () => this.rotateSel(this.rotStep) },
+        { label: `Rotate ${this.rotStep}° clockwise`, icon: 'rotateRight', shortcut: 'Shift+R', onClick: () => this.rotateSel(-this.rotStep) },
+        { label: 'Flip to the other side', icon: 'flip', shortcut: 'F', onClick: () => this.flipSel() },
+        { label: locked ? 'Unlock' : 'Lock', icon: locked ? 'unlock' : 'lock', shortcut: 'L', onClick: () => this.lockSel() },
+        selectNet ? 'sep' : null, selectNet], at);
+      return;
+    }
+    if (this.trackSel.size) {
+      popupMenu([props, 'sep', { label: 'Select the whole connection', icon: 'route', shortcut: 'U', onClick: () => this.selectConnection() }, selectNet, 'sep', del], at);
+      return;
+    }
+    popupMenu([props, 'sep', selectNet, selectNet ? 'sep' : null, del], at);
+  }
+
+  /** Select a Net: its pads light up, here and on the Schematic. */
+  selectNetOnBoard(net) {
+    this.netSel = new Set([net]); this.fpSel.clear(); this.selection.clear(); this.trackSel.clear(); this.zoneSel.clear();
+    const n = [...padNets(this.board).values()].filter((x) => x.toLowerCase() === net.toLowerCase()).length;
+    toast(`Net ${net}: ${n} pad${n === 1 ? '' : 's'}`, 'info', 1800);
+    this.refresh();
   }
 
   /** The one selected Zone (when nothing else is), on a shown layer. */
@@ -1025,12 +1117,14 @@ export class BoardEditor {
     const zones = (this.board.zones || []).filter((z) => this.zoneSel.has(z.id));
     const shapes = [...this.selection].map((i) => this.board.outline[i]).filter(Boolean);
     const del = (title) => stripButton({ icon: 'trash', title: `${title} (Del)`, danger: true, onClick: () => this.deleteSelection() });
+    const pOpen = !!this.cards?.card('props')?.isOpen;
+    const propsBtn = () => stripButton({ icon: 'sliders', title: 'Properties (double-click, or right-click → Properties…)', active: pOpen, onClick: () => (pOpen ? this.closeProperties() : this.openProperties()) });
     if (fps.length) {
       const one = fps.length === 1 ? fps[0] : null;
       const ref = (f) => this.board.annotation?.components?.[f.componentId]?.ref || this.project.components[f.componentId]?.ref || '?';
       const locked = fps.every((f) => f.locked);
       const props = this.cards?.card('props');
-      s.show(`fp|${fps.map((f) => `${f.id}:${f.rot}:${f.side}:${!!f.locked}`).join(';')}|${this.rotStep}|${shapes.length}`, () => [
+      s.show(`fp|${fps.map((f) => `${f.id}:${f.rot}:${f.side}:${!!f.locked}`).join(';')}|${this.rotStep}|${shapes.length}|${!!props?.isOpen}`, () => [
         stripLabel(one ? `${ref(one)}${one.side === 'B' ? ' (back)' : ''}` : `${fps.length} footprints`, 'pad'), stripSep(),
         stripButton({ icon: 'rotateLeft', title: `Rotate ${this.rotStep}° anticlockwise (R)`, onClick: () => this.rotateSel(this.rotStep) }),
         stripButton({ icon: 'rotateRight', title: `Rotate ${this.rotStep}° clockwise (Shift+R)`, onClick: () => this.rotateSel(-this.rotStep) }),
@@ -1039,14 +1133,14 @@ export class BoardEditor {
         stripSep(),
         stripButton({ icon: 'flip', label: 'Flip', title: `Flip to the ${one?.side === 'B' ? 'front' : 'other side'} (F)`, onClick: () => this.flipSel() }),
         stripButton({ icon: locked ? 'unlock' : 'lock', label: locked ? 'Unlock' : 'Lock', active: locked, title: `${locked ? 'Unlock' : 'Lock'}: a locked footprint doesn't move (L)`, onClick: () => this.lockSel() }),
-        props ? stripButton({ icon: 'sliders', title: 'Properties: Reference, Value, Footprint, position', active: props.isOpen, onClick: () => { props.toggle(true); this.refresh(); } }) : null]);
+        props ? stripButton({ icon: 'sliders', title: 'Properties: Reference, Value, Footprint, position (double-click, or right-click → Properties…)', active: props.isOpen, onClick: () => (props.isOpen ? this.closeProperties() : this.openProperties()) }) : null]);
       return;
     }
     if (tracks.length || vias.length) {
       const one = (xs, k) => (xs.length && xs.every((x) => x[k] === xs[0][k]) ? xs[0][k] : null);
       const ids = tracks.map((x) => x.id), vids = vias.map((x) => x.id);
       const w = one(tracks, 'width'), lay = one(tracks, 'layer');
-      s.show(`copper|${[...this.trackSel].join()}|${w}|${lay}|${one(vias, 'drill')}|${one(vias, 'diameter')}`, () => [
+      s.show(`copper|${pOpen}|${[...this.trackSel].join()}|${w}|${lay}|${one(vias, 'drill')}|${one(vias, 'diameter')}`, () => [
         stripLabel([tracks.length ? `${tracks.length} track${tracks.length === 1 ? '' : 's'}` : '', vias.length ? `${vias.length} via${vias.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(', '), tracks.length ? 'route' : 'via'), stripSep(),
         tracks.length ? stripNumber({ label: 'Width', value: w == null ? null : fmt(w), placeholder: 'mixed', unit: 'mm', step: '0.01', min: '0.01', onSet: (v) => { try { this.app.edit('Track width', (p) => setTrackWidth(p, ids, mm(v))); } catch (e) { toast(e.message, 'error', 3000); } } }) : null,
         tracks.length ? stripSelect({ label: 'Layer', value: lay || '', options: [...(lay ? [] : [['', 'Mixed']]), ...copper.map((l) => [l, l])], onSet: (v) => { if (v) this.app.edit(`Tracks to ${v}`, (p) => setTrackLayer(p, ids, v)); } }) : null,
@@ -1054,7 +1148,7 @@ export class BoardEditor {
         vias.length ? stripNumber({ label: '', value: one(vias, 'diameter') == null ? null : fmt(one(vias, 'diameter')), placeholder: 'mixed', unit: 'mm', step: '0.05', min: '0.1', width: 56, title: 'Via diameter (mm)', onSet: (v) => { try { this.app.edit('Via diameter', (p) => setViaSize(p, vids, { diameter: mm(v) })); } catch (e) { toast(e.message, 'error', 3000); } } }) : null,
         stripSep(),
         stripButton({ icon: 'wire', label: 'Connection', title: 'Select the whole connection: every track and via joined to these (U)', onClick: () => this.selectConnection() }),
-        del('Delete')]);
+        del('Delete'), stripSep(), propsBtn()]);
       return;
     }
     if (zones.length) {
@@ -1062,18 +1156,18 @@ export class BoardEditor {
       const nets = [...new Set([...padNets(this.board).values()].filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
       if (z?.net && !nets.some((n) => n.toLowerCase() === z.net.toLowerCase())) nets.unshift(z.net);
       const set = (label, fn) => this.app.edit(label, (p) => fn(p.board.zones.find((q) => q.id === z.id)));
-      s.show(`zone-sel|${zones.map((q) => `${q.id}:${q.net}:${q.layer}:${q.priority}:${q.connect}`).join(';')}`, () => [
+      s.show(`zone-sel|${pOpen}|${zones.map((q) => `${q.id}:${q.net}:${q.layer}:${q.priority}:${q.connect}`).join(';')}`, () => [
         stripLabel(z ? `Zone on ${z.layer}` : `${zones.length} zones`, 'zone'), stripSep(),
         z ? stripSelect({ label: 'Net', value: nets.find((n) => n.toLowerCase() === (z.net || '').toLowerCase()) || '', options: [['', '(no net)'], ...nets.map((n) => [n, n])], onSet: (v) => set(`Zone net ${v || '(none)'}`, (q) => { q.net = v; }) }) : null,
         z ? stripSelect({ label: 'Layer', value: z.layer, options: copper.map((l) => [l, l]), onSet: (v) => set(`Zone to ${v}`, (q) => { q.layer = v; }) }) : null,
         z ? stripNumber({ label: 'Priority', value: z.priority, step: '1', min: '0', width: 48, onSet: (v) => set('Zone priority', (q) => { q.priority = Math.max(0, Math.round(v)); }) }) : null,
         z ? stripSegmented({ label: 'Pads', value: z.connect === 'solid' ? 'solid' : 'thermal', items: [['thermal', 'Thermal', 'Same-net pads join through thermal reliefs'], ['solid', 'Solid', 'Same-net pads are joined solid']], onPick: (id) => set(`Pads ${id}`, (q) => { q.connect = id; }) }) : null,
-        stripSep(), del(zones.length === 1 ? 'Delete the zone' : 'Delete the zones')]);
+        stripSep(), del(zones.length === 1 ? 'Delete the zone' : 'Delete the zones'), stripSep(), propsBtn()]);
       return;
     }
     if (shapes.length) {
       const kind = { rect: 'Rectangle', circle: 'Circle', line: 'Line', arc: 'Arc' };
-      s.show(`outline-sel|${[...this.selection].join()}`, () => [stripLabel(shapes.length === 1 ? `${kind[shapes[0].type] || 'Shape'} on Edge.Cuts` : `${shapes.length} outline shapes`, 'outline'), stripSep(), del('Delete')]);
+      s.show(`outline-sel|${pOpen}|${[...this.selection].join()}`, () => [stripLabel(shapes.length === 1 ? `${kind[shapes[0].type] || 'Shape'} on Edge.Cuts` : `${shapes.length} outline shapes`, 'outline'), stripSep(), del('Delete'), stripSep(), propsBtn()]);
       return;
     }
     s.hide();

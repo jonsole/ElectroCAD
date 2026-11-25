@@ -35,12 +35,12 @@ export class SchematicInspector {
     const labels = (this.ed.sheet.labels || []).filter((l) => this.ed.selection.has(l.id));
     const drawings = (this.ed.sheet.drawings || []).filter((d) => this.ed.selection.has(d.id));
     const comps = syms.map((y) => this.project.components[y.componentId]);
-    const sig = JSON.stringify([[...this.ed.selection], syms, wires.length, labels, drawings, comps, this.project.fieldStyles?.default]);
+    const sig = JSON.stringify([!!this.ed.propsOpen, [...this.ed.selection], syms, wires.length, labels, drawings, comps, this.project.fieldStyles?.default]);
     const focused = this.el.contains(document.activeElement) ? document.activeElement : null;
     const typing = focused && /^(INPUT|TEXTAREA)$/.test(focused.tagName);
     if (typing && sig === this.sig) return;
     this.sig = sig;
-    if (!syms.length && !wires.length && !labels.length && !drawings.length) { this.el.replaceChildren(); return; }
+    if (!this.ed.propsOpen || (!syms.length && !wires.length && !labels.length && !drawings.length)) { this.el.replaceChildren(); return; }
     if (drawings.length === 1 && !syms.length && !labels.length && !wires.length) { this._drawing(drawings[0]); return this._refocus(focused); }
     if (syms.length === 1 && !labels.length) this._one(syms[0], wires.length);
     else if (labels.length === 1 && !syms.length) this._label(labels[0], wires.length);
@@ -59,14 +59,10 @@ export class SchematicInspector {
    * The card header, as in DabbleCAD: the title (drag it to move the card) and icon buttons for
    * the commands that apply to the selection.
    */
-  _head(title, sub, { rotate = true, mirror = false } = {}) {
+  _head(title, sub) {
     const ed = this.ed;
-    return cardHead({ icon: 'sliders', title, sub, actions: [
-      rotate ? button({ icon: 'rotate', title: 'Rotate (R)', onClick: () => ed.rotate() }) : null,
-      mirror ? button({ icon: 'mirror', title: 'Mirror (X)', onClick: () => ed.mirror() }) : null,
-      button({ icon: 'duplicate', title: 'Duplicate (Ctrl+D)', onClick: () => ed.duplicate() }),
-      button({ icon: 'trash', title: 'Delete (Del)', onClick: () => ed.deleteSelection() })],
-    onClose: () => { ed.selection.clear(); ed.refresh(); }, closeTitle: 'Close (deselect; selecting something opens it again)' });
+    // the actions for the selection are on the context strip; this card is just its properties
+    return cardHead({ icon: 'sliders', title, sub, onClose: () => ed.closeProperties(), closeTitle: 'Close (double-click a part, or right-click → Properties…, to open it again)' });
   }
 
   _edit(label, fn) {

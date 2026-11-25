@@ -38,7 +38,10 @@ check('rats-live', wire && (Math.abs(wire.a[1] - (a0[1] + 8 * MM)) < 2 * MM || M
 check('not-yet-moved', fp(ids.r1).at[0] === a0[0]);
 ev('pointerup', a0[0] - 10 * MM, a0[1] + 8 * MM, 0);
 check('moved', fp(ids.r1).at[0] === a0[0] - 10 * MM && fp(ids.r1).at[1] === a0[1] + 8 * MM, [a0, fp(ids.r1).at]);
-check('selected', ed.fpSel.has(fp(ids.r1).id) && /Reference/.test(ed.propsEl.textContent));
+check('selected', ed.fpSel.has(fp(ids.r1).id) && !ed.cards.card('props').isOpen); // selecting doesn't open Properties
+// double-clicking the footprint does
+ws.view.canvas.dispatchEvent(new MouseEvent('dblclick', { ...pt(...fp(ids.r1).at), bubbles: true, cancelable: true }));
+check('props-on-dblclick', ed.cards.card('props').isOpen && /Reference/.test(ed.propsEl.textContent));
 key0('r');
 check('rot90', fp(ids.r1).rot === 90);
 key0('f');
@@ -64,7 +67,7 @@ check('swap-rats', Object.values(ed._rats.unrouted).reduce((a, b) => a + b, 0) =
 // …and from the Schematic inspector
 app.setWorkspace('schematic');
 const sed = app.workspace('schematic').editor;
-sed.selection = new Set([app.project.schematic.sheets[0].symbols.find((y) => y.componentId === ids.r1).id]); sed.refresh();
+sed.selection = new Set([app.project.schematic.sheets[0].symbols.find((y) => y.componentId === ids.r1).id]); sed.openProperties();
 const ssel = document.querySelector('.inspector select[aria-label="Footprint"]');
 const smd = [...ssel.options].find((o) => /0603/.test(o.textContent));
 ssel.value = smd.value; ssel.dispatchEvent(new Event('change'));

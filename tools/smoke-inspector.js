@@ -1,5 +1,7 @@
-// Inspector journey (#9): appears on selection and hides when cleared; edits are single undo
-// steps; a duplicate Reference designator is refused with a message and changes nothing.
+// Inspector journey (#9): the Properties card opens on double-clicking a part (or right-click →
+// Properties…), not on selection, and closes when the selection changes; its header has no
+// action icons (they're on the context strip); edits are single undo steps; a duplicate
+// Reference designator is refused with a message and changes nothing.
 const app = window.electrocad;
 const fails = [];
 const check = (name, cond, info) => { if (!cond) fails.push(name + (info !== undefined ? ' -> ' + JSON.stringify(info) : '')); };
@@ -12,8 +14,15 @@ const insp = () => document.querySelector('.inspector');
 ed.selection = new Set(); ed.refresh();
 check('hidden-when-empty', insp().childElementCount === 0);
 ed.selection = new Set([a.sym.id]); ed.refresh();
-check('shown-on-select', /R1/.test(insp().querySelector('.insp-title').textContent));
-check('header-icons', ['Rotate (R)', 'Mirror (X)', 'Duplicate (Ctrl+D)', 'Delete (Del)'].every((t) => insp().querySelector(`.insp-head button[title="${t}"]`)));
+check('not-on-select', insp().childElementCount === 0);
+{
+  // double-click the part on the canvas
+  const ws0 = app.workspace('schematic'), cr = ws0.view.canvas.getBoundingClientRect();
+  const [sx, sy] = ws0.view.view.toScreen(a.sym.at);
+  ws0.view.canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: cr.left + sx, clientY: cr.top + sy, bubbles: true, cancelable: true }));
+}
+check('shown-on-dblclick', /R1/.test(insp().querySelector('.insp-title')?.textContent), insp().textContent.slice(0, 60));
+check('no-header-actions', !insp().querySelector('.insp-head button[title="Rotate (R)"]') && !insp().querySelector('.insp-head button[title="Delete (Del)"]'));
 // every floating card has the same title bar: icon, title, close X last
 for (const el of document.querySelectorAll('.ws-root[data-ws="schematic"] .float-panel, .ws-root[data-ws="schematic"] .inspector')) {
   const head = el.querySelector(':scope > .card-head');
@@ -64,6 +73,8 @@ document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, b
 check('undo-two', app.project.components[a.comp.id].footprint.fpId === 'R_0805' && app.project.components[a.comp.id].value === '1k');
 check('inspector-follows-undo', insp().querySelector('select[data-role="footprint"]').selectedOptions[0].textContent === 'R_0805_2012Metric');
 ed.selection = new Set([a.sym.id, b.sym.id]); ed.refresh();
+check('closes-on-new-selection', insp().childElementCount === 0);
+ed.openProperties();
 check('multi', /2 parts selected/.test(insp().querySelector('.insp-title').textContent));
 const fs = insp().querySelector('select[data-role="field-style-part"]');
 fs.value = 'compact'; fs.dispatchEvent(new Event('change'));
@@ -106,7 +117,8 @@ check('esc-cancels', !document.querySelector('.field-edit') && app.history.undoS
   const ir = sed.inspector.el.getBoundingClientRect();
   const a = { x0: cr.left + sx0, y0: cr.top + sy0, x1: cr.left + sx1, y1: cr.top + sy1 };
   const hidden = a.x0 < ir.right && a.x1 > ir.left && a.y0 < ir.bottom && a.y1 > ir.top;
-  check('placed-not-hidden', sed.inspector.el.childElementCount > 0 && !hidden, [a, { l: ir.left, t: ir.top, r: ir.right, b: ir.bottom }]);
+  // placing doesn't open Properties either
+  check('placed-not-hidden', sed.inspector.el.childElementCount === 0 && !hidden, [a, { l: ir.left, t: ir.top, r: ir.right, b: ir.bottom }]);
 }
 // selecting a part that lies under the inspector moves the card out of the way (not the view)
 {
@@ -114,7 +126,7 @@ check('esc-cancels', !document.querySelector('.field-edit') && app.history.undoS
   sed.selection = new Set(); sed.refresh();
   sed.inspector.el.style.transition = 'none'; // the headless window doesn't run CSS transitions
   const sym = sed.sheet.symbols.at(-1);
-  sed.selection = new Set([sym.id]); sed.refresh(); // the card shows; put the part right under it
+  sed.selection = new Set([sym.id]); sed.openProperties(); // the card shows; put the part right under it
   const ir = sed.inspector.el.getBoundingClientRect(), cr = sws.view.canvas.getBoundingClientRect();
   const v = sws.view.view;
   const [sx, sy] = v.toScreen(sym.at);
@@ -122,7 +134,7 @@ check('esc-cancels', !document.querySelector('.field-edit') && app.history.undoS
   const view0 = JSON.stringify(v.toJSON());
   sed.selection = new Set(); sed.refresh();
   sed.lastPointer = [ir.left + ir.width / 2, ir.top + 60];
-  sed.selection = new Set([sym.id]); sed.refresh();
+  sed.selection = new Set([sym.id]); sed.openProperties();
   await new Promise((r) => setTimeout(r, 250)); // the card slides aside
   const bb = window.electrocadLib.schematic.symbolBounds(app.project, sym);
   const [a0, b0] = v.toScreen([bb.x0, bb.y0]), [a1, b1] = v.toScreen([bb.x1, bb.y1]);

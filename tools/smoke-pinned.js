@@ -24,6 +24,7 @@ check('pinned', !!s0.fieldPins?.value && app.history.undoStack.length === depth 
 check('part-not-moved', s0.at[0] === 50 * G && s0.at[1] === 40 * G);
 const v1 = valueItem();
 check('dropped-there', Math.abs(v1.x - (from[0] + 6 * G)) <= G / 4 && Math.abs(v1.y - (from[1] + 8 * G)) <= G / 4 && v1.pinned, [v1.x, v1.y]);
+ed.selection = new Set([sym.id]); ed.openProperties();
 check('inspector-offers-reapply', [...document.querySelectorAll('.inspector button')].some((b) => /Re-apply style/.test(b.textContent)));
 // the part moves: the pinned field goes with it
 ed.nudge(4, 0); ws.view.draw();

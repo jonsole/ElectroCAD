@@ -48,15 +48,17 @@ check('focus-board', bws.el.classList.contains('focused') && sws.el.classList.co
 bed.fpSel = new Set([app.project.board.footprints.find((f) => f.componentId === ids.r2).id]); bed.refresh();
 check('probe-back', app.probe.source === 'board' && app.probe.probe.components.has(ids.r2));
 check('schematic-targets', sed._probeTargets(app.project)?.has(sheet().symbols.find((y) => y.componentId === ids.r2).id));
-// double-click a pad: its Net, whose Wires light on the Schematic
+// right-click a pad → Select net: its Net, whose Wires light on the Schematic
 const nets = Object.entries(app.project.board.annotation.nets).find(([, ps]) => ps.includes(`${ids.r1}:2`));
 const br = bws.view.canvas.getBoundingClientRect();
 for (const q of bed._padPoints()) {
   const [px, py] = bws.view.view.toScreen(q);
-  bws.view.canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: br.left + px, clientY: br.top + py, bubbles: true, cancelable: true }));
-  if (bed.netSel.size && [...bed.netSel][0].toLowerCase() === nets[0].toLowerCase()) break;
+  bed.contextMenu({ clientX: br.left + px, clientY: br.top + py });
+  const item = [...document.querySelectorAll('.menu .menu-item')].find((m) => m.textContent.toLowerCase().includes(`select net ${nets[0].toLowerCase()}`));
+  if (item) { item.click(); break; }
+  document.querySelectorAll('.menu').forEach((m) => m.remove());
 }
-check('pad-dblclick', [...bed.netSel][0]?.toLowerCase() === nets[0].toLowerCase(), [...bed.netSel]);
+check('pad-select-net', [...bed.netSel][0]?.toLowerCase() === nets[0].toLowerCase(), [...bed.netSel]);
 const lit = sed._probeTargets(app.project);
 check('pad-net-wires', lit && sheet().wires.every((w) => lit.has(w.id)), lit && [...lit]);
 // clearing the selection clears the highlight

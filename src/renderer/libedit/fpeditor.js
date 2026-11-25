@@ -21,7 +21,7 @@ import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { highlight, screenBox } from '../view/highlight.js';
 import { watchAlt } from '../ui/grid.js';
 import { GridCard } from '../ui/gridCard.js';
-import { ContextStrip, stripLabel, stripSep, stripButton } from '../ui/contextStrip.js';
+import { ContextStrip, stripLabel, stripSep, stripButton, stripNumber, stripSelect } from '../ui/contextStrip.js';
 import { CardSet } from '../ui/cards.js';
 
 export const FP_TOOLS = {
@@ -101,7 +101,7 @@ export class FootprintEditor {
     this.cards = new CardSet('library-footprint');
     this.cards.add({ id: 'list', title: 'Footprints', icon: 'library', cls: 'lib-side', tip: 'Footprints: your Libraries\' and the built-in ones', body: [h('div', { class: 'side-search lib-search' }, icon('search', 16), this.search), this.listEl] });
     this.cards.add({ id: 'fp', title: 'Footprint', icon: 'pad', cls: 'lib-side', tip: 'Footprint: name, Library and problems', body: [this.fpEl] });
-    this.cards.add({ id: 'props', title: 'Properties', icon: 'sliders', cls: 'lib-side', tip: 'Properties: the selected pad or graphic, or the next pad', body: [this.propsEl] });
+    this.cards.add({ id: 'props', title: 'Properties', icon: 'sliders', cls: 'lib-side', tip: 'Properties: the selected pad or graphic, or the next pad', body: [this.propsEl], open: false, toolbar: false, onClose: () => { this._propsFor = null; } }).toggle(false); // opened by double-click or right-click → Properties…
     return this.cards;
   }
 
@@ -217,17 +217,8 @@ export class FootprintEditor {
       el.replaceChildren(...rows);
       return;
     }
-    if (sel.length) { el.replaceChildren(h('p', { class: 'side-note' }, `${sel.length} items selected. Drag to move, R turns pads, Del deletes.`)); return; }
-    // nothing selected: what the Pad tool makes next
-    const t = this.padTpl;
-    el.replaceChildren(...[
-      h('div', { class: 'prop-title' }, 'New pads'),
-      select('Shape', t.shape, shapes, (v) => { t.shape = v; this.renderProps(); }),
-      num('Width', fmt(t.w), (v) => { t.w = mm(v); }),
-      t.shape === 'circle' ? null : num('Height', fmt(t.h), (v) => { t.h = mm(v); }),
-      select('Type', t.tht ? 'tht' : 'smd', [['smd', 'SMD'], ['tht', 'Through-hole']], (v) => { t.tht = v === 'tht'; this.renderProps(); }),
-      t.tht ? num('Drill', fmt(t.drill), (v) => { t.drill = mm(v); }) : null,
-      h('p', { class: 'side-note' }, 'P adds a pad with the next number. Graphics go on the active layer (the chips at the bottom). Hold Alt for the Alt grid.')].filter(Boolean));
+    // several items, or nothing (what the Pad tool makes next is on its context strip)
+    el.replaceChildren(h('p', { class: 'side-note' }, sel.length ? `${sel.length} items selected. Drag to move, R turns pads, Del deletes.` : 'Nothing selected.'));
   }
 
   // ---------------------------------------------------------------- state
@@ -235,6 +226,9 @@ export class FootprintEditor {
   refresh() {
     const d = this.draft;
     for (const s of [...this.selection]) { const [k, i] = s.split(':'); if (!d || (k === 'pad' ? !d.pads[+i] : !d.graphics[+i])) this.selection.delete(s); }
+    // the Properties card belongs to the selection it was opened for
+    const pc = this.cards?.card('props');
+    if (pc?.isOpen && (!this._propsFor || this._selSig() !== this._propsFor)) { pc.toggle(false); this._propsFor = null; }
     if (this.btn) {
       this.btn.undo.disabled = !this.history.canUndo;
       this.btn.redo.disabled = !this.history.canRedo;
@@ -381,17 +375,59 @@ export class FootprintEditor {
     return m;
   }
 
+  _selSig() { return [...this.selection].sort().join(); }
+
+  /** Show the selection's Properties card, until the selection changes or it's closed. */
+  openProperties() {
+    if (!this.selection.size) return;
+    this._propsFor = this._selSig();
+    this.cards.card('props').toggle(true);
+    this.refresh();
+  }
+
+  closeProperties() { this._propsFor = null; this.cards.card('props').toggle(false); this.refresh(); }
+
+  /** Right-click: select what's under the pointer and offer what applies to it. */
+  contextMenu(e) {
+    if (!this.active || !this.draft) return;
+    if (this.tool !== 'select') { this.setTool('select'); return; }
+    const v = this.ws.view, w = v.view.toWorld(v.local(e));
+    const hit = this.hitTest(w, 5 / v.view.scale);
+    if (hit && !this.selection.has(hit)) this.selection = new Set([hit]);
+    if (!hit) this.selection.clear();
+    this.refresh();
+    const at = { x: e.clientX, y: e.clientY };
+    if (!hit) { popupMenu([{ label: 'Fit in view', icon: 'fit', shortcut: 'Home', onClick: () => v.fitHome() }], at); return; }
+    const turn = [...this.selection].some((x) => x.startsWith('pad:'));
+    popupMenu([{ label: 'Properties…', icon: 'sliders', shortcut: 'Double-click', onClick: () => this.openProperties() }, 'sep',
+      turn ? { label: 'Turn', icon: 'rotate', shortcut: 'R', onClick: () => this.rotatePads() } : null,
+      { label: 'Delete', icon: 'trash', shortcut: 'Del', onClick: () => this.deleteSelection() }], at);
+  }
+
   /** The context strip: actions for the selection (only while this editor is the one shown). */
   _updateStrip() {
     const s = this.strip;
     if (!s || !this.ws) return;
+    if (this.active && this.draft && this.tool === 'pad') {
+      // what the Pad tool makes next
+      const t = this.padTpl;
+      const shapes = PAD_SHAPES.map((x) => [x, { rect: 'Rectangle', roundrect: 'Rounded rect', circle: 'Circle', oval: 'Oval' }[x]]);
+      s.show(`pad|${t.shape}|${t.w}|${t.h}|${t.tht}|${t.drill}`, () => [stripLabel('New pads', 'pad'), stripSep(),
+        stripSelect({ label: 'Shape', value: t.shape, options: shapes, onSet: (v) => { t.shape = v; this.refresh(); } }),
+        stripNumber({ label: 'W', value: fmt(t.w), unit: t.shape === 'circle' ? 'mm' : '', step: '0.01', min: '0.01', width: 58, title: 'Width (mm)', onSet: (v) => { t.w = mm(v); this.refresh(); } }),
+        t.shape === 'circle' ? null : stripNumber({ label: 'H', value: fmt(t.h), unit: 'mm', step: '0.01', min: '0.01', width: 58, title: 'Height (mm)', onSet: (v) => { t.h = mm(v); this.refresh(); } }),
+        stripSelect({ label: 'Type', value: t.tht ? 'tht' : 'smd', options: [['smd', 'SMD'], ['tht', 'Through-hole']], onSet: (v) => { t.tht = v === 'tht'; this.refresh(); } }),
+        t.tht ? stripNumber({ label: 'Drill', value: fmt(t.drill), unit: 'mm', step: '0.05', min: '0.05', width: 58, onSet: (v) => { t.drill = mm(v); this.refresh(); } }) : null]);
+      return;
+    }
     if (!this.active || this.tool !== 'select' || !this.selection.size) { s.hide(); return; }
     const sel = [...this.selection];
     const nK = sel.filter((x) => x.startsWith('pad:')).length, nG = sel.length - nK;
     const what = [[nK, 'pad'], [nG, 'shape']].filter(([k]) => k).map(([k, w]) => `${k} ${w}${k === 1 ? '' : 's'}`).join(', ');
-    s.show(`sel|${sel.sort().join()}`, () => [stripLabel(what, nK ? 'pad' : 'select'), stripSep(),
+    s.show(`sel|${sel.sort().join()}|${!!this.cards?.card('props')?.isOpen}`, () => [stripLabel(what, nK ? 'pad' : 'select'), stripSep(),
       nK ? stripButton({ icon: 'rotate', title: 'Turn the selected pads 90° (R)', onClick: () => this.rotatePads() }) : null,
-      stripButton({ icon: 'trash', title: 'Delete (Del)', danger: true, onClick: () => this.deleteSelection() })]);
+      stripButton({ icon: 'trash', title: 'Delete (Del)', danger: true, onClick: () => this.deleteSelection() }),
+      stripSep(), stripButton({ icon: 'sliders', title: 'Properties (double-click, or right-click → Properties…)', active: !!this.cards?.card('props')?.isOpen, onClick: () => (this.cards.card('props').isOpen ? this.closeProperties() : this.openProperties()) })]);
   }
 
   deleteSelection() {
@@ -469,6 +505,15 @@ export class FootprintEditor {
     this.strip.mount(ws.view.el);
     const c = ws.view.canvas;
     const world = (e) => ws.view.view.toWorld(ws.view.local(e));
+    // double-clicking a pin, pad or graphic opens its Properties
+    c.addEventListener('dblclick', (e) => {
+      if (!this.active || this.tool !== 'select' || !this.draft) return;
+      const hit = this.hitTest(world(e), 5 / ws.view.view.scale);
+      if (!hit) return;
+      e.preventDefault();
+      this.selection = new Set([hit]);
+      this.openProperties();
+    });
     watchAlt(ws, (on) => { if (!this.active || !!on === !!this.alt) return; this.alt = !!on; this.refresh(); });
     this.gridCard.mount(ws);
     c.addEventListener('pointerdown', (e) => {

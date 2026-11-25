@@ -42,7 +42,7 @@ const u1b = sheet.symbols.find((y) => y.componentId === U1.id && y.unit === 1);
 ed.selection = new Set([u1b.id]); ed.deleteSelection();
 check('kept-u1', !!app.project.components[U1.id] && sheet.symbols.filter((y) => y.componentId === U1.id).length === 4);
 const u1a = sheet.symbols.find((y) => y.componentId === U1.id && y.unit === 0);
-ed.selection = new Set([u1a.id]); ed.refresh();
+ed.selection = new Set([u1a.id]); ed.openProperties(); // double-click or right-click → Properties…
 const sel = document.querySelector('.inspector select[aria-label="Unit"]');
 check('unit-select', !!sel && !sel.querySelector('option[value="1"]').disabled && sel.querySelector('option[value="2"]').disabled);
 sel.value = '1'; sel.dispatchEvent(new Event('change'));
