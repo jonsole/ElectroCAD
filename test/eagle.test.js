@@ -329,3 +329,16 @@ test('a label the import adds for a named net goes clear of pins (#75)', async (
   assert.equal(l.rot, 0);
   assert.ok(r.report.some((t) => /got one, placed clear of pins/.test(t)), r.report.join('\n'));
 });
+
+test('Eagle symbols carry Eagle\'s pin text: names 1.778 mm, 1.905 mm in from the pin (#79)', async () => {
+  const p = importEagle({ sch: SCH, name: 'reg' }).project;
+  for (const part of Object.values(p.parts)) for (const u of part.units) {
+    if (!u.pins.length) continue;
+    assert.equal(u.pinNameSize, 1_778_000, part.name);
+    assert.equal(u.pinNameOffset, 1_905_000, part.name);
+  }
+  const { measureText, setTextStyle } = await import('../src/renderer/schematic/render.js');
+  const { strokeWidthOf } = await import('../src/renderer/core/strokefont.js');
+  setTextStyle('vector');
+  assert.equal(measureText('PA05/SERCOM0_1', 1_778_000), Math.round(strokeWidthOf('PA05/SERCOM0_1', 1_778_000)));
+});

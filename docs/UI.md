@@ -133,6 +133,11 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 - **Junctions:** a dot where Wires really connect (a T-join, or three or more ends).
 - **Crossings** (option, on by default): where a horizontal and a vertical Wire cross without connecting, the horizontal one draws a small semicircle **hop** over the other.
 
+**Text** (Settings → Schematic display → Text; #79): schematic text (pin names and numbers, References and Values, labels, sheet text, the title block) is drawn in ElectroCAD's **vector font** by default: the same single-stroke glyphs as the board's silk and the silk Gerber (`core/strokefont.js`). Or choose **System font** for the operating system's sans font.
+- A text **size** is the full height of a capital, pen included, as in Eagle. Capitals are 0.9 of it between stroke centres, the pen 0.1, and each character advances 0.786 of it. These are Eagle's own metrics, measured from a board house's Gerbers and from boxes a designer drew round parts of pin names, so imported layouts line up.
+- Field placement, labels and selection measure text in the chosen style, so they always fit what's drawn.
+- **Pin text per Unit:** the Symbol editor's **Pin text** row sets a Unit's pin name size, pin number size and the gap between a pin's inner end and its name (empty means the default: about 1 mm text, 0.6 mm gap). Eagle imports use Eagle's 1.778 mm names, 1.905 mm in from the pin.
+
 ## Labels, Power symbols and Sheets
 
 - **Net label (L)**, **Global label (Ctrl+L)**, **Power symbol (P)** and **Ground (G)** are tools in the left palette. A ghost follows the cursor; R turns it. Clicking a Pin, a Wire (end or middle) or a grid point opens a name box there; Enter places, Esc cancels. Ground goes down at once as GND, and a Power symbol goes down at once with the last power net used (+5V the first time). Double-click a power symbol's name to pick another net: a drop-down under the name box lists every power net (+3V3, +5V, VCC… and any the Project uses, so a voltage typed once is offered on every power symbol), narrowing as you type; arrow keys and Enter or a click choose. The next Power symbol then uses that net. The inspector has the same list as a Power net select, plus a box for a new net. (Not a `<datalist>`: browsers hide datalist choices that don't match the text already in the box.) A name with spaces is refused in the box, like a bad Reference.
@@ -175,7 +180,8 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 
 - **Sheets:** all of them, or one.
 - **Colours:** ElectroCAD Light (the default), Classic paper, or black and white. They don't follow the editor's theme.
-- **Export PDF:** the chosen Sheets in one file, each page at its Sheet's paper size, with a border and the title block. Text uses the standard Helvetica font. Characters it can't show become `?`, except Ω, which is written "Ohm". Open the PDF in any viewer to print it.
+- **Text:** the **vector font** (as on screen; letters are strokes), or **searchable text** in Helvetica that a PDF reader can find and copy. Defaults to the screen's text style; the choice is remembered.
+- **Export PDF:** the chosen Sheets in one file, each page at its Sheet's paper size, with a border and the title block. With searchable text, characters Helvetica can't show become `?`, except Ω, which is written "Ohm". Open the PDF in any viewer to print it.
 - **Export SVG:** one Sheet per file, at its paper size in millimetres.
 
 Output is drawn by the editor's own drawing code through vector back ends (`print/vector.js`), so it matches the screen. Editor-only marks (unconnected pin rings, ERC markers, selection) are left out.
@@ -524,7 +530,7 @@ The **Gerber** tab makes the files a board house needs (#26).
   - **Copper:** zone fills first, as hole-free regions. Each fill is cut into bands at its holes, so nothing needs clear polarity, which would also erase other copper. Then tracks (round apertures), vias on every copper layer, and pads. Circles, axis-aligned rectangles and ovals are flashed apertures; turned rectangles and rounded rectangles are regions, and turned ovals are strokes. X2 aperture functions are Conductor, ViaPad, SMDPad and ComponentPad.
   - **Mask:** an opening at each pad with mask, and at each non-plated hole, grown by 0.05 mm. Vias are tented unless a via's **Tented** box (in its Properties) is unticked, for a test point. The file's polarity is Negative.
   - **Paste:** SMD pads only.
-  - **Silk:** footprint silk lines, shapes and text. Text uses ElectroCAD's own stroke font (`core/strokefont.js`), mirrored on B.SilkS. Footprints without their own Reference text get it above the courtyard, as on screen.
+  - **Silk:** footprint silk lines, shapes and text. Text uses ElectroCAD's own stroke font (`core/strokefont.js`), mirrored on B.SilkS, at the size as text height (Eagle's metrics, #79); the board view draws the same glyphs. Footprints without their own Reference text get it above the courtyard, as on screen.
   - **Edge.Cuts:** the outline (`Profile`).
 - **Coordinates:** the Project's nanometres with +Y down become Gerber millimetres in 4.6 format, which is 1 nm per unit, with Y up. The flip happens only here (ADR-0003).
 - **The panel** lists the files with their layers and sizes. **Download zip** saves them as `<project>-fab.zip`, a stored zip made by `core/zip.js`. **Checks** shows the DRC result at generation time and an open outline, and the list says when the board has changed since generation.

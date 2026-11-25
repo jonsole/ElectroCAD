@@ -153,6 +153,8 @@ function symbolUnit(sym, gateName, numberOf) {
     name: gateName,
     ...(vis.length && vis.every((v) => v === 'pin' || v === 'off') ? { hidePinNumbers: true } : {}),
     ...(vis.length && vis.every((v) => v === 'pad' || v === 'off') ? { hidePinNames: true } : {}),
+    // Eagle draws pin names at 1.778 mm, 1.905 mm in from the pin's end (#79)
+    pinNameSize: 1_778_000, pinNameOffset: 1_905_000,
     graphics, pins,
   };
 }

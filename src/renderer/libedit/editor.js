@@ -232,6 +232,21 @@ export class LibraryEditor {
         h('div', { class: 'lib-units' }, ...d.units.map((u, i) => h('button', { class: 'fp-chip' + (i === this.unit ? ' on' : ''), type: 'button', onClick: () => this.setUnit(i), title: `${u.pins.length} pins` }, u.name)),
           button({ icon: 'plus', title: 'Add a Unit', cls: 'btn-ghost btn-xs', onClick: () => this.addUnit() }),
           d.units.length > 1 ? button({ icon: 'trash', title: `Delete Unit ${unitName(this.unit)}`, cls: 'btn-ghost btn-xs', onClick: () => this.removeUnit() }) : null)),
+      // pin text for this Unit (#79): sizes and the gap before a name, in mm; empty is the default
+      (() => {
+        const u = d.units[this.unit] || {};
+        const mmIn = (key, label, placeholder, title) => {
+          const inp = h('input', { class: 'input', type: 'number', step: '0.05', min: '0.2', value: u[key] ? String(+(u[key] / 1e6).toFixed(3)) : '', placeholder, 'aria-label': label, title });
+          inp.addEventListener('keydown', (e) => e.stopPropagation());
+          inp.addEventListener('change', () => this.edit(`Pin ${label.toLowerCase()}`, (p) => { const x = p.units[this.unit]; const v = Number(inp.value); if (inp.value === '' || !(v > 0)) delete x[key]; else x[key] = Math.round(v * 1e6); }));
+          return h('label', { class: 'param' }, h('label', {}, label), inp);
+        };
+        return h('div', { class: 'param param-wide' }, h('label', {}, `Pin text (Unit ${unitName(this.unit)}, mm)`),
+          h('div', { class: 'param-pair pin-text' },
+            mmIn('pinNameSize', 'Name size', '1.0', 'Pin name height; empty for the default'),
+            mmIn('pinNumberSize', 'Number size', '1.0', 'Pin number height; empty for the default'),
+            mmIn('pinNameOffset', 'Name gap', '0.6', 'Gap between the inner end of a pin and its name')));
+      })(),
       h('div', { class: 'param param-wide' }, h('label', {}, 'Preferred footprints'),
         h('div', { class: 'lib-fps' }, ...fps.map(([fpId, fp]) => h('span', { class: 'fp-chip lib-fp', title: fp.name }, fp.name.split('_')[0] === fp.name ? fp.name : fp.name.replace(/_\d+(\.\d+)?x.*$/, ''),
           h('button', { class: 'lib-fp-x', type: 'button', title: `Pin map: which pad each Pin goes to on ${fp.name}`, 'aria-label': `Pin map for ${fp.name}`, onClick: () => this.pinMapDialog(fpId) }, '⇄'),

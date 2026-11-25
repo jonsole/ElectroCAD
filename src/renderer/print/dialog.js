@@ -4,10 +4,11 @@ import { h, button, modal, toast } from '../ui/dom.js';
 import { platform } from '../platform.js';
 import { sheetToSvg, sheetsToPdf, printFileName, PRINT_COLOURS } from './schematic.js';
 import { paperRect } from '../core/drawings.js';
-import { measureText } from '../schematic/render.js';
+import { measureText, textStyle } from '../schematic/render.js';
 
-const PREF = 'electrocad.printColours';
+const PREF = 'electrocad.printColours', TEXT_PREF = 'electrocad.printText';
 const readPref = () => { try { return localStorage.getItem(PREF) || 'light'; } catch { return 'light'; } };
+const readText = () => { try { return localStorage.getItem(TEXT_PREF) || textStyle(); } catch { return textStyle(); } };
 
 export function openPrintDialog(app) {
   const project = app.project;
@@ -19,12 +20,15 @@ export function openPrintDialog(app) {
   which.value = sheets.length > 1 ? 'all' : current.id;
   const colours = h('select', { class: 'select', 'aria-label': 'Colours' }, ...Object.entries(PRINT_COLOURS).map(([k, v]) => h('option', { value: k }, v)));
   colours.value = readPref();
+  // the vector font (as on screen), or real text a PDF reader can search and copy (#79)
+  const textSel = h('select', { class: 'select', 'aria-label': 'Text' }, h('option', { value: 'vector' }, 'Vector font (as on screen)'), h('option', { value: 'sans' }, 'Searchable text (Helvetica)'));
+  textSel.value = readText();
   const img = h('img', { class: 'print-preview', alt: 'Preview of the first page' });
   const info = h('div', { class: 'print-info' });
   const chosen = () => (which.value === 'all' ? sheets : sheets.filter((s) => s.id === which.value));
   const preview = () => {
     const s = chosen()[0];
-    const svg = sheetToSvg(project, s, { colours: colours.value, measure: measureText });
+    const svg = sheetToSvg(project, s, { colours: colours.value, measure: measureText, textStyle: textSel.value });
     img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
     const r = paperRect(s);
     info.textContent = `${chosen().length === 1 ? s.name : `${chosen().length} sheets, first: ${s.name}`} · ${s.paper?.size || 'A4'} ${s.paper?.orientation || 'landscape'} (${Math.round(r.x1 / 1e6)} × ${Math.round(r.y1 / 1e6)} mm)`;
@@ -32,11 +36,11 @@ export function openPrintDialog(app) {
     svgBtn.title = chosen().length === 1 ? 'One SVG file for this sheet' : 'SVG is one sheet per file: pick a sheet above';
   };
   const save = async (kind) => {
-    try { localStorage.setItem(PREF, colours.value); } catch { /* private window */ }
+    try { localStorage.setItem(PREF, colours.value); localStorage.setItem(TEXT_PREF, textSel.value); } catch { /* private window */ }
     const list = chosen();
     const text = kind === 'pdf'
-      ? sheetsToPdf(project, list, { colours: colours.value, measure: measureText })
-      : sheetToSvg(project, list[0], { colours: colours.value, measure: measureText });
+      ? sheetsToPdf(project, list, { colours: colours.value, measure: measureText, textStyle: textSel.value })
+      : sheetToSvg(project, list[0], { colours: colours.value, measure: measureText, textStyle: textSel.value });
     const name = printFileName(project, kind === 'pdf' && list.length > 1 ? null : list[0], kind);
     const r = await platform.exportFile(name, text, kind);
     if (r) { toast(`Saved ${r.name}`, 'info', 2500); m.close(); }
@@ -44,11 +48,13 @@ export function openPrintDialog(app) {
   const svgBtn = button({ label: 'Export SVG', icon: 'export', cls: 'btn-outline', onClick: () => save('svg') });
   which.addEventListener('change', preview);
   colours.addEventListener('change', preview);
+  textSel.addEventListener('change', preview);
   m.body.append(
     h('div', { class: 'print-grid' },
       h('div', { class: 'print-side' },
         h('label', { class: 'field' }, h('span', {}, 'Sheets'), which),
         h('label', { class: 'field' }, h('span', {}, 'Colours'), colours),
+        h('label', { class: 'field' }, h('span', {}, 'Text'), textSel),
         h('p', { class: 'side-note' }, 'Each sheet prints on its own paper size (Sheet setup), with the title block. PDF opens in any viewer for printing.')),
       h('div', { class: 'print-view' }, img, info)),
     h('div', { class: 'modal-actions' }, button({ label: 'Cancel', cls: 'btn-outline', onClick: () => m.close() }), svgBtn,

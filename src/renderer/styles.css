@@ -801,3 +801,5 @@ body.resizing iframe, body.resizing canvas { pointer-events: none; }
 .fab-cmp-legend .only-ours::before { background: rgb(235, 64, 64); }
 .fab-cmp-legend .only-theirs::before { background: rgb(64, 150, 255); }
 .fab-cmp-legend .shared::before { background: rgba(150, 150, 160, .5); }
+.param-pair.pin-text { grid-template-columns: repeat(3, 1fr); }
+.param-pair.pin-text .param > label { font-size: 11px; }

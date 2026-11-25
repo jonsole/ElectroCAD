@@ -1,6 +1,7 @@
 // Drawing the Board (#15): the Outline on Edge.Cuts, a faint board fill inside closed loops, the
 // open ends of an unclosed Outline, and the shape being drawn. Footprints, Tracks and Zones join
 // with their tickets. Screen space is the world scaled (+Y down on both), so angles match.
+import { vectorLayout } from '../core/strokefont.js';
 import { arcCircle } from '../core/geom.js';
 import { outlineLoops, checkOutline } from '../core/board.js';
 import { mm } from '../core/units.js';
@@ -232,15 +233,28 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
       if (px < 4) return;
       const [x, y] = S(local);
       labels.push(() => {
-        ctx.save(); ctx.fillStyle = C[layer] || '#ddd'; ctx.font = `600 ${px}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        if (bf.side === 'B') { ctx.translate(x, y); ctx.scale(-1, 1); ctx.fillText(str, 0, 0); } else ctx.fillText(str, x, y);
-        ctx.restore();
+        silkText(ctx, str, x, y, px, bf.side === 'B', C[layer] || '#ddd');
       });
     };
     if (!own.ref) text(flipLayer('F.SilkS', bf.side), ref, [0, top - mm(0.8)], mm(1));
     const bottom = crt ? Math.max(crt.a[1], crt.b[1]) : mm(1);
     if (!own.value) text(flipLayer('F.Fab', bf.side), value, [0, bottom + mm(0.6)], mm(0.7));
   }
+}
+
+/**
+ * Footprint text on screen in the board's stroke font (#79): the same glyphs, size and pen as the
+ * Gerber silk (core/fab.js strokeText), centred on (x, y) px, mirrored for the back.
+ */
+function silkText(ctx, str, x, y, px, mirror, color) {
+  const { lines, pen } = vectorLayout(str, { x: 0, y: 0, px, align: 'center', baseline: 'middle' });
+  ctx.save();
+  ctx.translate(x, y); if (mirror) ctx.scale(-1, 1);
+  ctx.strokeStyle = color; ctx.lineWidth = pen; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.setLineDash([]);
+  ctx.beginPath();
+  for (const pl of lines) { pl.forEach(([a, b], i) => (i ? ctx.lineTo(a, b) : ctx.moveTo(a, b))); if (pl.length === 1) ctx.lineTo(pl[0][0] + 0.01, pl[0][1]); }
+  ctx.stroke();
+  ctx.restore();
 }
 
 /** A Net name that fits `maxPx`: unnamed nets show as their Pad (Net-(R1-Pad2) -> R1-2). */
@@ -284,10 +298,7 @@ export function drawFootprintGraphics(ctx, view, C, fp, T, { side = 'F', visible
         const str = String(g.text).replace(/\$\{REF\}/g, ref).replace(/\$\{VALUE\}/g, value);
         const [x, y] = S(g.at);
         const draw = () => {
-          ctx.save(); ctx.fillStyle = col;
-          ctx.font = `600 ${px}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-          if (side === 'B') { ctx.translate(x, y); ctx.scale(-1, 1); ctx.fillText(str, 0, 0); } else ctx.fillText(str, x, y);
-          ctx.restore();
+          silkText(ctx, str, x, y, px, side === 'B', col);
         };
         if (labels) labels.push(draw); else draw(); // with `labels`, over the copper later
       }

@@ -1,5 +1,6 @@
 // Draws Symbols on the schematic canvas with the Schematic Colour theme (#51).
 // Graphics are in the Symbol's local frame (nm); `place` applies the Symbol's rotation/mirror.
+import { vectorLayout, vectorWidth } from '../core/strokefont.js';
 import { drawOriginMark } from '../view/handles.js';
 import { place, arcCircle, shapePoints } from '../core/geom.js';
 import { partOf } from '../core/project.js';
@@ -40,7 +41,7 @@ export function drawUnit(ctx, toScreen, scale, part, unitIndex, sym, fields, C, 
       const px = g.size * scale;
       if (px < 3 || opts.bare) continue;
       ctx.save(); ctx.fillStyle = C.symbolBody; ctx.font = `${px}px "Segoe UI", system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(g.text, tx, ty); ctx.restore();
+      fillText(ctx, g.text, tx, ty); ctx.restore();
       continue;
     }
     ctx.beginPath();
@@ -77,8 +78,11 @@ export function drawUnit(ctx, toScreen, scale, part, unitIndex, sym, fields, C, 
   // Pins: a line from the tip into the body; numbers and names unless hidden.
   ctx.strokeStyle = C.pin;
   ctx.lineWidth = Math.max(1, PIN_LINE * scale);
-  const fontPx = Math.max(7, TEXT * scale * 0.8);
-  ctx.font = `${fontPx}px "Segoe UI", system-ui, sans-serif`;
+  // pin text: the Unit's own sizes and name gap (#79: Eagle's are 1.778 mm and 1.905 mm), else the defaults
+  const defaultPx = Math.max(7, TEXT * scale * 0.8);
+  const namePx = unit.pinNameSize ? unit.pinNameSize * scale : defaultPx;
+  const numberPx = unit.pinNumberSize ? unit.pinNumberSize * scale : defaultPx;
+  const nameGap = unit.pinNameOffset ?? mm(0.6);
   for (const pin of unit.pins) {
     const d = DIRS[pin.dir] || [0, 0];
     const end = [pin.at[0] + d[0] * pin.length, pin.at[1] + d[1] * pin.length];
@@ -92,14 +96,16 @@ export function drawUnit(ctx, toScreen, scale, part, unitIndex, sym, fields, C, 
       ctx.beginPath(); ctx.arc(ax, ay, Math.max(2, mm(0.3) * scale), 0, Math.PI * 2); ctx.stroke();
     }
     if (!unit.hidePinNumbers && !opts.bare && scale * TEXT > 5) {
+      ctx.font = `${numberPx}px "Segoe UI", system-ui, sans-serif`;
       ctx.fillStyle = C.pinNumber; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-      ctx.fillText(pin.number, (ax + bx) / 2, (ay + by) / 2 - 2);
+      fillText(ctx, pin.number, (ax + bx) / 2, (ay + by) / 2 - 2);
     }
     if (!unit.hidePinNames && !opts.bare && pin.name && pin.name !== '~' && scale * TEXT > 5) {
+      ctx.font = `${namePx}px "Segoe UI", system-ui, sans-serif`;
       ctx.fillStyle = C.pinName; ctx.textBaseline = 'middle';
-      const inward = P([end[0] + d[0] * mm(0.6), end[1] + d[1] * mm(0.6)]);
+      const inward = P([end[0] + d[0] * nameGap, end[1] + d[1] * nameGap]);
       ctx.textAlign = inward[0] > bx + 0.5 ? 'left' : inward[0] < bx - 0.5 ? 'right' : 'center';
-      ctx.fillText(pin.name, inward[0], inward[1]);
+      fillText(ctx, pin.name, inward[0], inward[1]);
     }
   }
   // The placing ghost's fields ("R?", the default Value): above and below the body, upright.
@@ -114,7 +120,7 @@ export function drawUnit(ctx, toScreen, scale, part, unitIndex, sym, fields, C, 
       const [x, y] = vertical ? toScreen([sym.at[0] + h + TEXT * 1.5, sym.at[1] + dir * TEXT * 0.7]) : toScreen([sym.at[0], sym.at[1] + dir * h]);
       if (vertical) ctx.textAlign = 'left';
       ctx.fillStyle = color;
-      ctx.fillText(fields[key], x, y);
+      fillText(ctx, fields[key], x, y);
     }
   }
   ctx.restore();
@@ -131,7 +137,7 @@ function bodyHalfHeight(unit) {
 }
 
 /** Schematic display options (Settings → Schematic display); app settings, not per Project. */
-export const DEFAULT_DISPLAY = { colorConnectedPins: false, markUnconnectedPins: true, wireHops: true };
+export const DEFAULT_DISPLAY = { colorConnectedPins: false, markUnconnectedPins: true, wireHops: true, textStyle: 'vector' };
 
 const WIRE = mm(0.15);
 const HOP = mm(0.5); // radius of the bridge where Wires cross without connecting
@@ -143,9 +149,34 @@ function strokeWire(ctx, view, a, b) {
 }
 
 const FONT = '"Segoe UI", system-ui, sans-serif';
+
+// Schematic text (#79): ElectroCAD's vector font by default (the same glyphs as the board's silk,
+// sized and spaced as Eagle's), or the system sans font. Both the screen and print go through
+// fillText below, and the layout code measures with measureText, so all three always agree.
+let TEXT_STYLE = 'vector';
+export const textStyle = () => TEXT_STYLE;
+export function setTextStyle(style) { TEXT_STYLE = style === 'sans' ? 'sans' : 'vector'; }
+
+/** Draw text with the context's font, alignment, baseline and fill colour, in the chosen text style. */
+export function fillText(ctx, text, x, y) {
+  if (TEXT_STYLE === 'sans') { ctx.fillText(text, x, y); return; }
+  const f = ctx.font || '';
+  const m = /(\d+(?:\.\d+)?)px/.exec(f);
+  const px = m ? Number(m[1]) : 10;
+  const { lines, pen } = vectorLayout(text, { x, y, px, align: ctx.textAlign, baseline: ctx.textBaseline, italic: /\bitalic\b/.test(f), bold: /\b(bold|[6-9]00)\b/.test(f) });
+  if (!lines.length) return;
+  ctx.save();
+  ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = pen; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.setLineDash?.([]);
+  ctx.beginPath();
+  for (const pl of lines) { pl.forEach(([px2, py2], i) => (i ? ctx.lineTo(px2, py2) : ctx.moveTo(px2, py2))); if (pl.length === 1) ctx.lineTo(pl[0][0] + 0.01, pl[0][1]); }
+  ctx.stroke();
+  ctx.restore();
+}
+
 let measureCtx = null;
-/** Text width in nm for a text size in nm, measured with the canvas font (used by the field placer). */
+/** Text width in nm for a text size in nm, in the current text style (used by the field placer and labels). */
 export function measureText(text, sizeNm) {
+  if (TEXT_STYLE === 'vector') return Math.round(vectorWidth(text, sizeNm));
   if (typeof document === 'undefined') return Math.round(String(text).length * sizeNm * 0.6); // no DOM (tests, print in a worker)
   measureCtx ||= document.createElement('canvas').getContext('2d');
   measureCtx.font = `100px ${FONT}`;
@@ -176,7 +207,7 @@ function drawFields(ctx, view, C, project, sheet, placement, selection = new Set
       ctx.textAlign = it.align;
       ctx.fillStyle = it.keys.includes('reference') ? C.reference : C.value;
       const [x, y] = view.toScreen([it.x, it.y]);
-      ctx.fillText(it.text, x, y);
+      fillText(ctx, it.text, x, y);
       // a pinned field of a selected part shows a small pin at its top-right corner
       if (it.pinned && selection.has(sym.id)) {
         drawPin(ctx, view.toScreen([it.box.x1, it.box.y0]), C.selection, Math.max(7, px * 0.6));
@@ -230,7 +261,7 @@ export function drawLabels(ctx, view, C, labels, { selection = new Set(), alpha 
       if (f.flip) align = align === 'left' ? 'right' : align === 'right' ? 'left' : align;
     }
     ctx.textAlign = align;
-    ctx.fillText(l.net || '?', 0, 0);
+    fillText(ctx, l.net || '?', 0, 0);
     ctx.restore();
   }
   ctx.restore();
@@ -257,7 +288,7 @@ export function drawDrawings(ctx, view, C, project, sheet, drawings, { selection
         if (d.rot === 90) ctx.rotate(-Math.PI / 2);
         ctx.font = `${d.italic ? 'italic ' : ''}${d.bold ? '600 ' : ''}${px}px ${FONT}`;
         ctx.textAlign = d.align || 'left'; ctx.textBaseline = 'middle';
-        lay.lines.forEach((line, i) => ctx.fillText(line, 0, i * lay.lh * view.scale));
+        lay.lines.forEach((line, i) => fillText(ctx, line, 0, i * lay.lh * view.scale));
       }
     } else {
       ctx.beginPath();
@@ -306,7 +337,7 @@ export function drawTitleBlock(ctx, view, C, project, sheet) {
     const lpx = mm(1.1) * view.scale;
     if (lpx >= 4) {
       ctx.fillStyle = C.sheetEdge; ctx.globalAlpha = 0.75; ctx.font = `${lpx}px ${FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-      ctx.fillText(c.label, x0 + mm(0.8) * view.scale, y0 + mm(0.5) * view.scale);
+      fillText(ctx, c.label, x0 + mm(0.8) * view.scale, y0 + mm(0.5) * view.scale);
       ctx.globalAlpha = 1;
     }
     const vpx = c.size * view.scale, value = c.value(project, sheet);
@@ -314,7 +345,7 @@ export function drawTitleBlock(ctx, view, C, project, sheet) {
       ctx.fillStyle = C.sheetEdge; ctx.font = `${c.bold ? '600 ' : ''}${vpx}px ${FONT}`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
       const small = c.box.y1 - c.box.y0 < mm(5);
       ctx.save(); ctx.beginPath(); ctx.rect(x0, y0, x1 - x0, y1 - y0); ctx.clip();
-      ctx.fillText(value, small ? x0 + (mm(0.8) + (c.label.length + 1) * mm(0.6)) * view.scale : x0 + mm(1.5) * view.scale, small ? (y0 + y1) / 2 : y0 + (y1 - y0) * 0.6);
+      fillText(ctx, value, small ? x0 + (mm(0.8) + (c.label.length + 1) * mm(0.6)) * view.scale : x0 + mm(1.5) * view.scale, small ? (y0 + y1) / 2 : y0 + (y1 - y0) * 0.6);
       ctx.restore();
     }
   }
@@ -477,6 +508,6 @@ export function drawFootprintPreview(canvas, fp, C) {
     ctx.fillStyle = '#fff'; ctx.font = `600 ${fs}px "Segoe UI", system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.shadowColor = 'rgba(0,0,0,.7)'; ctx.shadowBlur = 2;
     const seen = new Set();
-    for (const p of fp.pads) { if (seen.has(p.number) && fp.pads.length > 3) continue; seen.add(p.number); const [cx, cy] = T(p.at); ctx.fillText(p.number, cx, cy); }
+    for (const p of fp.pads) { if (seen.has(p.number) && fp.pads.length > 3) continue; seen.add(p.number); const [cx, cy] = T(p.at); fillText(ctx, p.number, cx, cy); }
   }
 }

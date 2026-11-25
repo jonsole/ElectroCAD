@@ -31,35 +31,68 @@ const G = {
   '°': '1,6 2,6 2,5 1,5 1,6',
 };
 const GLYPHS = Object.fromEntries(Object.entries(G).map(([k, v]) => [k, v ? v.split('|').map((pl) => pl.split(' ').map((q) => q.split(',').map(Number))) : []]));
-const ADVANCE = 6; // grid units per character (4 wide + 2 between)
+// Metrics (#79), measured against Eagle's own Gerbers: a text's size is the full height of a capital
+// including the pen, as Eagle's is. The capital's stroke centres span 0.9 of it, the pen is 0.1 of
+// it, and each character advances 0.786 of it (boxes drawn round parts of Eagle pin names line up
+// only with that advance). Glyphs are drawn on a grid 4 wide and 6 tall for the capital height.
 const CAP = 6;
+export const CAP_RATIO = 0.9;
+export const PEN_RATIO = 0.1;
+export const ADVANCE_RATIO = 0.786;
 
 /** The glyph for a character (unknown ones show as ?). */
 export const glyph = (ch) => GLYPHS[ch] || GLYPHS[ch.toUpperCase()] || GLYPHS['?'];
 
-/** Width of `text` at `size` (capital height), nm. */
-export const strokeWidthOf = (text, size) => (Math.max(0, [...String(text)].length * ADVANCE - 2) * size) / CAP;
+/** Width of `text` at `size` (text height), between the outer stroke centres, nm. */
+export const strokeWidthOf = (text, size) => {
+  const n = [...String(text)].length;
+  return n ? (n - 1) * size * ADVANCE_RATIO + (4 * size * CAP_RATIO) / CAP : 0;
+};
 
-/** The pen width for text of `size` (capital height). */
-export const strokePen = (size) => Math.max(1, Math.round(size * 0.15));
+/** The pen width for text of `size`. */
+export const strokePen = (size) => Math.max(1, Math.round(size * PEN_RATIO));
 
-/**
- * The polylines (board nm, +Y down) of `text` centred on `at`, `size` = capital height. `mirror`
- * writes it as seen from the back (for B.SilkS).
- */
-export function strokeText(text, { at, size, mirror = false }) {
-  const u = size / CAP;
-  const chars = [...String(text)];
-  const w = Math.max(0, chars.length * ADVANCE - 2);
+/** Glyph polylines for `text` from (x0, base), y up in grid units turned to y down (no rounding). */
+function layout(text, size, x0, base, { mirror = false, slant = 0, mirrorAbout = null } = {}) {
+  const u = (size * CAP_RATIO) / CAP, adv = size * ADVANCE_RATIO;
   const out = [];
-  chars.forEach((ch, i) => {
+  [...String(text)].forEach((ch, i) => {
     for (const pl of glyph(ch)) {
       out.push(pl.map(([gx, gy]) => {
-        let x = (i * ADVANCE + gx - w / 2) * u;
-        if (mirror) x = -x;
-        return [Math.round(at[0] + x), Math.round(at[1] - (gy - CAP / 2) * u)];
+        let x = x0 + i * adv + gx * u + gy * u * slant;
+        if (mirror) x = 2 * mirrorAbout - x;
+        return [x, base - gy * u];
       }));
     }
   });
   return out;
+}
+
+/**
+ * The polylines (board nm, +Y down) of `text` centred on `at` (the middle of the capital height).
+ * `size` is the text height; `mirror` writes it as seen from the back (for B.SilkS).
+ */
+export function strokeText(text, { at, size, mirror = false }) {
+  const w = strokeWidthOf(text, size), cap = size * CAP_RATIO;
+  return layout(text, size, at[0] - w / 2, at[1] + cap / 2, { mirror, mirrorAbout: at[0] })
+    .map((pl) => pl.map(([x, y]) => [Math.round(x), Math.round(y)]));
+}
+
+// ---------------------------------------------------------------- the schematic's vector text (#79)
+
+/** Width of `text` (nm, or px) at text height `size`, in the vector font. */
+export const vectorWidth = (text, size) => strokeWidthOf(text, size);
+
+/**
+ * `text` laid out the way a canvas would place it, as polylines in the same units: `px` is the text
+ * height (the canvas font size), `align` left|start|center|right|end, `baseline` middle|top|hanging|
+ * bottom|alphabetic|ideographic, `italic` slants it. Returns { lines, pen } (pen: a line width).
+ */
+export function vectorLayout(text, { x, y, px, align = 'left', baseline = 'alphabetic', italic = false, bold = false }) {
+  const cap = px * CAP_RATIO;
+  const w = strokeWidthOf(text, px);
+  const x0 = align === 'center' ? x - w / 2 : align === 'right' || align === 'end' ? x - w : x;
+  // the y of the glyphs' baseline
+  const base = baseline === 'middle' ? y + cap / 2 : baseline === 'top' || baseline === 'hanging' ? y + cap : baseline === 'bottom' || baseline === 'ideographic' ? y - cap * 0.3 : y;
+  return { lines: layout(text, px, x0, base, { slant: italic ? 0.2 : 0 }), pen: Math.max(0.5, px * PEN_RATIO * (bold ? 1.4 : 1)) };
 }

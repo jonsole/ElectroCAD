@@ -208,3 +208,26 @@ test('a preset\'s naming and drill units follow through; the stroke font covers 
   const m = strokeText('HH', { at: [0, 0], size: mm(1), mirror: true });
   assert.equal(m[0][0][0], -pl[0][0][0], 'mirrored for the back');
 });
+
+test('vector font metrics (#79): Eagle\'s text height, capital and advance; screen and Gerber agree', async () => {
+  const { strokeWidthOf, vectorLayout, strokeText, strokePen, CAP_RATIO, ADVANCE_RATIO, PEN_RATIO } = await import('../src/renderer/core/strokefont.js');
+  // Eagle at size 1.778: a T 1.627 tall between stroke centres and 1.085 wide, pen 0.15, advance 1.397
+  const size = 1_778_000, T = strokeText('T', { at: [0, 0], size });
+  const ys = T.flat().map((q) => q[1]), xs = T.flat().map((q) => q[0]);
+  assert.ok(Math.abs(Math.max(...ys) - Math.min(...ys) - 1_627_000) < 40_000, `cap ${Math.max(...ys) - Math.min(...ys)}`);
+  assert.ok(Math.abs(Math.max(...xs) - Math.min(...xs) - 1_085_000) < 40_000, `width ${Math.max(...xs) - Math.min(...xs)}`);
+  assert.equal(strokePen(size), Math.round(size * PEN_RATIO));
+  // the 6th character starts 5 advances in: where Eagle's pin-name boxes start
+  assert.ok(Math.abs(5 * size * ADVANCE_RATIO - 6_985_000) < 5_000, 'five Eagle characters: 6.985 mm');
+  assert.ok(Math.abs(strokeWidthOf('PA05/', size) - (4 * size * ADVANCE_RATIO + (4 / 6) * size * CAP_RATIO)) < 1);
+  // the canvas layout of the same text, centred, is the Gerber's geometry
+  const v = vectorLayout('R12', { x: 0, y: 0, px: size, align: 'center', baseline: 'middle' }).lines;
+  const g = strokeText('R12', { at: [0, 0], size });
+  assert.equal(v.length, g.length);
+  v.forEach((pl, i) => pl.forEach((q, k) => { assert.ok(Math.abs(q[0] - g[i][k][0]) <= 1 && Math.abs(q[1] - g[i][k][1]) <= 1); }));
+  // alignment and baselines
+  const left = vectorLayout('AB', { x: 100, y: 50, px: 10, align: 'left', baseline: 'alphabetic' }).lines.flat();
+  assert.ok(Math.abs(Math.min(...left.map((q) => q[0])) - 100) < 1e-9 && Math.abs(Math.max(...left.map((q) => q[1])) - 50) < 1e-9, 'left, on the baseline');
+  const right = vectorLayout('AB', { x: 100, y: 50, px: 10, align: 'right', baseline: 'top' }).lines.flat();
+  assert.ok(Math.abs(Math.max(...right.map((q) => q[0])) - 100) < 1e-9 && Math.abs(Math.min(...right.map((q) => q[1])) - 50) < 1e-9, 'right, hanging from the top');
+});

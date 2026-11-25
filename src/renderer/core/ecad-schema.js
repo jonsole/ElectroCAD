@@ -236,6 +236,18 @@ export const ECAD_SCHEMA = {
         "hidePinNames": {
           "type": "boolean"
         },
+        "pinNameSize": {
+          "$ref": "#/$defs/nm",
+          "description": "Pin name text height. Default: 0.8 of the field text height (about 1 mm)."
+        },
+        "pinNumberSize": {
+          "$ref": "#/$defs/nm",
+          "description": "Pin number text height. Default: 0.8 of the field text height (about 1 mm), whatever pinNameSize is."
+        },
+        "pinNameOffset": {
+          "$ref": "#/$defs/nm",
+          "description": "Gap between a pin's inner end and its name. Default 0.6 mm."
+        },
         "graphics": {
           "type": "array",
           "items": {

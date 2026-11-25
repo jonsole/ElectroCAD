@@ -10,11 +10,11 @@ const texts = (svg) => [...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) 
 test('SVG of a Sheet: References, Values, net labels, power symbols, markup and the title block', () => {
   const p = sampleProject();
   const [s1, s2] = p.schematic.sheets;
-  const svg = sheetToSvg(p, s2, { measure: estimateWidth });
+  const svg = sheetToSvg(p, s2, { measure: estimateWidth, textStyle: 'sans' });
   assert.match(svg, /^<\?xml[^>]+>\n<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="297mm" height="420mm"/, 'A3 portrait page');
   const t = texts(svg);
   for (const want of ['R1', 'D1', '330', 'LED_A', '+3V3', 'GND', 'LED indicator', 'Indicator', '2 of 2', 'Example Ltd', 'B']) assert.ok(t.includes(want), `${want} in ${JSON.stringify(t)}`);
-  const svg1 = sheetToSvg(p, s1, { measure: estimateWidth });
+  const svg1 = sheetToSvg(p, s1, { measure: estimateWidth, textStyle: 'sans' });
   assert.ok(texts(svg1).includes('LED indicator: power'), 'text variables are filled in');
   assert.match(svg1, /stroke-dasharray/, 'the dashed box keeps its dashes');
   // balanced groups and no NaN
@@ -24,7 +24,7 @@ test('SVG of a Sheet: References, Values, net labels, power symbols, markup and 
 
 test('PDF of every Sheet: one page each at its paper size, a valid cross-reference table, ASCII only', () => {
   const p = sampleProject();
-  const pdf = sheetsToPdf(p, p.schematic.sheets, { measure: estimateWidth });
+  const pdf = sheetsToPdf(p, p.schematic.sheets, { measure: estimateWidth, textStyle: 'sans' });
   assert.ok(pdf.startsWith('%PDF-1.4\n') && pdf.trimEnd().endsWith('%%EOF'));
   assert.ok(/^[\x00-\x7f]*$/.test(pdf), 'ASCII only');
   assert.equal((pdf.match(/\/Type \/Page /g) || []).length, 2);
@@ -71,4 +71,17 @@ test('the vector contexts: fonts, colours, Helvetica widths, arcs as Béziers, a
 test('export file names are safe', () => {
   assert.equal(printFileName({ name: 'Amp: v2' }, { name: 'Power/Supply' }, 'svg'), 'Amp- v2 - Power-Supply.svg');
   assert.equal(printFileName({ name: '' }, null, 'pdf'), 'Untitled.pdf');
+});
+
+test('vector text (#79): print draws text as strokes in the vector font, the same as the screen', async () => {
+  const { textStyle } = await import('../src/renderer/schematic/render.js');
+  const p = sampleProject();
+  const svg = sheetToSvg(p, p.schematic.sheets[1], { textStyle: 'vector' });
+  assert.equal(texts(svg).length, 0, 'no <text>: every letter is a stroke');
+  assert.ok((svg.match(/<path /g) || []).length > 50, 'glyph strokes');
+  assert.ok(!/NaN|undefined/.test(svg));
+  assert.equal(textStyle(), 'vector', 'the screen\'s style is put back');
+  const sans = sheetToSvg(p, p.schematic.sheets[1], { textStyle: 'sans' });
+  assert.ok(texts(sans).includes('R1'), 'searchable text when asked for');
+  assert.equal(textStyle(), 'vector');
 });

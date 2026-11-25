@@ -2,7 +2,7 @@
 // title block and a border, drawn by the same code as the editor into SVG or a multi-page PDF.
 // Print colours don't follow the editor's theme: ElectroCAD Light (default), Classic paper, or
 // black and white.
-import { drawSheet, DEFAULT_DISPLAY } from '../schematic/render.js';
+import { drawSheet, DEFAULT_DISPLAY, textStyle, setTextStyle, measureText } from '../schematic/render.js';
 import { paperRect } from '../core/drawings.js';
 import { placeFields } from '../core/fields.js';
 import { resolveTheme, MATCH_APP } from '../core/themes.js';
@@ -44,24 +44,38 @@ function drawPage(ctx, project, sheet, C, measure) {
   drawSheet(ctx, view, C, project, sheet, { selection: new Set(), placement, display: PRINT_DISPLAY });
 }
 
+/**
+ * Draw with a text style for the duration (#79): 'vector' (the vector font, as on screen) or 'sans'
+ * (real, searchable text in Helvetica), then put the screen's style back.
+ */
+function withTextStyle(style, fn) {
+  const was = textStyle();
+  setTextStyle(style || was);
+  try { return fn(); } finally { setTextStyle(was); }
+}
+
 /** One Sheet as an SVG document (its paper size in mm). */
-export function sheetToSvg(project, sheet, { colours = 'light', measure } = {}) {
-  const r = paperRect(sheet);
-  const ctx = new SvgContext(r.x1 * K, r.y1 * K);
-  drawPage(ctx, project, sheet, printColors(colours), measure);
-  return ctx.toString(r.x1 / 1e6, r.y1 / 1e6, `${project.name}: ${sheet.name}`);
+export function sheetToSvg(project, sheet, { colours = 'light', measure, textStyle: style } = {}) {
+  return withTextStyle(style, () => {
+    const r = paperRect(sheet);
+    const ctx = new SvgContext(r.x1 * K, r.y1 * K);
+    drawPage(ctx, project, sheet, printColors(colours), measure || measureText);
+    return ctx.toString(r.x1 / 1e6, r.y1 / 1e6, `${project.name}: ${sheet.name}`);
+  });
 }
 
 /** Sheets as one PDF, a page each at the Sheet's paper size. Returns an ASCII string. */
-export function sheetsToPdf(project, sheets, { colours = 'light', measure } = {}) {
-  const pages = sheets.map((sheet) => {
-    const r = paperRect(sheet);
-    const heightPt = (r.y1 / 1e6) * (72 / 25.4), widthPt = (r.x1 / 1e6) * (72 / 25.4);
-    const ctx = new PdfContext(PT_PER_UNIT, heightPt);
-    drawPage(ctx, project, sheet, printColors(colours), measure);
-    return { ctx, widthPt, heightPt };
+export function sheetsToPdf(project, sheets, { colours = 'light', measure, textStyle: style } = {}) {
+  return withTextStyle(style, () => {
+    const pages = sheets.map((sheet) => {
+      const r = paperRect(sheet);
+      const heightPt = (r.y1 / 1e6) * (72 / 25.4), widthPt = (r.x1 / 1e6) * (72 / 25.4);
+      const ctx = new PdfContext(PT_PER_UNIT, heightPt);
+      drawPage(ctx, project, sheet, printColors(colours), measure || measureText);
+      return { ctx, widthPt, heightPt };
+    });
+    return buildPdf(pages, { title: project.titleBlock?.title || project.name });
   });
-  return buildPdf(pages, { title: project.titleBlock?.title || project.name });
 }
 
 /** A safe file name for an export: "Amp - Power.svg", "Amp.pdf". */
