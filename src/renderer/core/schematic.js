@@ -68,7 +68,7 @@ function symbolsById(project, ids) {
 
 /** Rotate 90° counter-clockwise (on screen) about each Symbol's own origin. */
 export function rotateSymbols(project, ids) {
-  for (const y of symbolsById(project, ids)) y.rot = ((y.rot || 0) + 90) % 360;
+  for (const y of symbolsById(project, ids)) if (!y.locked) y.rot = ((y.rot || 0) + 90) % 360; // a locked part stays as it is
   const want = new Set(ids);
   for (const s of project.schematic.sheets) for (const l of s.labels || []) if (want.has(l.id)) l.rot = ((l.rot || 0) + 90) % 360;
   for (const s of project.schematic.sheets) for (const d of s.drawings || []) if (want.has(d.id)) rotateDrawing(d);
@@ -76,7 +76,12 @@ export function rotateSymbols(project, ids) {
 
 /** Mirror left-right. */
 export function mirrorSymbols(project, ids) {
-  for (const y of symbolsById(project, ids)) y.mirror = !y.mirror;
+  for (const y of symbolsById(project, ids)) if (!y.locked) y.mirror = !y.mirror;
+}
+
+/** Lock or unlock placed parts: a locked part doesn't move, rotate or mirror. */
+export function setSymbolsLocked(project, ids, on) {
+  for (const y of symbolsById(project, ids)) { if (on) y.locked = true; else delete y.locked; }
 }
 
 /** Delete Symbols; Components left with no placed Unit, and Parts nobody uses, go too. */
@@ -248,7 +253,8 @@ const ptKey = (p) => p[0] + ',' + p[1];
  */
 export function moveSelection(project, sheet, ids, delta) {
   if (!delta[0] && !delta[1]) return;
-  const sel = new Set(ids);
+  const locked = new Set(sheet.symbols.filter((y) => y.locked).map((y) => y.id));
+  const sel = new Set(ids.filter((id) => !locked.has(id))); // locked parts stay put
   const movingSyms = sheet.symbols.filter((y) => sel.has(y.id));
   // points that move: Pins of moving Symbols and ends of selected Wires (old positions)
   const moving = new Set();

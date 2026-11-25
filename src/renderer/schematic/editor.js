@@ -6,7 +6,7 @@ import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { later } from '../workspaces/workspace.js';
 import { STARTER_LIBRARY, CATEGORIES, searchParts, groupParts } from '../library/starter.js';
 import { allFootprints } from '../library/footprints.js';
-import { addDrawing, toggleNoConnect, hitNoConnect, placedUnits, unitSuggestion, nextUnplacedUnit, unitLetter, placeSymbol, rotateSymbols, mirrorSymbols, deleteItems, symbolBounds, hitSymbol, addWire, addLabel, addSheet, renameSheet, moveSheet, deleteSheet, validateSheetName, hitWire, preferredAxis, routeWire, moveSelection, copySelection, pasteClip, itemsInRect, itemsBounds, cleanupWires } from '../core/schematic.js';
+import { addDrawing, toggleNoConnect, hitNoConnect, placedUnits, unitSuggestion, nextUnplacedUnit, unitLetter, placeSymbol, rotateSymbols, mirrorSymbols, setSymbolsLocked, deleteItems, symbolBounds, hitSymbol, addWire, addLabel, addSheet, renameSheet, moveSheet, deleteSheet, validateSheetName, hitWire, preferredAxis, routeWire, moveSelection, copySelection, pasteClip, itemsInRect, itemsBounds, cleanupWires } from '../core/schematic.js';
 import { buildNetlist } from '../core/netlist.js';
 import { runErc, filterViolations } from '../core/erc.js';
 import { shapeHandles, hitHandle, dragHandle, snapPoint } from '../core/handles.js';
@@ -262,6 +262,7 @@ export class SchematicEditor {
       'sep',
       { label: 'Rotate', icon: 'rotate', shortcut: 'R', disabled: !anySym && !anyLabel, onClick: () => this.rotate() },
       { label: 'Mirror', icon: 'mirror', shortcut: 'X', disabled: !anySym, onClick: () => this.mirror() },
+      anySym ? { label: this._selSyms().every((y) => y.locked) ? 'Unlock' : 'Lock', icon: this._selSyms().every((y) => y.locked) ? 'unlock' : 'lock', onClick: () => this.lockSel() } : null,
       anySym ? 'sep' : null,
       anySym ? this._reapplyItem() : null,
     ], at);
@@ -1481,15 +1482,32 @@ export class SchematicEditor {
     const parts = [[syms, 'part'], [wires, 'wire'], [labels, 'label'], [drawings, 'drawing'], [ncs, 'no-connect']].filter(([k]) => k).map(([k, w]) => `${k} ${w}${k === 1 ? '' : 's'}`);
     let title = parts.join(', ');
     if (syms === 1 && sel.size === 1) { const y = sh.symbols.find((q) => sel.has(q.id)); title = this.project.components[y.componentId]?.ref || title; }
-    s.show(`sel|${[...sel].sort().join()}|${this.propsOpen}`, () => [stripLabel(title, syms ? 'parts' : wires ? 'wire' : labels ? 'netLabel' : 'select'), stripSep(),
+    s.show(`sel|${[...sel].sort().join()}|${this.propsOpen}|${this._selSyms().map((y) => !!y.locked).join()}`, () => [stripLabel(title, syms ? 'parts' : wires ? 'wire' : labels ? 'netLabel' : 'select'), stripSep(),
       syms || labels || drawings ? stripButton({ icon: 'rotate', title: 'Rotate 90° (R)', onClick: () => this.rotate() }) : null,
       syms ? stripButton({ icon: 'mirror', title: 'Mirror (X)', onClick: () => this.mirror() }) : null,
       syms ? stripButton({ icon: 'ltext', label: 'Fields', title: 'Field style for the selected parts', onClick: (e) => this.fieldsMenu(e.currentTarget) }) : null,
+      syms ? (() => { const locked = this._selSyms().every((y) => y.locked); return stripButton({ icon: locked ? 'unlock' : 'lock', label: locked ? 'Unlock' : 'Lock', active: locked, title: `${locked ? 'Unlock' : 'Lock'}: a locked part doesn't move, rotate or mirror; its origin shows × instead of +`, onClick: () => this.lockSel() }); })() : null,
       stripSep(),
       stripButton({ icon: 'duplicate', title: 'Duplicate (Ctrl+D)', onClick: () => this.duplicate() }),
       stripButton({ icon: 'copy', title: 'Copy (Ctrl+C)', onClick: () => { this.copy(); this.refresh(); } }),
       stripButton({ icon: 'trash', title: 'Delete (Del)', danger: true, onClick: () => this.deleteSelection() }),
       stripSep(), stripProps({ open: this.propsOpen, onToggle: () => (this.propsOpen ? this.closeProperties() : this.openProperties()) })]);
+  }
+
+  _selSyms() { return this.sheet.symbols.filter((y) => this.selection.has(y.id)); }
+
+  /** Lock the selected parts (or unlock them when they all are). */
+  lockSel() {
+    const ys = this._selSyms();
+    if (!ys.length) return;
+    const lock = !ys.every((y) => y.locked);
+    this.app.edit(lock ? 'Lock' : 'Unlock', (p) => setSymbolsLocked(p, ys.map((y) => y.id), lock));
+  }
+
+  /** Say so when some of the selection is locked and stayed put. */
+  _lockedNote() {
+    const n = this._selSyms().filter((y) => y.locked).length;
+    if (n) toast(`${n === 1 ? 'A locked part stays' : `${n} locked parts stay`} as ${n === 1 ? 'it is' : 'they are'} (Unlock on the strip or the right-click menu).`, 'info', 2200);
   }
 
   rotate() {
@@ -1498,6 +1516,7 @@ export class SchematicEditor {
     const ids = [...this._selectedSymbolIds(), ...(this.sheet.labels || []).filter((l) => this.selection.has(l.id)).map((l) => l.id), ...(this.sheet.drawings || []).filter((d) => this.selection.has(d.id)).map((d) => d.id)];
     if (!ids.length) return;
     this.app.edit('Rotate', (p) => rotateSymbols(p, ids));
+    this._lockedNote();
   }
 
   mirror() {
@@ -1505,6 +1524,7 @@ export class SchematicEditor {
     const ids = this._selectedSymbolIds();
     if (!ids.length) return;
     this.app.edit('Mirror', (p) => mirrorSymbols(p, ids));
+    this._lockedNote();
   }
 
   deleteSelection() {

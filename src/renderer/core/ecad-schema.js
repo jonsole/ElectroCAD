@@ -729,6 +729,10 @@ export const ECAD_SCHEMA = {
           "type": "boolean",
           "description": "Left-right flip, applied before rotation."
         },
+        "locked": {
+          "type": "boolean",
+          "description": "A locked part doesn't move, rotate or mirror (absent: unlocked)."
+        },
         "fieldPins": {
           "type": "object",
           "description": "Pinned fields (#53): field key -> text centre in the Symbol's own frame.",

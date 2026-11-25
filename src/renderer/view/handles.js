@@ -25,3 +25,17 @@ export function drawSnapMark(ctx, view, C, at) {
   ctx.beginPath(); ctx.moveTo(x, y - 7); ctx.lineTo(x + 7, y); ctx.lineTo(x, y + 7); ctx.lineTo(x - 7, y); ctx.closePath(); ctx.stroke();
   ctx.restore();
 }
+
+/**
+ * A component's origin: a small + when it can move, a small × when it is locked. Screen size, so
+ * it reads the same at any zoom.
+ */
+export function drawOriginMark(ctx, x, y, locked, color, r = 3.5) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.lineWidth = 1.3; ctx.globalAlpha = 0.85; ctx.lineCap = 'round';
+  ctx.beginPath();
+  if (locked) { ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r); ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r); }
+  else { ctx.moveTo(x - r, y); ctx.lineTo(x + r, y); ctx.moveTo(x, y - r); ctx.lineTo(x, y + r); }
+  ctx.stroke();
+  ctx.restore();
+}

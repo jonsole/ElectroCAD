@@ -133,6 +133,7 @@ Every shape may have `fill` (`none`, `background` = the theme's symbol fill, `ou
 | `rot` | 0, 90, 180, 270 | |
 | `mirror` | boolean | |
 | `fieldPins` | `{ [fieldKey]: point }`? | Fields dragged by hand (#53): the text centre in the Symbol's **own frame**, so the field follows the Symbol when it moves, rotates or mirrors (the text is always drawn upright). Field keys: `reference`, `value`, `footprint`, `mpn`. Absent when no field is pinned; Re-apply style removes it. |
+| `locked` | boolean? | A locked part doesn't move, rotate or mirror; its origin shows a × instead of a +. Absent when unlocked. |
 
 **Wire:** `{ id, a, b }`. A straight run between two grid points (the editor only draws horizontal and vertical runs). Wires connect where an end touches another Wire's end or runs into its middle (a T), or touches a Pin tip. Crossing Wires don't connect.
 

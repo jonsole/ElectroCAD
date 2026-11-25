@@ -1,5 +1,6 @@
 // Draws Symbols on the schematic canvas with the Schematic Colour theme (#51).
 // Graphics are in the Symbol's local frame (nm); `place` applies the Symbol's rotation/mirror.
+import { drawOriginMark } from '../view/handles.js';
 import { place, arcCircle, shapePoints } from '../core/geom.js';
 import { partOf } from '../core/project.js';
 import { mm } from '../core/units.js';
@@ -369,6 +370,8 @@ export function drawSheet(ctx, view, C, project, sheet0, { selection = new Set()
     const connected = new Set(unit ? unit.pins.filter((pn) => conn.has(`${sym.id}:${pn.number}`)).map((pn) => pn.number) : []);
     drawUnit(ctx, toScreen, view.scale, part, sym.unit, sym, null, C, { connected, colorConnected: display.colorConnectedPins, markUnconnected: display.markUnconnectedPins }); // fields come from the placer
   }
+  // each part's origin: + (unlocked) or × (locked)
+  if (!only) for (const sym of sheet.symbols) { const [x, y] = view.toScreen(sym.at); drawOriginMark(ctx, x, y, !!sym.locked, C.symbolBody || '#888'); }
   drawLabels(ctx, view, C, sheet.labels || []);
   drawFields(ctx, view, C, project, sheet, placement || placeFields(project, sheet, { measure: measureText }), selection);
   // Junction dots, derived from the Wires and Pins

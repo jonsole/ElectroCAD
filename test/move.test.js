@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newProject, pinPositions } from '../src/renderer/core/project.js';
-import { placeSymbol, addWire, moveSelection, copySelection, pasteClip, itemsInRect } from '../src/renderer/core/schematic.js';
+import { placeSymbol, addWire, moveSelection, copySelection, pasteClip, itemsInRect, rotateSymbols, mirrorSymbols, setSymbolsLocked } from '../src/renderer/core/schematic.js';
 import { buildNetlist } from '../src/renderer/core/netlist.js';
 import { RESISTOR, CAPACITOR } from '../src/renderer/library/mini.js';
 import { SCH_GRID as G } from '../src/renderer/core/units.js';
@@ -198,4 +198,20 @@ test('dragging a wire that ends on a pin keeps it on the pin', () => {
   moveSelection(q.p, q.s, [q.s.wires[0].id], [G * 2, G * 3]);
   assert.equal(sig(q.p), sig(seriesStraight().p));
   assert.ok(orthogonal(q.s) && noZero(q.s), JSON.stringify(q.s.wires));
+});
+
+test('a locked part stays put: it does not move, rotate or mirror, and unlocking frees it', () => {
+  const { p, s, r1, r2 } = seriesStraight();
+  setSymbolsLocked(p, [r2.id], true);
+  assert.equal(r2.locked, true);
+  const at = [...r2.at];
+  moveSelection(p, s, [r1.id, r2.id], [G * 5, 0]);
+  assert.deepEqual(r2.at, at, 'locked: stays');
+  assert.deepEqual(r1.at, [G * 15, G * 10], 'the unlocked one moves');
+  rotateSymbols(p, [r2.id]); mirrorSymbols(p, [r2.id]);
+  assert.equal(r2.rot || 0, 0); assert.ok(!r2.mirror);
+  setSymbolsLocked(p, [r2.id], false);
+  assert.equal('locked' in r2, false);
+  rotateSymbols(p, [r2.id]);
+  assert.equal(r2.rot, 90);
 });

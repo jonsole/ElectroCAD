@@ -6,6 +6,7 @@ import { outlineLoops, checkOutline } from '../core/board.js';
 import { mm } from '../core/units.js';
 import { placedPads, padNets, fpTransform, flipLayer } from '../core/footprint.js';
 import { footprintOf } from '../core/project.js';
+import { drawOriginMark } from '../view/handles.js';
 
 const TAU = Math.PI * 2;
 const norm = (a) => ((a % TAU) + TAU) % TAU;
@@ -216,6 +217,11 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
       });
     }
     if (partial) continue;
+    // the footprint's origin: + (unlocked) or × (locked), on top of the copper
+    {
+      const [ox, oy] = view.toScreen(bf.at), col = C[flipLayer('F.SilkS', bf.side)] || '#ccc';
+      if (visible(flipLayer('F.SilkS', bf.side)) || visible(flipLayer('F.Fab', bf.side))) labels.push(() => drawOriginMark(ctx, ox, oy, !!bf.locked, col));
+    }
     // Reference on silk above the courtyard, Value on fab below it
     // a Footprint without its own Reference / Value text gets them above and below its courtyard
     const crt = (fp.graphics || []).find((g) => /CrtYd$/.test(g.layer || '') && g.type === 'rect');
