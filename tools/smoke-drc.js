@@ -43,11 +43,11 @@ check('selected', ed.trackSel.has('sig') && ed.trackSel.has('near'), [...ed.trac
 // what is drawn for it (#80): both tracks, the 0.1 mm gap between their edges, the clearance needed
 const v0 = ed.drc.list[0];
 check('show', v0.show?.shapes?.length === 2 && Math.abs(v0.show.gap.d - 100000) < 5 && v0.show.need > v0.show.gap.d, v0.show);
-// the highlight is drawn: the board darkens round it (a pixel far from the pair is dimmer than before)
+// the highlight is drawn over the board as it is: a pixel far from the pair is unchanged (not dimmed)
 const px = () => { const c = ws.view.canvas, g = c.getContext('2d'); const d = g.getImageData(Math.round(c.width * 0.12), Math.round(c.height * 0.5), 1, 1).data; return d[0] + d[1] + d[2]; };
 ws.view.draw(); const lit = px();
 ed.drcFocus = null; ed.drcHover = null; ws.view.draw(); const plain = px();
-check('dimmed', lit < plain, [lit, plain]);
+check('not-dimmed', lit === plain, [lit, plain]);
 // hovering a row previews it
 rows[0].dispatchEvent(new MouseEvent('mouseenter'));
 check('hover', ed.drcHover === v0.id);

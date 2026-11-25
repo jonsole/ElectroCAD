@@ -603,7 +603,7 @@ Checked against a real board: a 4-layer design imported from Eagle and compared 
 Using the card:
 - **Markers:** while the card is open, each problem has a marker on the board (red for errors, amber for warnings), and the copper it's about is outlined lightly in the same colour. The **Errors** and **Warnings** chips filter both the list and the markers.
 - **Going to a problem:** click a row to zoom to it and select what it's about (tracks, vias, footprints, zones, or the net for an unrouted one). A hidden copper layer it's on is shown. **Hovering** a row previews the same highlight without moving the view.
-- **What the highlight shows** (#80), with the rest of the board dimmed:
+- **What the highlight shows** (#80), over the board as it is (the rest isn't dimmed):
   - **Clearance:** both items' copper filled in the error colour (the track segment, the pad's shape, the via, the zone fill's edge); a translucent halo round one of them as wide as the clearance needed, so you see where it crosses the other; and the closest points joined by a short line labelled with the distance and what's needed (e.g. "0.143 mm · 0.152 mm needed").
   - **Edge clearance:** the item and the outline segment it's too near, with the gap and the edge clearance needed.
   - **Track width, annular ring, hole size:** the track, copper ring or drill, labelled with its size and what's needed.

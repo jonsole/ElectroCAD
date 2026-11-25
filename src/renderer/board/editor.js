@@ -1839,10 +1839,9 @@ export class BoardEditor {
       ctx.beginPath(); ctx.moveTo(x, y - r * 1.7); ctx.lineTo(x + r, y); ctx.lineTo(x - r, y); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.fillStyle = '#fff'; ctx.font = '700 9px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', x, y - r * 0.55);
     }
-    // the focused (or hovered) one (#80): the rest dimmed, its items, the gap and the clearance needed
+    // the focused (or hovered) one (#80): its items, the gap and the clearance needed, over the
+    // board as it is (not dimmed)
     if (lit?.show) {
-      ctx.globalAlpha = 0.55; ctx.fillStyle = C.background || '#000';
-      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
       ctx.globalAlpha = 1;
       drawDrcShow(ctx, view, C, lit, lit.severity === 'error' ? (C.drcError || '#ff3b6b') : (C.ercWarning || '#ffb74d'), true);
     }
