@@ -30,19 +30,27 @@ const G = {
   '~': '0,3 1,4 3,2 4,3', $: '4,5 1,5 0,4 1,3 3,3 4,2 3,1 0,1|2,6 2,0', µ: '0,4 0,-2|0,1 1,0 3,0 4,1|4,4 4,0', Ω: '0,0 1,0 0,2 0,4 1,6 3,6 4,4 4,2 3,0 4,0',
   '°': '1,6 2,6 2,5 1,5 1,6',
 };
-const GLYPHS = Object.fromEntries(Object.entries(G).map(([k, v]) => [k, v ? v.split('|').map((pl) => pl.split(' ').map((q) => q.split(',').map(Number))) : []]));
+const parse = (v) => (v ? v.split('|').map((pl) => pl.split(' ').map((q) => q.split(',').map(Number))) : []);
+const GLYPHS = Object.fromEntries(Object.entries(G).map(([k, v]) => [k, parse(v)]));
 // Two sets of metrics for the same glyphs, chosen per Project (Board setup / Sheet setup):
 //  'stroke' (ElectroCAD's own, the default): a text's size is the capital height between stroke
 //           centres, characters advance by the size, and the pen is 0.15 of it.
-//  'vector' (#79, Eagle's vector font, measured against Eagle's own Gerbers): a size is the full
-//           height of a capital including the pen; capitals span 0.9 of it, the pen is 0.1 and each
-//           character advances 0.786 (boxes drawn round parts of Eagle pin names line up only with
-//           that advance). Eagle imports use it.
+//  'vector' (#79, #83, Eagle's vector font, measured against Eagle's own Gerbers): a size is the
+//           full height of a capital including the pen; capitals span 0.9 of it, the pen is 0.1 and
+//           each character advances 0.92 of it (every board text on toyotune_3s, upper and lower
+//           case, digits; the boxes round IC20's 1.524 mm pin names too). Its I is a plain stroke,
+//           with no serifs. Eagle imports use it.
 // Glyphs are drawn on a grid 4 wide and 6 tall for the capital height.
 const CAP = 6;
 export const FONTS = {
   stroke: { cap: 1, pen: 0.15, advance: 1 },
-  vector: { cap: 0.9, pen: 0.1, advance: 0.786 },
+  // Eagle's vector font is proportional: on a grid of 1/6 of the capital, most characters advance
+  // 6 units, the narrow ones less (measured on toyotune_3s's silk at JLCPCB, #83)
+  vector: {
+    cap: 0.915, pen: 0.1, advance: 0.922,
+    glyphs: { I: parse('2,6 2,0'), i: parse('0,4 1,4 1,0 2,0|1,6 1,5.5'), l: parse('0,6 1,6 1,0 2,0'), t: parse('1,6 1,1 2,0|0,4 2,4'), r: parse('0,4 0,0|0,2 2,4 3,4'), ',': parse('1,0.5 0,-1'), '.': parse('0,0 0,0.3') },
+    advances: { i: 4 / 6, l: 4 / 6, t: 4 / 6, r: 5 / 6, ',': 4 / 6, '.': 3 / 6 },
+  },
 };
 const metrics = (font) => FONTS[font] || FONTS.stroke;
 
@@ -51,21 +59,30 @@ export const glyph = (ch) => GLYPHS[ch] || GLYPHS[ch.toUpperCase()] || GLYPHS['?
 
 /** Width of `text` at `size` in `font` ('stroke' | 'vector'), between the outer stroke centres, nm. */
 export const strokeWidthOf = (text, size, font = 'stroke') => {
-  const n = [...String(text)].length, f = metrics(font);
-  return n ? (n - 1) * size * f.advance + (4 * size * f.cap) / CAP : 0;
+  const chars = [...String(text)], f = metrics(font);
+  if (!chars.length) return 0;
+  let w = 0;
+  for (let i = 0; i < chars.length - 1; i++) w += advanceOf(f, chars[i]) * size;
+  return w + (4 * size * f.cap) / CAP;
 };
+
+/** How far a character moves the pen, as a fraction of the size. */
+const advanceOf = (f, ch) => f.advance * (f.advances?.[ch] ?? 1);
 
 /** The pen width for text of `size` in `font`. */
 export const strokePen = (size, font = 'stroke') => Math.max(1, Math.round(size * metrics(font).pen));
 
 /** Glyph polylines for `text` from (x0, base), y up in grid units turned to y down (no rounding). */
 function layout(text, size, font, x0, base, { mirror = false, slant = 0, mirrorAbout = null } = {}) {
-  const f = metrics(font), u = (size * f.cap) / CAP, adv = size * f.advance;
+  const f = metrics(font), u = (size * f.cap) / CAP;
   const out = [];
-  [...String(text)].forEach((ch, i) => {
-    for (const pl of glyph(ch)) {
+  let pen = x0;
+  [...String(text)].forEach((ch) => {
+    const at = pen;
+    pen += advanceOf(f, ch) * size;
+    for (const pl of f.glyphs?.[ch] || glyph(ch)) {
       out.push(pl.map(([gx, gy]) => {
-        let x = x0 + i * adv + gx * u + gy * u * slant;
+        let x = at + gx * u + gy * u * slant;
         if (mirror) x = 2 * mirrorAbout - x;
         return [x, base - gy * u];
       }));

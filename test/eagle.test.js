@@ -330,11 +330,11 @@ test('a label the import adds for a named net goes clear of pins (#75)', async (
   assert.ok(r.report.some((t) => /got one, placed clear of pins/.test(t)), r.report.join('\n'));
 });
 
-test('Eagle symbols carry Eagle\'s pin text: names 1.778 mm, 1.905 mm in from the pin (#79)', async () => {
+test('Eagle symbols carry Eagle\'s pin text: names 1.524 mm, 1.905 mm in from the pin (#79, #83)', async () => {
   const p = importEagle({ sch: SCH, name: 'reg' }).project;
   for (const part of Object.values(p.parts)) for (const u of part.units) {
     if (!u.pins.length) continue;
-    assert.equal(u.pinNameSize, 1_778_000, part.name);
+    assert.equal(u.pinNameSize, 1_524_000, part.name);
     assert.equal(u.pinNameOffset, 1_905_000, part.name);
   }
   // the import picks the vector font (Eagle's metrics) for both the schematic and the board

@@ -134,9 +134,9 @@ The Wire tool (W) draws orthogonal runs with one corner between clicks.
 - **Crossings** (option, on by default): where a horizontal and a vertical Wire cross without connecting, the horizontal one draws a small semicircle **hop** over the other.
 
 **Text** (Sheet setup → Text, kept with the Project; #79): schematic text (pin names and numbers, References and Values, labels, sheet text, the title block) is drawn in the operating system's sans font, or in ElectroCAD's **vector font**: the same single-stroke glyphs as the board's silk and the silk Gerber (`core/strokefont.js`), sized and spaced as Eagle's. New projects use the system font; Eagle imports use the vector font (and Eagle's metrics on the board, below).
-- In the vector font a text **size** is the full height of a capital, pen included, as in Eagle. Capitals are 0.9 of it between stroke centres, the pen 0.1, and each character advances 0.786 of it. These are Eagle's own metrics, measured from a board house's Gerbers and from boxes a designer drew round parts of pin names, so imported layouts line up.
+- In the vector font a text **size** is the full height of a capital, pen included, as in Eagle. Capitals are 0.915 of it between stroke centres and the pen 0.1. Like Eagle's, the font is proportional: most characters advance 0.922 of the size, the narrow ones less (i, l, t and comma about two thirds, r five sixths, the full stop half), and its capital I is a plain stroke (#83). These are Eagle's own metrics, measured from a board house's Gerbers and from boxes a designer drew round parts of pin names, so imported layouts line up.
 - Field placement, labels and selection measure text in the chosen style, so they always fit what's drawn.
-- **Pin text per Unit:** the Symbol editor's **Pin text** row sets a Unit's pin name size, pin number size and the gap between a pin's inner end and its name (empty means the default: about 1 mm text, 0.6 mm gap). Eagle imports use Eagle's 1.778 mm names, 1.905 mm in from the pin.
+- **Pin text per Unit:** the Symbol editor's **Pin text** row sets a Unit's pin name size, pin number size and the gap between a pin's inner end and its name (empty means the default: about 1 mm text, 0.6 mm gap). Eagle imports use Eagle's 1.524 mm (60 mil) names, 1.905 mm in from the pin.
 
 ## Labels, Power symbols and Sheets
 
@@ -580,7 +580,7 @@ Checked against a real board: a 4-layer design imported from Eagle and compared 
     - A preset for the other layer count is flagged, with a button for the right one.
   - **Rules** (mm): clearance, track width, via drill, via diameter, minimum hole, annular ring, edge clearance. These are the **Default** net class.
   - **Fab output:** Gerber file names (Protel extensions or descriptive) and drill file units, used by the Fab output (#26).
-  - **Text** (#79): the metrics of footprint text on the board and in the silk Gerbers, kept with the Project. **ElectroCAD stroke** (the default): the size is the capital height, characters advance by the size, the pen is 0.15 of it. **Eagle vector** (Eagle imports use it): the size is the full height including the pen, capitals 0.9 of it, advance 0.786, pen 0.1, so text comes out about 10% smaller and tighter, as Eagle's Gerbers have it.
+  - **Text** (#79): the metrics of footprint text on the board and in the silk Gerbers, kept with the Project. **ElectroCAD stroke** (the default): the size is the capital height, characters advance by the size, the pen is 0.15 of it. **Eagle vector** (Eagle imports use it): the size is the full height including the pen, capitals 0.915 of it, pen 0.1, proportional spacing (0.922 for most characters, less for i, l, t, r and punctuation), as Eagle's Gerbers have it.
 - **Net classes:**
   - A table of classes: **Default** (the Design rules, read-only here), then each class's name, track width, clearance, via drill and via diameter (all editable), its net count and Delete. **Add net class** starts from the Design rules.
   - **Nets:** every net on the board with a class picker (filterable). A net is in one class at a time; deleting a class puts its nets back in Default.

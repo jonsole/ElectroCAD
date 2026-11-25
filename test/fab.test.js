@@ -213,14 +213,20 @@ test('vector font metrics (#79): Eagle\'s text height, capital and advance; scre
   const { strokeWidthOf: sw, vectorLayout, strokeText: st, strokePen: sp, FONTS } = await import('../src/renderer/core/strokefont.js');
   const font = 'vector', { cap: CAP_RATIO, advance: ADVANCE_RATIO, pen: PEN_RATIO } = FONTS.vector;
   const strokeWidthOf = (t, s) => sw(t, s, font), strokePen = (s) => sp(s, font), strokeText = (t, o) => st(t, { ...o, font });
-  // Eagle at size 1.778: a T 1.627 tall between stroke centres and 1.085 wide, pen 0.15, advance 1.397
+  // Eagle at size 1.778: a T 1.627 tall between stroke centres and 1.085 wide, pen 0.15, advance 1.64
   const size = 1_778_000, T = strokeText('T', { at: [0, 0], size });
   const ys = T.flat().map((q) => q[1]), xs = T.flat().map((q) => q[0]);
   assert.ok(Math.abs(Math.max(...ys) - Math.min(...ys) - 1_627_000) < 40_000, `cap ${Math.max(...ys) - Math.min(...ys)}`);
   assert.ok(Math.abs(Math.max(...xs) - Math.min(...xs) - 1_085_000) < 40_000, `width ${Math.max(...xs) - Math.min(...xs)}`);
   assert.equal(strokePen(size), Math.round(size * PEN_RATIO));
-  // the 6th character starts 5 advances in: where Eagle's pin-name boxes start
-  assert.ok(Math.abs(5 * size * ADVANCE_RATIO - 6_985_000) < 5_000, 'five Eagle characters: 6.985 mm');
+  // board text (#83): "ToyoTune 2.1" at 1.778 starts a character every 1.64 mm in JLCPCB's silk
+  assert.ok(Math.abs(size * ADVANCE_RATIO - 1_640_000) < 10_000, `advance ${size * ADVANCE_RATIO}`);
+  // the boxes round IC20's 1.524 mm pin names: the 6th character starts 6.985 mm in (the designer's
+  // boxes sit on a grid, so within 0.05 mm)
+  assert.ok(Math.abs(5 * 1_524_000 * ADVANCE_RATIO - 6_985_000) < 50_000, 'five pin-name characters: 6.985 mm');
+  // Eagle's I is a plain stroke (no serifs) in the vector font; the stroke font keeps its serifs
+  assert.equal(strokeText('I', { at: [0, 0], size }).length, 1);
+  assert.equal(st('I', { at: [0, 0], size }).length, 3);
   assert.ok(Math.abs(strokeWidthOf('PA05/', size) - (4 * size * ADVANCE_RATIO + (4 / 6) * size * CAP_RATIO)) < 1);
   // the canvas layout of the same text, centred, is the Gerber's geometry
   const v = vectorLayout('R12', { x: 0, y: 0, px: size, align: 'center', baseline: 'middle' }).lines;

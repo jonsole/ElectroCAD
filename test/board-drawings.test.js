@@ -13,7 +13,7 @@ import { runDrc } from '../src/renderer/core/drc.js';
 import { checkSchema } from '../src/renderer/core/schema-check.js';
 import { ECAD_SCHEMA } from '../src/renderer/core/ecad-schema.js';
 import { serialize, deserialize } from '../src/renderer/core/project.js';
-import { strokeWidthOf } from '../src/renderer/core/strokefont.js';
+import { strokeWidthOf, FONTS } from '../src/renderer/core/strokefont.js';
 import {
   textCentre, textStrokes, drawingGeometry, drawingBox, hitDrawing, moveDrawings, rotateDrawings, copperDrawingItems, drawingLayers,
 } from '../src/renderer/core/boardDrawings.js';
@@ -48,7 +48,7 @@ test('text: centred on at, turned anticlockwise, mirrored on the back', () => {
 });
 
 test('textCentre: Eagle\'s anchors (bottom-left by default) and rotation', () => {
-  const size = mm(1.778), w = strokeWidthOf('ABC', size, 'vector'), cap = size * 0.9;
+  const size = mm(1.778), w = strokeWidthOf('ABC', size, 'vector'), cap = size * FONTS.vector.cap;
   const c = textCentre('ABC', { at: [0, 0], size, font: 'vector' });
   assert.deepEqual(c, [Math.round(w / 2), Math.round(-cap / 2)], 'up and to the right of a bottom-left anchor');
   assert.deepEqual(textCentre('ABC', { at: [0, 0], size, align: 'center', font: 'vector' }), [0, 0]);
@@ -132,7 +132,7 @@ test('Eagle import: <plain> text and graphics become Board drawings', () => {
   assert.equal(t.text, 'REG v1'); assert.equal(t.layer, 'F.SilkS'); assert.equal(t.rot, 0);
   // anchored bottom-left at (2, 2) mm: the centre is up and right of it
   const w = strokeWidthOf('REG v1', mm(1.27), 'vector');
-  assert.deepEqual(t.at, [mm(2) + Math.round(w / 2), -mm(2) - Math.round(mm(1.27) * 0.9 / 2)]);
+  assert.deepEqual(t.at, [mm(2) + Math.round(w / 2), -mm(2) - Math.round(mm(1.27) * FONTS.vector.cap / 2)]);
   assert.ok(!r.report.some((x) => /layer 21/.test(x)), r.report.join('\n'));
 });
 
