@@ -436,3 +436,18 @@ test('busses (#64): Eagle\'s busses come over as Busses, named as Eagle names th
   assert.ok(!report.some((r) => /Busses were left out/.test(JSON.stringify(r))));
   assert.ok(!buildNetlist(project).nets.some((n) => /D\[0/.test(n.name)), 'a bus label names no net');
 });
+
+test('part attributes (#71): technology attributes become fields; a part\'s own value wins unless constant', () => {
+  const sch = SCH
+    .replace('<technology name="05"><attribute name="MPN" value="LM78M05"/></technology>',
+      '<technology name="05"><attribute name="MPN" value="LM78M05"/><attribute name="MF" value="ST" constant="no"/><attribute name="OC_DIGIKEY" value="497-1234" constant="no"/><attribute name="VOLTAGE" value="5V" constant="yes"/><attribute name="NOTE" value=""/></technology>')
+    .replace('<part name="U1" library="reg" deviceset="78XX" device="SOT223" technology="05"/>',
+      '<part name="U1" library="reg" deviceset="78XX" device="SOT223" technology="05"><attribute name="OC_DIGIKEY" value="497-9999"/><attribute name="VOLTAGE" value="3V3"/><attribute name="TOLERANCE" value="2%"/><attribute name="MPN" value="L78M05ABDT"/></part>');
+  const { project, report } = importEagle({ sch, name: 'reg' });
+  const u1 = Object.values(project.components).find((c) => c.ref === 'U1');
+  assert.deepEqual(u1.fields, { OC_DIGIKEY: '497-9999', VOLTAGE: '5V', NOTE: '', TOLERANCE: '2%' });
+  assert.deepEqual(u1.mpn, { manufacturer: 'ST', number: 'L78M05ABDT' }, 'MPN and manufacturer fill the MPN, the part\'s value over the technology\'s');
+  assert.ok(report.some((r) => /Part attributes became component fields \(in Properties\): NOTE, OC_DIGIKEY, TOLERANCE, VOLTAGE/.test(JSON.stringify(r))));
+  // other parts are untouched
+  assert.deepEqual(Object.values(project.components).find((c) => c.ref === 'R1').fields, {});
+});

@@ -21,6 +21,10 @@ import { readLibrary, devicesetToPart, isSupply, isPinless, fpIdOf } from './lib
 
 const GRID = 2_540_000; // keep the sheet's offset on Eagle's 0.1" grid, so pins stay on ElectroCAD's
 const isAuto = (name) => /^N\$\d+$/.test(name);
+// part attributes (#71): which name the MPN and its manufacturer, and Eagle's own (not fields)
+const MPN_ATTR = /^(MPN|MF_PN|PARTNO|PART_NUMBER|MANUFACTURER_PART_NUMBER)$/i;
+const MF_ATTR = /^(MANUFACTURER|MF|MFR|VENDOR)$/i;
+const RESERVED_ATTR = /^(NAME|VALUE|PART|GATE)$/i;
 const GROUND = /^(A|D|P|S)?GND\w*$|^VSS\w*$|^0V$/i;
 
 /** Read the libraries of a drawing (sch, brd or lbr) by name. */
@@ -77,6 +81,8 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
   // parts: components, supply symbols, frames
   const parts = new Map();
   const partDefs = new Map();
+  const fieldNames = new Set(); // part attribute names that became fields (#71)
+  const shownAttrs = new Set(); // ...and those Eagle shows on the sheet
   for (const pe of sch.path('parts')?.all('part') || []) {
     const lib = libs.get(pe.attr('library'));
     const ds = lib?.devicesets.get(pe.attr('deviceset'));
@@ -97,13 +103,24 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
     }
     const { part, numbers } = partDefs.get(key);
     const tech = dev?.path('technologies')?.all('technology').find((t) => t.attr('name') === (pe.attr('technology') || '')) || null;
-    const mpnAttr = tech?.all('attribute').find((a) => /^(MPN|MF_PN|PARTNO|PART_NUMBER|MANUFACTURER_PART_NUMBER)$/i.test(a.attr('name')));
+    // the part's attributes (#71): its device technology's, with the part's own values over those
+    // that aren't constant, and the part's own extra ones; names kept as written
+    const attrs = new Map(); // name -> value
+    for (const a of tech?.all('attribute') || []) attrs.set(a.attr('name'), { value: a.attr('value') ?? '', constant: a.attr('constant') === 'yes' });
+    for (const a of pe.all('attribute')) {
+      const n = a.attr('name'), cur = attrs.get(n);
+      if (!n || RESERVED_ATTR.test(n) || cur?.constant) continue;
+      attrs.set(n, { value: a.attr('value') ?? '', constant: false });
+    }
+    const mpnName = [...attrs.keys()].find((n) => MPN_ATTR.test(n)), mfName = [...attrs.keys()].find((n) => MF_ATTR.test(n));
+    const fields = {};
+    for (const [n, a] of attrs) if (n !== mpnName && n !== mfName) { fields[n] = a.value; fieldNames.add(n); }
     const comp = {
       id: uid('c'), partId: part.id, ref: pe.attr('name'),
       value: pe.attr('value') ?? (ds.attr('uservalue') === 'yes' ? '' : `${ds.attr('name').replace(/[*?]+$/, '')}${dev?.attr('name') || ''}`),
-      mpn: mpnAttr?.attr('value') ? { manufacturer: tech.all('attribute').find((a) => /^(MANUFACTURER|MF|MFR|VENDOR)$/i.test(a.attr('name')))?.attr('value') || '', number: mpnAttr.attr('value') } : null,
+      mpn: mpnName && attrs.get(mpnName).value ? { manufacturer: (mfName && attrs.get(mfName).value) || '', number: attrs.get(mpnName).value } : null,
       footprint: dev?.attr('package') && part.footprints[fpIdOf(dev)] ? { fpId: fpIdOf(dev) } : null,
-      fields: {},
+      fields,
     };
     project.components[comp.id] = comp;
     parts.set(pe.attr('name'), { comp, part, lib, ds, dev, numbers, gates: (ds.path('gates')?.all('gate') || []).map((g) => g.attr('name')) });
@@ -157,6 +174,7 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
       // moved ("smashed") NAME / VALUE (#65): their centres become the Symbol's pinned fields
       for (const a of inst.all('attribute')) {
         const key = a.attr('name') === 'NAME' ? 'reference' : a.attr('name') === 'VALUE' ? 'value' : null;
+        if (!key && a.attr('display') !== 'off' && !RESERVED_ATTR.test(a.attr('name') || '')) shownAttrs.add(a.attr('name'));
         if (!key || a.attr('x') == null || a.attr('display') === 'off') continue;
         const str = key === 'reference' ? `${inst.attr('part')}${p.gates.length > 1 ? inst.attr('gate') || '' : ''}` : (p.comp.value || ' ');
         const t = eagleTextAngle(a);
@@ -173,6 +191,8 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
     }
   });
 
+  if (fieldNames.size) report.add(`Part attributes became component fields (in Properties): ${[...fieldNames].sort().join(', ')}`);
+  if (shownAttrs.size) report.add(`Part attributes Eagle shows on the sheet stay in Properties only: ${[...shownAttrs].sort().join(', ')}`);
   if (smashedFields) report.add('Moved (smashed) NAME and VALUE texts kept where Eagle has them (pinned fields)', smashedFields);
   implicitPower(project, parts, pinNet, powered, report);
 
