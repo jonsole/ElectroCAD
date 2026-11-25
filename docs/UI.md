@@ -207,6 +207,7 @@ Output is drawn by the editor's own drawing code through vector back ends (`prin
 ## Selecting and moving
 
 - **Selecting:** click to select, Shift-click to add or remove an item, and drag on an empty canvas to box-select. Dragging **left to right** takes only items fully inside the box (solid outline); **right to left** takes anything the box touches (dashed outline). Ctrl+A selects all.
+- **Overlapping items** (#78): a line, shape or wire drawn over a part's body is picked before the part when you click on its stroke; elsewhere in the body, the part is picked; at one of the part's pins, the part comes first. **Click again on the same spot** to step to the next item under the cursor (on release, so pressing and dragging still moves what's selected). Right-click and double-click (Properties) use the same order.
 - **Moving:** drag a selected item to move the whole selection, with a live preview. Arrow keys nudge by one grid step, or ten with Shift. Every move is one undo step.
 - **Wires follow what moves and stay square:**
   - a Wire whose both ends move goes with them;

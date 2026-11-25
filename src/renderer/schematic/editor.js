@@ -227,15 +227,34 @@ export class SchematicEditor {
     this.refresh();
   }
 
+  /**
+   * Everything under a point, best first (#78): a no-connect, a label, then the thin things (a
+   * drawing's stroke, a wire) before the body of a symbol they lie over, unless the point is at one
+   * of that symbol's pins, where the symbol comes first as before. Clicking again on the same spot
+   * steps through this list.
+   */
+  _hitsAt(world, scale) {
+    const tol = 4 / scale;
+    const f = this.placement && hitField(this.project, this.placement, world, tol / 2, measureText);
+    const sym = hitSymbol(this.project, this.sheet, world, 3 / scale);
+    const fsym = f && this.sheet.symbols.find((y) => y.id === f.symbolId);
+    const thin = [hitDrawing(this.sheet, world, tol, measureText), hitWire(this.sheet, world, tol)].filter(Boolean);
+    const atPin = sym && pinPositions(this.project, sym).some(({ at }) => Math.hypot(at[0] - world[0], at[1] - world[1]) <= tol * 1.5);
+    const order = [hitNoConnect(this.sheet, world, SCH_GRID / 2), hitLabel(this.sheet, world, tol / 2, measureText),
+      ...(sym && !atPin ? [...thin, sym, fsym] : [sym, fsym, ...thin])];
+    const seen = new Set(), out = [];
+    for (const x of order) if (x && !seen.has(x.id)) { seen.add(x.id); out.push(x); }
+    return out;
+  }
+
   /** Right-click on the canvas (DabbleCAD's context menu): commands for what's under the cursor or selected. */
   contextMenu(e) {
     if (this.placing || this.tool !== 'select') { if (this.placing) this.endPlace(); else this.setTool('select'); return; }
     const v = this.ws.view;
     const world = v.view.toWorld(v.local(e));
-    const tol = 4 / v.view.scale;
-    const f = this.placement && hitField(this.project, this.placement, world, tol / 2, measureText);
-    const hit = hitNoConnect(this.sheet, world, SCH_GRID / 2) || hitLabel(this.sheet, world, tol / 2, measureText) || hitSymbol(this.project, this.sheet, world, 3 / v.view.scale)
-      || (f && this.sheet.symbols.find((y) => y.id === f.symbolId)) || hitWire(this.sheet, world, tol) || hitDrawing(this.sheet, world, tol, measureText);
+    const hits = this._hitsAt(world, v.view.scale);
+    // a right-click on something already selected keeps the selection (and whichever item it is)
+    const hit = hits.find((x) => this.selection.has(x.id)) || hits[0] || null;
     if (hit && !this.selection.has(hit.id)) this.selection = new Set([hit.id]);
     else if (!hit) this.selection = new Set();
     this.refresh();
@@ -595,6 +614,12 @@ export class SchematicEditor {
         return;
       }
       const tol = 4 / ws.view.view.scale;
+      // clicking again on the same spot (a separate click, not a double-click) steps to the next item
+      // under it, on release, if the press didn't turn into a drag (#78)
+      // (browsers report 0 clicks on pointer events, so a double-click's second press is told apart by time)
+      const last = this._lastClick, now = e.timeStamp || performance.now();
+      this._cycle = !e.shiftKey && e.detail <= 1 && !!last && now - last.t >= 350 && Math.hypot(e.clientX - last.x, e.clientY - last.y) <= 3 && this.selection.size === 1 ? { world } : null;
+      this._lastClick = { x: e.clientX, y: e.clientY, t: now };
       const handle = !e.shiftKey && this._handleAt(world, 5 / ws.view.view.scale);
       if (handle) {
         this.handleDrag = { ...handle, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.project), moved: false };
@@ -612,8 +637,8 @@ export class SchematicEditor {
         this.refresh();
         return;
       }
-      const hit = hitNoConnect(this.sheet, world, SCH_GRID / 2) || hitLabel(this.sheet, world, tol / 2, measureText) || hitSymbol(this.project, this.sheet, world, 3 / ws.view.view.scale)
-        || (fieldHit && this.sheet.symbols.find((y) => y.id === fieldHit.symbolId)) || hitWire(this.sheet, world, tol) || hitDrawing(this.sheet, world, tol, measureText);
+      const hits = this._hitsAt(world, ws.view.view.scale);
+      const hit = hits.find((x) => this._cycle && this.selection.has(x.id)) || hits[0] || null;
       if (e.shiftKey && hit) { if (this.selection.has(hit.id)) this.selection.delete(hit.id); else this.selection.add(hit.id); this.refresh(); return; }
       if (hit) {
         if (!this.selection.has(hit.id)) this.selection = new Set([hit.id]);
@@ -642,12 +667,18 @@ export class SchematicEditor {
       if (!f && world[0] >= tb.x0 && world[0] <= tb.x1 && world[1] >= tb.y0 && world[1] <= tb.y1) { e.preventDefault(); this.sheetSetup(); return; }
       if (f && (f.key === 'reference' || f.key === 'value')) { e.preventDefault(); this.editField(f.symbolId, f.key); return; }
       // double-clicking a part (or a line, rectangle, circle or arc) opens its Properties
-      const sym = !f && hitSymbol(this.project, this.sheet, world, 3 / ws.view.view.scale);
-      const item = sym || (d && d.type !== 'text' ? d : null) || (f && this.sheet.symbols.find((y) => y.id === f.symbolId));
+      const item = this._hitsAt(world, ws.view.view.scale).find((x) => this.sheet.symbols.includes(x) || (this.sheet.drawings || []).includes(x) && x.type !== 'text');
       if (item) { e.preventDefault(); this.selection = new Set([item.id]); this.openProperties(); }
     });
     c.addEventListener('pointerup', (e) => {
       if (e.button !== 0) return;
+      const cyc = this._cycle;
+      this._cycle = null;
+      if (cyc && !this.handleDrag?.moved && !this.drag?.moved && !this.fieldDrag?.moved) {
+        const hits = this._hitsAt(cyc.world, ws.view.view.scale);
+        const i = hits.findIndex((x) => this.selection.has(x.id));
+        if (hits.length > 1 && i >= 0) this.selection = new Set([hits[(i + 1) % hits.length].id]);
+      }
       if (this.handleDrag) {
         const d = this.handleDrag;
         this.handleDrag = null;
