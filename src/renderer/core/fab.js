@@ -14,6 +14,7 @@ import { padShape } from './collision.js';
 import { arcCircle } from './geom.js';
 import { fabSettings } from './presets.js';
 import { drawingGeometry } from './boardDrawings.js';
+import { placedFieldTexts, fieldOfText } from './fpTexts.js';
 import { strokeText, strokePen } from './strokefont.js';
 
 const CL = ClipperLib;
@@ -207,8 +208,10 @@ function gerberLayer(project, { layer, fn, polarity }, { fills, date, version })
       const ref = board.annotation?.components?.[bf.componentId]?.ref ?? project.components[bf.componentId]?.ref ?? '';
       const value = board.annotation?.components?.[bf.componentId]?.value ?? project.components[bf.componentId]?.value ?? '';
       let ownRef = false;
+      const moved = new Set(Object.keys(bf.texts || {})); // fields this placement moved, resized or hid (#65)
       for (const gr of fp.graphics || []) {
         if (gr.type === 'text' && gr.text.includes('${REF}')) ownRef = true;
+        if (moved.has(fieldOfText(gr))) continue;
         if (flipLayer(gr.layer || 'F.SilkS', bf.side) !== layer) continue;
         const w = gr.width ? gr.width * SILK_WIDTH : SILK_WIDTH;
         if (gr.type === 'rect') { const q = [gr.a, [gr.b[0], gr.a[1]], gr.b, [gr.a[0], gr.b[1]]].map(T); if (gr.fill === 'outline') g.region(q, null); else g.stroke(w, [...q, q[0]], null); }
@@ -222,7 +225,11 @@ function gerberLayer(project, { layer, fn, polarity }, { fills, date, version })
         }
       }
       // a Footprint without its own Reference text gets it above its courtyard, as on screen
-      if (!ownRef && ref && flipLayer('F.SilkS', bf.side) === layer) {
+      for (const d of placedFieldTexts(project, bf, { ref, value })) {
+        if (d.hidden || !d.text || d.layer !== layer) continue;
+        for (const st of drawingGeometry(d, font).strokes) g.stroke(st.width, st.pts, null);
+      }
+      if (!ownRef && !moved.has('ref') && ref && flipLayer('F.SilkS', bf.side) === layer) {
         const crt = (fp.graphics || []).find((x) => /CrtYd$/.test(x.layer || '') && x.type === 'rect');
         const top = crt ? Math.min(crt.a[1], crt.b[1]) : -1_000_000;
         for (const pl of strokeText(ref, { at: T([0, top - 800_000]), size: 1_000_000, mirror, font })) g.stroke(strokePen(1_000_000, font), pl, null);

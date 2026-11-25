@@ -3,6 +3,7 @@
 // with their tickets. Screen space is the world scaled (+Y down on both), so angles match.
 import { vectorLayout } from '../core/strokefont.js';
 import { drawingGeometry } from '../core/boardDrawings.js';
+import { placedFieldTexts, fieldOfText } from '../core/fpTexts.js';
 import { arcCircle } from '../core/geom.js';
 import { outlineLoops, checkOutline } from '../core/board.js';
 import { mm } from '../core/units.js';
@@ -220,7 +221,13 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
     const ref = ann[bf.componentId]?.ref ?? comp?.ref ?? '';
     const value = ann[bf.componentId]?.value ?? comp?.value ?? '';
     // silk, courtyard and fab graphics (and its own ${REF} / ${VALUE} text)
-    const own = partial ? { ref: true, value: true } : drawFootprintGraphics(ctx, view, C, fp, T, { side: bf.side, visible, ref, value, labels, font: board.textFont });
+    // Reference / Value moved, resized or hidden on this placement (#65): drawn from the override
+    const moved = new Set(Object.keys(bf.texts || {}));
+    const own = partial ? { ref: true, value: true } : drawFootprintGraphics(ctx, view, C, fp, T, { side: bf.side, visible, ref, value, labels, font: board.textFont, skip: moved });
+    if (!partial && moved.size) {
+      const list = placedFieldTexts(project, bf, { ref, value }).filter((d) => !d.hidden && d.text);
+      if (list.length) labels.push(() => drawBoardDrawings(ctx, view, C, board, hidden, { list }));
+    }
     // pads
     for (const pad of placedPads(project, bf, nets)) {
       if (partial && !padKeys?.has(`${bf.componentId}:${pad.number}`)) continue;
@@ -276,9 +283,9 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
         silkText(ctx, str, x, y, px, bf.side === 'B', C[layer] || '#ddd', board.textFont);
       });
     };
-    if (!own.ref) text(flipLayer('F.SilkS', bf.side), ref, [0, top - mm(0.8)], mm(1));
+    if (!own.ref && !moved.has('ref')) text(flipLayer('F.SilkS', bf.side), ref, [0, top - mm(0.8)], mm(1));
     const bottom = crt ? Math.max(crt.a[1], crt.b[1]) : mm(1);
-    if (!own.value) text(flipLayer('F.Fab', bf.side), value, [0, bottom + mm(0.6)], mm(0.7));
+    if (!own.value && !moved.has('value')) text(flipLayer('F.Fab', bf.side), value, [0, bottom + mm(0.6)], mm(0.7));
   }
 }
 
@@ -310,7 +317,7 @@ function shortNet(net, ctx, maxPx) {
  * `${VALUE}` in text are filled in with `ref` / `value`. Returns { ref, value }: whether it drew
  * its own Reference / Value text. Shared by the Board and the Footprint editor.
  */
-export function drawFootprintGraphics(ctx, view, C, fp, T, { side = 'F', visible = () => true, ref = 'REF**', value = 'VALUE', only = null, labels = null, font = 'stroke' } = {}) {
+export function drawFootprintGraphics(ctx, view, C, fp, T, { side = 'F', visible = () => true, ref = 'REF**', value = 'VALUE', only = null, labels = null, font = 'stroke', skip = null } = {}) {
   const S = (p) => view.toScreen(T(p));
   const own = { ref: false, value: false };
   const lw = (layer) => Math.max(1, mm(/SilkS/.test(layer) ? 0.12 : 0.1) * view.scale);
@@ -318,6 +325,7 @@ export function drawFootprintGraphics(ctx, view, C, fp, T, { side = 'F', visible
     if (only && !only.has(i)) return;
     const layer = flipLayer(g.layer || 'F.SilkS', side);
     if (g.type === 'text') { if (g.text.includes('${REF}')) own.ref = true; if (g.text.includes('${VALUE}')) own.value = true; }
+    if (skip?.size && skip.has(fieldOfText(g))) return; // drawn from the placement's own override (#65)
     if (!visible(layer)) return;
     const col = C[layer] || '#888';
     ctx.save(); ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = lw(layer); ctx.lineCap = 'round'; ctx.lineJoin = 'round';

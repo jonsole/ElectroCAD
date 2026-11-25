@@ -11,8 +11,9 @@ import { symbolBounds } from '../../core/schematic.js';
 import { labelBounds, LABEL_TEXT } from '../../core/labels.js';
 import { buildNetlist } from '../../core/netlist.js';
 import { PAPER_SIZES } from '../../core/drawings.js';
-import { rot90 as r90geom } from '../../core/geom.js';
-import { nm, pt, rotOf, rot90, pinBase, Report, placedRot } from './common.js';
+import { rot90 as r90geom, unplace } from '../../core/geom.js';
+import { textCentre } from '../../core/boardDrawings.js';
+import { nm, pt, rotOf, rot90, pinBase, Report, placedRot, eagleTextAngle } from './common.js';
 import { readLibrary, devicesetToPart, isSupply, isPinless, fpIdOf } from './library.js';
 
 const GRID = 2_540_000; // keep the sheet's offset on Eagle's 0.1" grid, so pins stay on ElectroCAD's
@@ -121,6 +122,7 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
   });
   const powered = new Set(); // nets with a power symbol: their labels go global
 
+  let smashedFields = 0; // Eagle's moved NAME / VALUE, as pinned fields (#65)
   sheetsEl.forEach((se, si) => {
     const place = sheetPlacement(se, parts, libs);
     const sheet = { ...newSheet(se.path('description')?.text?.trim() || `Sheet ${si + 1}`), paper: place.paper };
@@ -147,7 +149,18 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
         continue;
       }
       const unit = Math.max(0, p.gates.indexOf(inst.attr('gate')));
-      sheet.symbols.push({ id: uid('y'), componentId: p.comp.id, unit, at: place.T(inst.attr('x'), inst.attr('y')), rot: rot90(rot), mirror });
+      const sym = { id: uid('y'), componentId: p.comp.id, unit, at: place.T(inst.attr('x'), inst.attr('y')), rot: rot90(rot), mirror };
+      sheet.symbols.push(sym);
+      // moved ("smashed") NAME / VALUE (#65): their centres become the Symbol's pinned fields
+      for (const a of inst.all('attribute')) {
+        const key = a.attr('name') === 'NAME' ? 'reference' : a.attr('name') === 'VALUE' ? 'value' : null;
+        if (!key || a.attr('x') == null || a.attr('display') === 'off') continue;
+        const str = key === 'reference' ? `${inst.attr('part')}${p.gates.length > 1 ? inst.attr('gate') || '' : ''}` : (p.comp.value || ' ');
+        const t = eagleTextAngle(a);
+        const c = textCentre(str, { at: place.T(a.attr('x'), a.attr('y')), size: nm(a.attr('size', 1.778)), rot: t.rot, mirror: t.mirror, align: t.align, font: 'vector' });
+        sym.fieldPins = { ...(sym.fieldPins || {}), [key]: unplace(c, sym.at, sym.rot, sym.mirror) };
+        smashedFields++;
+      }
     }
     // plain drawings: lines and text
     for (const c of se.path('plain')?.children || []) {
@@ -158,6 +171,7 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
     if (se.path('busses')?.children.length) report.add('Busses were left out (their nets keep their labels)');
   });
 
+  if (smashedFields) report.add('Moved (smashed) NAME and VALUE texts kept where Eagle has them (pinned fields)', smashedFields);
   implicitPower(project, parts, pinNet, powered, report);
 
   // wires first (all nets), then trim ends that land on another net, then the labels that join a

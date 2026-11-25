@@ -17,7 +17,7 @@ import { openAnnotateDialog } from './annotate-dialog.js';
 import { openBoardSetup } from './setup-dialog.js';
 import { netClassOf } from '../core/netclasses.js';
 import { runDrc, drcCounts, DRC_RULES } from '../core/drc.js';
-import { hitPad, footprintOutline, placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation } from '../core/footprint.js';
+import { hitPad, footprintOutline, insidePolygon, placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation } from '../core/footprint.js';
 import { ratsnest } from '../core/ratsnest.js';
 import { copperIndex, pointSeg2 } from '../core/collision.js';
 import { CORNERS, ROUTE_MODES, startRoute, step as routeStep, click as routeClickAt, back as routeBack, flipPosture, commit as routeCommit, switchLayer, layerPairs } from '../core/router.js';
@@ -35,8 +35,9 @@ import { ContextStrip, stripLabel, stripSep, stripButton, stripNumber, stripSele
 import { CardSet } from '../ui/cards.js';
 import { highlight, screenBox, revealBox } from '../view/highlight.js';
 import { probeFromBoard, boardTargets } from '../core/probe.js';
+import { FIELD_KEYS, FIELD_NAME, fieldPlacement, setFieldOverride, placedFieldTexts, fieldStrings, fpInverse, worldRot, localRot } from '../core/fpTexts.js';
+import { footprintOf, uid } from '../core/project.js';
 import { drawingLayers, defaultWidth, DEFAULT_TEXT_SIZE, hitDrawing, moveDrawings, rotateDrawings, drawingsCentre, drawingBox } from '../core/boardDrawings.js';
-import { uid } from '../core/project.js';
 
 const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
 
@@ -479,7 +480,35 @@ export class BoardEditor {
       row('Side', side),
       h('label', { class: 'check-row' }, lock, 'Locked (can\'t be moved, turned or flipped)'),
       ann && (ann.ref !== comp.ref || ann.value !== comp.value) ? h('p', { class: 'side-note' }, 'The Schematic has changes for this part: Update from Schematic (F8).') : null,
+      ...this.fieldTextProps(bf),
     ].filter(Boolean);
+  }
+
+  /** PROPERTIES rows for a Footprint's Reference and Value text on the board (#65): show, size, layer, angle, reset. */
+  fieldTextProps(bf) {
+    const fp = footprintOf(this.project, this.project.components[bf.componentId]);
+    const ref = this.project.components[bf.componentId]?.ref || '';
+    const out = [h('div', { class: 'prop-title' }, 'Reference and Value text')];
+    for (const key of FIELD_KEYS) {
+      const p = fieldPlacement(fp, bf, key);
+      const set = (label, patch) => this.app.edit(`${ref} ${FIELD_NAME[key].toLowerCase()} ${label}`, (pr) => setFieldOverride(pr, bf.id, key, patch));
+      const show = h('input', { type: 'checkbox', checked: !p.hidden, 'aria-label': `Show ${FIELD_NAME[key]}` });
+      show.addEventListener('change', () => set(show.checked ? 'shown' : 'hidden', { hidden: !show.checked }));
+      const size = h('input', { class: 'input', type: 'number', step: '0.1', min: '0.2', value: String(+(p.size / 1e6).toFixed(3)), 'aria-label': `${FIELD_NAME[key]} size`, style: { width: '64px' } });
+      const layer = h('select', { class: 'select', 'aria-label': `${FIELD_NAME[key]} layer` }, ...['F.SilkS', 'F.Fab'].map((l) => h('option', { value: l }, l.replace('F.', bf.side === 'B' ? 'B.' : 'F.'))));
+      layer.value = /Fab$/.test(p.layer) ? 'F.Fab' : 'F.SilkS';
+      const angle = h('input', { class: 'input', type: 'number', step: '90', value: String(worldRot(bf, p.rot)), 'aria-label': `${FIELD_NAME[key]} angle`, style: { width: '64px' } });
+      for (const el of [size, angle]) el.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') el.blur(); });
+      size.addEventListener('change', () => { const v = parseFloat(size.value); if (v > 0) set('size', { size: Math.round(v * 1e6) }); });
+      layer.addEventListener('change', () => set('layer', { layer: layer.value }));
+      angle.addEventListener('change', () => { const v = parseFloat(angle.value); if (Number.isFinite(v)) set('angle', { rot: localRot(bf, v) }); });
+      const reset = button({ label: 'Reset', cls: 'btn-ghost btn-xs', title: 'Reset to Footprint: put it back where the Footprint draws it', onClick: () => set('reset', null) });
+      reset.disabled = !p.overridden;
+      out.push(h('div', { class: 'le-row field-text-row', dataset: { field: key } },
+        h('label', { class: 'check-row' }, show, FIELD_NAME[key]), size, h('em', {}, 'mm'), layer, angle, h('em', {}, '°'), reset));
+    }
+    out.push(h('p', { class: 'side-note' }, 'Drag the text on the board to move it; it moves, turns and flips with the footprint.'));
+    return out;
   }
 
   chips() {
@@ -762,6 +791,15 @@ export class BoardEditor {
           return;
         }
         if (!e.shiftKey) this.drawSel.clear();
+        // a Footprint's Reference or Value text: drag it to move it (#65)
+        const ft = !e.shiftKey && this._hitFieldText(w, tol);
+        if (ft) {
+          if (!this.fpSel.has(ft.bf.id)) { this.fpSel = new Set([ft.bf.id]); this.selection.clear(); this.zoneSel.clear(); this.netSel.clear(); }
+          this.fieldDrag = { bfId: ft.bf.id, key: ft.key, start: w, from: ft.at, startPx: [e.clientX, e.clientY], moved: false, locked: !!ft.bf.locked };
+          try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+          this.refresh();
+          return;
+        }
         const fp = hitFootprint(this.project, w, { preferBack: this.activeLayer.startsWith('B.'), hidden: this.hidden });
         const hit = fp || this.hidden.has('Edge.Cuts') ? null : hitOutline(this.board.outline, w, tol);
         if (fp) {
@@ -806,6 +844,20 @@ export class BoardEditor {
       else if (this.handleDrag) { const d = this.handleDrag; this.cursor = this.snapAt(w, new Set([d.index]), shapeHandles(d.snapshot[d.index]).find((x) => x.key === d.key)?.at); }
       else if (this.tool !== 'select') this.cursor = this.snapAt(w);
       else this.cursor = this.snapPt(w);
+      if (this.fieldDrag && (e.buttons & 1)) {
+        const d = this.fieldDrag;
+        if (d.locked) return;
+        if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 4) return;
+        d.moved = true;
+        const to = this.snapPt([d.from[0] + w[0] - d.start[0], d.from[1] + w[1] - d.start[1]]);
+        const bf = this.board.footprints.find((f) => f.id === d.bfId);
+        d.at = fpInverse(bf)(to);
+        const fp = footprintOf(this.project, this.project.components[bf.componentId]);
+        const { overridden, own, ...cur } = fieldPlacement(fp, bf, d.key);
+        this.previewFps = this.board.footprints.map((f) => (f.id === d.bfId ? { ...f, texts: { ...(f.texts || {}), [d.key]: { ...cur, at: d.at } } } : f));
+        ws.view.invalidate();
+        return;
+      }
       if (this.handleDrag && (e.buttons & 1)) {
         const d = this.handleDrag;
         if (!d.moved && Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 3) return;
@@ -857,6 +909,15 @@ export class BoardEditor {
     });
     const up = () => {
       this.snapMark = null;
+      if (this.fieldDrag) {
+        const d = this.fieldDrag; this.fieldDrag = null; this.previewFps = null;
+        if (d.moved && d.at) {
+          const ref = this.project.components[this.board.footprints.find((f) => f.id === d.bfId)?.componentId]?.ref || '';
+          this.app.edit(`Move ${ref} ${FIELD_NAME[d.key].toLowerCase()}`, (p) => setFieldOverride(p, d.bfId, d.key, { at: d.at }));
+        } else { if (d.locked && !d.moved) { /* a click: just the selection */ } this.refresh(); }
+        if (d.locked) toast('Locked: unlock the footprint to move its text.', 'info', 2000);
+        return;
+      }
       if (this.handleDrag?.zone) {
         const d = this.handleDrag; this.handleDrag = null;
         const z = this.previewZones?.find((q) => q.id === d.zone); this.previewZones = null;
@@ -937,6 +998,23 @@ export class BoardEditor {
     const s = this.board.outline[index];
     const h = s && hitHandle(s, w, tol);
     return h ? { index, key: h.key, cursor: h.cursor } : null;
+  }
+
+  /** A Footprint's Reference or Value text under `w` (#65): { bf, key, at } or null. Front side first unless the active layer is on the back. */
+  _hitFieldText(w, tol) {
+    tol = Math.min(tol, 500_000); // text is picked near its strokes, never from far away
+    const back = this.activeLayer.startsWith('B.');
+    const fps = [...this.board.footprints].sort((a, b) => ((a.side === 'B') === back ? -1 : 1) - ((b.side === 'B') === back ? -1 : 1));
+    const font = this.board.textFont || 'stroke';
+    for (const bf of fps) {
+      // inside a footprint's outline a click moves the footprint (a fab-layer Reference often sits in the middle)
+      if (insidePolygon(w, footprintOutline(this.project, bf))) continue;
+      for (const d of placedFieldTexts(this.project, bf, { ...fieldStrings(this.project, bf), all: true })) {
+        if (d.hidden || !d.text || this.hidden.has(d.layer)) continue;
+        if (hitDrawing([d], w, tol, { font })) return { bf, key: d.key, at: d.at };
+      }
+    }
+    return null;
   }
 
   /** The one selected drawing that has handles (not text), or null. */

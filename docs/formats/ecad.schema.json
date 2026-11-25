@@ -1749,6 +1749,44 @@
         },
         "locked": {
           "type": "boolean"
+        },
+        "texts": {
+          "type": "object",
+          "description": "This placement's own Reference / Value text (#65), in the Footprint's frame; absent: where the Footprint draws them.",
+          "additionalProperties": false,
+          "properties": {
+            "ref": {
+              "$ref": "#/$defs/fieldText"
+            },
+            "value": {
+              "$ref": "#/$defs/fieldText"
+            }
+          }
+        }
+      }
+    },
+    "fieldText": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/point",
+          "description": "The text's centre, Footprint coordinates."
+        },
+        "rot": {
+          "type": "number",
+          "description": "Degrees anticlockwise, relative to the Footprint."
+        },
+        "size": {
+          "$ref": "#/$defs/nm",
+          "description": "Text height."
+        },
+        "layer": {
+          "type": "string",
+          "description": "As on a front-side Footprint (F.SilkS, F.Fab…); a back-side one draws it on B.*."
+        },
+        "hidden": {
+          "type": "boolean"
         }
       }
     },

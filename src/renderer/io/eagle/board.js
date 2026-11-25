@@ -6,13 +6,14 @@
 //   layer 20 (Dimension) -> the Outline; signal wires -> Tracks; vias -> Vias; polygons -> Zones
 //   design rules and net classes -> Design rules and Net classes
 // A board without its schematic gets a stub Schematic: one Part per package, net labels on its pins.
-import { uid, newSheet, addFootprint } from '../../core/project.js';
+import { uid, newSheet, addFootprint, footprintOf } from '../../core/project.js';
 import { changeList, applyChanges } from '../../core/annotate.js';
-import { padNets } from '../../core/footprint.js';
+import { padNets, flipLayer } from '../../core/footprint.js';
 import { mm } from '../../core/units.js';
-import { nm, pt, len, rotOf, arcMid, arcPoints, restring, Report, placedRot } from './common.js';
+import { nm, pt, len, rotOf, arcMid, arcPoints, restring, Report, placedRot, eagleTextAngle } from './common.js';
 import { packageToFootprint } from './library.js';
 import { textCentre } from '../../core/boardDrawings.js';
+import { fpInverse, localRot, fieldDefault } from '../../core/fpTexts.js';
 import { growOutline } from '../../core/zones.js';
 import { libraries } from './schematic.js';
 
@@ -97,6 +98,7 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
   }
   // the Footprints and the Board's record of Nets, from the Schematic
   applyChanges(project, changeList(project));
+  let smashed = 0;
   for (const el of elements) {
     const comp = compByRef.get(el.attr('name'));
     const bf = comp && b.footprints.find((f) => f.componentId === comp.id);
@@ -106,7 +108,9 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
     bf.rot = Math.round(placedRot(rot, mirror) * 100) / 100;
     bf.side = mirror ? 'B' : 'F';
     bf.locked = el.attr('locked') === 'yes';
+    smashed += smashedTexts(el, bf, footprintOf(project, comp));
   }
+  if (smashed) report.add('Moved (smashed) NAME and VALUE texts placed as each footprint\'s own Reference and Value', smashed);
 
   // ---- the Outline (layer 20) and what else is drawn on the board
   b.outline = [];
@@ -299,17 +303,7 @@ function plainDrawing(c, layer) {
   // text: Eagle anchors it at its alignment point (bottom left by default); ours is the centre
   const lines = String(c.text || '').replace(/\r/g, '').split('\n').map((l) => l.trim());
   const size = nm(c.attr('size', 1.778));
-  const r = rotOf(c.attr('rot'));
-  let rot = r.rot, align = c.attr('align', 'bottom-left');
-  const mirror = r.mirror;
-  // Eagle keeps text readable: turned past 90° (up to 270°) it's drawn the other way up, with the
-  // anchor on the opposite corner, unless it's spun ('S')
-  if (!r.spin && rot > 90 && rot <= 270) {
-    rot -= 180;
-    const flip = { bottom: 'top', top: 'bottom', left: 'right', right: 'left', center: 'center' };
-    align = align === 'center' ? 'center' : align.split('-').map((x) => flip[x]).join('-');
-  }
-  const ours = placedRot(rot, mirror);
+  const { rot: ours, align, mirror } = eagleTextAngle(c);
   const pitch = size * (1 + Number(c.attr('distance', 50)) / 100);
   const at0 = pt(c.attr('x'), c.attr('y'));
   const t = (ours * Math.PI) / 180, co = Math.cos(t), si = Math.sin(t);
@@ -323,4 +317,31 @@ function plainDrawing(c, layer) {
     out.push({ id: uid('d'), type: 'text', layer, text: line, size, rot: ours, at: textCentre(line, { at: [at0[0] + dx, at0[1] + dy], size, rot: ours, mirror, align, font: 'vector' }) });
   });
   return out;
+}
+
+/**
+ * An element's moved ("smashed") NAME / VALUE attributes (#65) as the placed Footprint's own
+ * Reference / Value text, in its frame; display="off" hides it. Returns how many it set.
+ */
+function smashedTexts(el, bf, fp) {
+  const fieldDefaultOf = (b, key) => { const { own, ...d } = fieldDefault(fp, key, b); return d; };
+  let n = 0;
+  for (const a of el.all('attribute')) {
+    const key = a.attr('name') === 'NAME' ? 'ref' : a.attr('name') === 'VALUE' ? 'value' : null;
+    if (!key || a.attr('x') == null) continue;
+    const L = DRAWING_LAYER[Number(a.attr('layer'))];
+    if (!L) continue;
+    const size = nm(a.attr('size', 1.778));
+    const str = key === 'ref' ? el.attr('name') : (a.attr('value') ?? el.attr('value') ?? '');
+    const { rot, align, mirror } = eagleTextAngle(a);
+    const at = textCentre(String(str || ' '), { at: pt(a.attr('x'), a.attr('y')), size, rot, mirror, align, font: 'vector' });
+    bf.texts = { ...(bf.texts || {}), [key]: { at: fpInverse(bf)(at), rot: localRot(bf, rot), size, layer: flipLayer(L, bf.side), ...(a.attr('display') === 'off' ? { hidden: true } : {}) } };
+    n++;
+  }
+  // a smashed element whose NAME or VALUE was deleted doesn't show it
+  if (el.attr('smashed') === 'yes') {
+    const has = new Set(el.all('attribute').map((x) => x.attr('name')));
+    for (const [name, key] of [['NAME', 'ref'], ['VALUE', 'value']]) if (!has.has(name)) { bf.texts = { ...(bf.texts || {}), [key]: { ...fieldDefaultOf(bf, key), hidden: true } }; n++; }
+  }
+  return n;
 }

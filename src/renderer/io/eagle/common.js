@@ -35,6 +35,22 @@ export function rotOf(s) {
  */
 export const placedRot = (rot, mirror) => (mirror ? (360 - rot) % 360 : rot);
 
+/**
+ * An Eagle text's angle as ours, its alignment and whether it's mirrored. Eagle keeps text readable:
+ * turned past 90° (up to 270°) it's drawn the other way up, anchored on the opposite corner, unless
+ * it's spun ('S').
+ */
+export function eagleTextAngle(c) {
+  const r = rotOf(c.attr('rot'));
+  let rot = r.rot, align = c.attr('align', 'bottom-left');
+  if (!r.spin && rot > 90 && rot <= 270) {
+    rot -= 180;
+    const flip = { bottom: 'top', top: 'bottom', left: 'right', right: 'left', center: 'center' };
+    align = align === 'center' ? 'center' : align.split('-').map((x) => flip[x]).join('-');
+  }
+  return { rot: placedRot(rot, r.mirror), align, mirror: r.mirror };
+}
+
 /** A rotation as ElectroCAD keeps it on the Schematic (a multiple of 90). */
 export const rot90 = (deg) => ((Math.round(deg / 90) * 90) % 360 + 360) % 360;
 
