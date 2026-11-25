@@ -5,6 +5,7 @@ import { vectorLayout, vectorWidth } from '../core/strokefont.js';
 import { drawOriginMark } from '../view/handles.js';
 import { place, arcCircle, shapePoints } from '../core/geom.js';
 import { partOf } from '../core/project.js';
+import { courtyardBounds } from '../core/footprint.js';
 import { mm } from '../core/units.js';
 import { junctions, connectedPins, wireCrossings } from '../core/netlist.js';
 import { placeFields, styleFor } from '../core/fields.js';
@@ -492,14 +493,18 @@ export function drawFootprintPreview(canvas, fp, C) {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   const add = (x, y) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); };
   for (const p of fp.pads) { add(p.at[0] - p.size[0] / 2, p.at[1] - p.size[1] / 2); add(p.at[0] + p.size[0] / 2, p.at[1] + p.size[1] / 2); }
-  const crt = (fp.graphics || []).find((g) => g.layer === 'F.CrtYd' && g.type === 'rect');
+  const crtG = (fp.graphics || []).find((g) => g.layer === 'F.CrtYd' && (g.type === 'rect' || g.type === 'circle'));
+  const crt = courtyardBounds(fp);
   if (crt) { add(crt.a[0], crt.a[1]); add(crt.b[0], crt.b[1]); }
   const pad = 16;
   const s = Math.min((W - 2 * pad) / Math.max(1, x1 - x0), (H - 2 * pad) / Math.max(1, y1 - y0));
   const T = ([x, y]) => [W / 2 + (x - (x0 + x1) / 2) * s, H / 2 + (y - (y0 + y1) / 2) * s];
   if (crt) {
     const [ax, ay] = T(crt.a), [bx, by] = T(crt.b);
-    ctx.save(); ctx.setLineDash([4, 3]); ctx.strokeStyle = C['F.CrtYd'] || '#888'; ctx.lineWidth = 1; ctx.strokeRect(ax, ay, bx - ax, by - ay); ctx.restore();
+    ctx.save(); ctx.setLineDash([4, 3]); ctx.strokeStyle = C['F.CrtYd'] || '#888'; ctx.lineWidth = 1;
+    if (crtG.type === 'circle') { ctx.beginPath(); ctx.arc((ax + bx) / 2, (ay + by) / 2, (bx - ax) / 2, 0, Math.PI * 2); ctx.stroke(); }
+    else ctx.strokeRect(ax, ay, bx - ax, by - ay);
+    ctx.restore();
   }
   for (const p of fp.pads) {
     const [cx, cy] = T(p.at), w = p.size[0] * s, h = p.size[1] * s;

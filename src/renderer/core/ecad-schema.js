@@ -459,6 +459,10 @@ export const ECAD_SCHEMA = {
             "width": {
               "$ref": "#/$defs/strokeScale"
             },
+            "generated": {
+              "type": "boolean",
+              "description": "A courtyard an importer made because the library had none (#67): DRC reports its overlaps as warnings."
+            },
             "layer": {
               "type": "string"
             }

@@ -8,7 +8,7 @@
 //   fabFiles(project, { fills, date, version }) -> [{ name, kind: 'gerber' | 'drill', layer, text }]
 import ClipperLib from 'clipper-lib';
 import { copperLayerNames } from './board.js';
-import { placedPads, padNets, fpTransform, flipLayer, padOnLayer } from './footprint.js';
+import { placedPads, padNets, fpTransform, flipLayer, padOnLayer, courtyardBounds } from './footprint.js';
 import { footprintOf } from './project.js';
 import { padShape, isOctagon } from './collision.js';
 import { arcCircle } from './geom.js';
@@ -235,7 +235,7 @@ function gerberLayer(project, { layer, fn, polarity }, { fills, date, version })
         for (const st of drawingGeometry(d, font).strokes) g.stroke(st.width, st.pts, null);
       }
       if (!ownRef && !moved.has('ref') && ref && flipLayer('F.SilkS', bf.side) === layer) {
-        const crt = (fp.graphics || []).find((x) => /CrtYd$/.test(x.layer || '') && x.type === 'rect');
+        const crt = courtyardBounds(fp);
         const top = crt ? Math.min(crt.a[1], crt.b[1]) : -1_000_000;
         for (const pl of strokeText(ref, { at: T([0, top - 800_000]), size: 1_000_000, mirror, font })) g.stroke(strokePen(1_000_000, font), pl, null);
       }

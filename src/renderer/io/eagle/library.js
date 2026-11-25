@@ -131,13 +131,31 @@ export function packageToFootprint(pkg, { report = new Report(), rules = DEFAULT
     }
     return xs.length ? { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) } : null;
   };
+  // A single round pad (a test point, a via-like pad) gets a round courtyard, as does a keepout
+  // that is just a circle
   const keepout = shapes(pkg, (L) => (L === 39 || L === 40 ? undefined : null), () => null);
   const own = keepout.length ? extent(keepout) : null;
-  if (own) graphics.push({ type: 'rect', layer: 'F.CrtYd', a: [own.x0, own.y0], b: [own.x1, own.y1] });
+  if (keepout.length === 1 && keepout[0].type === 'circle') {
+    const k = keepout[0];
+    graphics.push({ type: 'circle', layer: 'F.CrtYd', c: k.c, r: k.r + (k.width || 0) / 2 });
+  } else if (own) graphics.push({ type: 'rect', layer: 'F.CrtYd', a: [own.x0, own.y0], b: [own.x1, own.y1] });
   else {
-    const b = extent(graphics.filter((g) => /Fab$/.test(g.layer || '')));
+    const fab = graphics.filter((g) => /Fab$/.test(g.layer || ''));
     const m = 250_000;
-    if (b) graphics.push({ type: 'rect', layer: 'F.CrtYd', a: [b.x0 - m, b.y0 - m], b: [b.x1 + m, b.y1 + m], generated: true });
+    const round = pads.length === 1 && pads[0].shape === 'circle' ? pads[0] : null;
+    if (round) {
+      // as far out as the pad or the fab drawing reaches from the pad's centre
+      const [cx, cy] = round.at;
+      let r = round.size[0] / 2;
+      for (const g of fab) {
+        if (g.type === 'circle') r = Math.max(r, Math.hypot(g.c[0] - cx, g.c[1] - cy) + g.r);
+        else if (g.type !== 'text') for (const [x, y] of g.pts || (g.type === 'rect' ? [g.a, g.b, [g.a[0], g.b[1]], [g.b[0], g.a[1]]] : g.type === 'arc' ? [g.start, g.mid, g.end] : [])) r = Math.max(r, Math.hypot(x - cx, y - cy));
+      }
+      graphics.push({ type: 'circle', layer: 'F.CrtYd', c: [cx, cy], r: Math.round(r + m), generated: true });
+    } else {
+      const b = extent(fab);
+      if (b) graphics.push({ type: 'rect', layer: 'F.CrtYd', a: [b.x0 - m, b.y0 - m], b: [b.x1 + m, b.y1 + m], generated: true });
+    }
   }
   void holes;
   return { name: pkg.attr('name'), pads, graphics };

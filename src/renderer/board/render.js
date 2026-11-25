@@ -8,7 +8,7 @@ import { placedFieldTexts, fieldOfText, footprintTextPlacement } from '../core/f
 import { arcCircle } from '../core/geom.js';
 import { outlineLoops, checkOutline } from '../core/board.js';
 import { mm } from '../core/units.js';
-import { placedPads, padNets, fpTransform, flipLayer } from '../core/footprint.js';
+import { placedPads, padNets, fpTransform, flipLayer, courtyardBounds } from '../core/footprint.js';
 import { footprintOf } from '../core/project.js';
 import { drawOriginMark } from '../view/handles.js';
 
@@ -271,7 +271,7 @@ function drawFootprints(ctx, view, C, project, board, hidden, padsOnly = null, p
     }
     // Reference on silk above the courtyard, Value on fab below it
     // a Footprint without its own Reference / Value text gets them above and below its courtyard
-    const crt = (fp.graphics || []).find((g) => /CrtYd$/.test(g.layer || '') && g.type === 'rect');
+    const crt = courtyardBounds(fp);
     const top = crt ? Math.min(crt.a[1], crt.b[1]) : -mm(1);
     const text = (layer, str, local, size) => {
       if (!str || !visible(layer)) return;

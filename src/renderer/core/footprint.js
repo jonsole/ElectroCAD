@@ -5,10 +5,20 @@
 import { footprintOf } from './project.js';
 
 /** The Footprint's extent in its own frame: the courtyard when it has one, else the pads. */
+/**
+ * A Footprint's courtyard as its bounding box { a, b } (a rectangle, or the box round a round
+ * courtyard, #67), or null when it has none.
+ */
+export function courtyardBounds(fp) {
+  const g = (fp?.graphics || []).find((x) => /CrtYd$/.test(x.layer || '') && (x.type === 'rect' || x.type === 'circle'));
+  if (!g) return null;
+  return g.type === 'rect' ? { a: g.a, b: g.b } : { a: [g.c[0] - g.r, g.c[1] - g.r], b: [g.c[0] + g.r, g.c[1] + g.r] };
+}
+
 export function footprintBox(fp) {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   const add = (x, y) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); };
-  const crt = (fp?.graphics || []).find((g) => /CrtYd$/.test(g.layer || '') && g.type === 'rect');
+  const crt = courtyardBounds(fp);
   if (crt) { add(...crt.a); add(...crt.b); }
   else for (const p of fp?.pads || []) { add(p.at[0] - p.size[0] / 2, p.at[1] - p.size[1] / 2); add(p.at[0] + p.size[0] / 2, p.at[1] + p.size[1] / 2); }
   return x0 === Infinity ? { x0: -1e6, y0: -1e6, x1: 1e6, y1: 1e6 } : { x0, y0, x1, y1 };

@@ -6,7 +6,7 @@
 //   layer  as on a front-side Footprint (F.SilkS, F.Fab…); a back-side one draws it on B.*
 //   hidden true: not drawn (Eagle's display="off")
 // The board view, the silk Gerbers and hit testing all go through placedFieldTexts. DOM-free.
-import { fpTransform, flipLayer } from './footprint.js';
+import { fpTransform, flipLayer, courtyardBounds } from './footprint.js';
 import { footprintOf } from './project.js';
 import { textCentre } from './boardDrawings.js';
 
@@ -72,7 +72,7 @@ export function fieldDefault(fp, key, bf = null, str = '', font = 'stroke') {
     return { at: fpInverse(bf)(w.at), rot: localRot(bf, w.rot), size: own.size, layer: own.layer || 'F.SilkS', own: true };
   }
   if (own) return { at: own.at, rot: up, size: own.size, layer: own.layer || 'F.SilkS', own: true };
-  const crt = (fp?.graphics || []).find((g) => /CrtYd$/.test(g.layer || '') && g.type === 'rect');
+  const crt = courtyardBounds(fp);
   if (key === 'ref') return { at: [0, (crt ? Math.min(crt.a[1], crt.b[1]) : -1_000_000) - 800_000], rot: up, size: 1_000_000, layer: 'F.SilkS', own: false };
   return { at: [0, (crt ? Math.max(crt.a[1], crt.b[1]) : 1_000_000) + 600_000], rot: up, size: 700_000, layer: 'F.Fab', own: false };
 }

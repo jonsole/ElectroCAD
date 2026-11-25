@@ -377,6 +377,26 @@ test('courtyards (#67): a package\'s keepout outline wins; otherwise one round p
   assert.deepEqual([b.a, b.b], [[-mm(2.05), -mm(0.75)], [mm(2.05), mm(0.75)]]);
 });
 
+test('courtyards: a single round pad (a test point) gets a round one, as does a round keepout', async () => {
+  const { courtyardBounds } = await import('../src/renderer/core/footprint.js');
+  const tp = parseXml('<package name="TP"><pad name="1" x="0" y="0" drill="0.8" diameter="1.3"/><circle x="0" y="0" radius="1" width="0.1" layer="51"/></package>');
+  const fp = packageToFootprint(tp, { report: new Report() });
+  const c = fp.graphics.find((g) => /CrtYd/.test(g.layer || ''));
+  assert.equal(c.type, 'circle');
+  assert.equal(c.generated, true);
+  assert.deepEqual(c.c, [0, 0]);
+  assert.equal(c.r, mm(1.25), 'round the fab circle, 0.25 mm out');
+  assert.deepEqual(courtyardBounds(fp), { a: [-mm(1.25), -mm(1.25)], b: [mm(1.25), mm(1.25)] });
+  // a pad alone
+  const bare = packageToFootprint(parseXml('<package name="V"><pad name="1" x="1" y="0" drill="0.4" diameter="0.8"/></package>'), { report: new Report() });
+  const d = bare.graphics.find((g) => /CrtYd/.test(g.layer || ''));
+  assert.deepEqual([d.type, d.c, d.r], ['circle', [mm(1), 0], mm(0.65)]);
+  // a keepout circle is used as it is
+  const k = packageToFootprint(parseXml('<package name="K"><smd name="1" x="0" y="0" dx="1" dy="1" layer="1"/><circle x="0" y="0" radius="2" width="0" layer="39"/></package>'), { report: new Report() });
+  const e = k.graphics.find((g) => /CrtYd/.test(g.layer || ''));
+  assert.deepEqual([e.type, e.r, !!e.generated], ['circle', mm(2), false]);
+});
+
 test('courtyards (#67): overlaps of generated courtyards are warnings, of drawn ones errors', async () => {
   const { runDrc } = await import('../src/renderer/core/drc.js');
   const { project } = importEagle({ sch: SCH, brd: BRD, name: 'reg' });
