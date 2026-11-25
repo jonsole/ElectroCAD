@@ -186,7 +186,7 @@ export function importEagleSchematic(root, { name = 'Imported', report = new Rep
       if (!needsLabel || seg.all('pinref').some((pr) => parts.get(pr.attr('part'))?.supply)) continue;
       // where a label sits: Eagle's labels, moved onto their wire; else the first wire's start, or the first pin
       const spots = [];
-      for (const l of seg.all('label')) spots.push({ at: nearestOnWires(T(l.attr('x'), l.attr('y')), wires), rot: rot90(rotOf(l.attr('rot')).rot) });
+      for (const l of seg.all('label')) spots.push({ at: nearestOnWires(T(l.attr('x'), l.attr('y')), wires), rot: labelRot(l.attr('rot')) });
       if (!spots.length) {
         const at = wires[0]?.a || pinAt(project, parts, seg.child('pinref'));
         if (at) spots.push({ at, rot: 0 });
@@ -290,6 +290,16 @@ function trimForeignEnds(project, parts, segWires, report) {
   }
   if (removed) report.add(`Wire stubs (bus entries) ending on another net were removed, so the nets stay apart`, removed);
   if (pulled) report.add(`Wire ends that landed on another net were pulled back 1.27 mm, so the nets stay apart`, pulled);
+}
+
+/**
+ * The way a net label's text runs. Eagle's mirror flips the reading direction across the vertical:
+ * a label at angle θ, mirrored, runs at 180° - θ (MR180 reads to the right, as R0 does; MR0 to the
+ * left, as R180 does). Found on a real design: MR180 labels came in pointing the wrong way.
+ */
+export function labelRot(r) {
+  const { rot, mirror } = rotOf(r);
+  return rot90(mirror ? 180 - rot : rot);
 }
 
 /** The nearest point on a set of wires (on a wire end or its run), for a label to sit on. */

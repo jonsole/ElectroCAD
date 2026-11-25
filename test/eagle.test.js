@@ -255,3 +255,14 @@ test('the import log: files, versions, checks, DRC and every note', () => {
   assert.match(after, /Unrouted: \d+\n {4}- \(\d+\.\d{3}, \d+\.\d{3}\) \w+ is not routed here/);
   assert.equal(eagleVersion('<?xml version="1.0"?><eagle version="7.7.0">'), '7.7.0');
 });
+
+test('net labels: a mirrored label reads the other way (MR180 as R0, MR0 as R180)', async () => {
+  const { labelRot } = await import('../src/renderer/io/eagle/schematic.js');
+  assert.deepEqual(['R0', 'R90', 'R180', 'R270', 'MR0', 'MR90', 'MR180', 'MR270', undefined].map(labelRot), [0, 90, 180, 270, 180, 90, 0, 270, 0]);
+  // and on a sheet: VOUT's label on sheet 1, mirrored at 180, runs to the right like an unturned one
+  const sch = SCH.replace('<label x="103.0" y="77.0" size="1.778" layer="95"/>', '<label x="103.0" y="77.0" size="1.778" layer="95" rot="MR180"/>');
+  assert.notEqual(sch, SCH);
+  const r = importEagle({ sch, name: 'reg' });
+  const l = r.project.schematic.sheets[0].labels.find((x) => x.net === 'VOUT' && x.style === 'label');
+  assert.equal(l.rot, 0);
+});
