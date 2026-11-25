@@ -142,4 +142,14 @@ check('esc-cancels', !document.querySelector('.field-edit') && app.history.undoS
   const over = cr.left + a0 < r2.right && cr.left + a1 > r2.left && cr.top + b0 < r2.bottom && cr.top + b1 > r2.top;
   check('card-steps-aside', !over && sed.inspector.el.style.transform !== '' && JSON.stringify(v.toJSON()) === view0, [sed.inspector.el.style.transform, over, { l: r2.left, r: r2.right, t: r2.top, b: r2.bottom }, { x0: cr.left + a0, x1: cr.left + a1, y0: cr.top + b0, y1: cr.top + b1 }, { cl: cr.left, cr: cr.right }, getComputedStyle(sed.inspector.el).transform]);
 }
+// a wire's Properties: its net, the pins on it, its net class, its ends and length
+{
+  const L = window.electrocadLib, sh = app.project.schematic.sheets[0];
+  const pinAt = (sym, n) => L.project.pinPositions(app.project, sh.symbols.find((y) => y.id === sym.id)).find((x) => x.pin.number === n).at;
+  app.edit('wire', (pr) => L.schematic.addWire(pr, pr.schematic.sheets[0], [pinAt(a.sym, '2'), pinAt(b.sym, '1')]));
+  const w = app.project.schematic.sheets[0].wires.at(-1);
+  ed.selection = new Set([w.id]); ed.openProperties();
+  const t = insp().innerText;
+  check('wire-props', /Pins \(2\)/.test(t) && /R\d+\.2/.test(t) && /Length/.test(t) && !!insp().querySelector('select[aria-label="Net class"]'), t.slice(0, 200));
+}
 return { fails };

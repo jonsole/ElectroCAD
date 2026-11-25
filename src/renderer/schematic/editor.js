@@ -1129,8 +1129,10 @@ export class SchematicEditor {
     const r = el.getBoundingClientRect();
     const hits = (dx, dy) => keep.some((k) => r.left + dx < k.x1 && r.right + dx > k.x0 && r.top + dy < k.y1 && r.bottom + dy > k.y0);
     if (!hits(0, 0)) return;
-    const m = 10, left = cr.left + RULER + m, top = cr.top + RULER + m, right = cr.right - m, bottom = cr.bottom - m;
-    const spots = [[left - r.left, 0], [0, bottom - r.bottom], [left - r.left, bottom - r.bottom], [right - r.right, top - r.top]];
+    // the context strip sits at the top left: corners up there start below it
+    const st = this.strip?.el, stripBottom = st && !st.hidden ? st.getBoundingClientRect().bottom + 6 : 0;
+    const m = 10, left = cr.left + RULER + m, top = Math.max(cr.top + RULER + m, stripBottom), right = cr.right - m, bottom = cr.bottom - m;
+    const spots = [[left - r.left, Math.max(0, top - r.top)], [0, bottom - r.bottom], [left - r.left, bottom - r.bottom], [right - r.right, top - r.top]];
     const free = spots.find(([dx, dy]) => !hits(dx, dy));
     if (free) el.style.transform = `translate(${Math.round(free[0])}px, ${Math.round(free[1])}px)`;
   }

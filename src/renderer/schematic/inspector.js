@@ -11,6 +11,8 @@ import { allFieldStyles, fieldStyleById } from '../ui/fieldStyles.js';
 import { partOf } from '../core/project.js';
 import { validateLabelName, isPower, netNameChoices, canonicalNetName } from '../core/labels.js';
 import { snap, SCH_GRID, mm } from '../core/units.js';
+import { buildNetlist } from '../core/netlist.js';
+import { netClassOf, assignNet, DEFAULT_CLASS } from '../core/netclasses.js';
 
 const fmtMm = (nm) => String(+(nm / 1e6).toFixed(2));
 
@@ -42,7 +44,8 @@ export class SchematicInspector {
     this.sig = sig;
     if (!this.ed.propsOpen || (!syms.length && !wires.length && !labels.length && !drawings.length)) { this.el.replaceChildren(); return; }
     if (drawings.length === 1 && !syms.length && !labels.length && !wires.length) { this._drawing(drawings[0]); return this._refocus(focused); }
-    if (syms.length === 1 && !labels.length) this._one(syms[0], wires.length);
+    if (wires.length && !syms.length && !drawings.length) this._wires(wires, labels); // a wire (or a whole net): the net's details
+    else if (syms.length === 1 && !labels.length) this._one(syms[0], wires.length);
     else if (labels.length === 1 && !syms.length) this._label(labels[0], wires.length);
     else this._many(syms, wires, labels);
     this._refocus(focused);
@@ -281,6 +284,59 @@ export class SchematicInspector {
   }
 
   _find(p, id) { return (this.ed._S(p).labels || []).find((x) => x.id === id); }
+
+  /**
+   * Wires (and the labels on them, as double-clicking a wire selects): the Net they carry, its
+   * name and where that comes from, its Net class (as routed on the Board), every Pin on it, the
+   * Sheets it reaches, and the selected wires' length and ends.
+   */
+  _wires(wires, labels) {
+    const ed = this.ed, sheet = ed.sheet, o = sheet.origin || [0, 0];
+    const nl = buildNetlist(this.project);
+    const nets = [...new Set(wires.map((w) => nl.nets.find((n) => n.wires?.includes(w.id))))];
+    const real = nets.filter(Boolean);
+    const len = wires.reduce((a, w) => a + Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]), 0);
+    const pt = (q) => `${fmtMm(q[0] - o[0])}, ${fmtMm(q[1] - o[1])}`;
+    const rows = [];
+    const note = (t) => h('div', { class: 'insp-note' }, t);
+    const row = (label, value) => h('div', { class: 'param param-wide' }, h('label', {}, label), h('div', { class: 'insp-value' }, value));
+    const what = `${wires.length} wire${wires.length === 1 ? '' : 's'}`;
+    if (real.length === 1) {
+      const net = real[0];
+      const allLabels = [...sheet.labels || []].concat(...this.project.schematic.sheets.filter((x) => x !== sheet).map((x) => x.labels || []));
+      const named = (net.labels || []).map((id) => allLabels.find((l) => l.id === id)).filter(Boolean);
+      rows.push(row('Net', h('b', { class: 'insp-net' }, net.name)));
+      rows.push(named.length
+        ? note(`Named by ${named.length === 1 ? 'its' : named.length} ${[...new Set(named.map((l) => (l.style === 'gnd' ? 'ground symbol' : isPower(l) ? 'power symbol' : l.scope === 'global' ? 'global label' : 'net label')))].join(' and ')}${named.length === 1 ? '' : 's'}. Rename it by renaming a label (double-click it).`)
+        : note('An automatic name, from its first pin. Give it a name with a Net label (L) on one of its wires.'));
+      // the Net class the Board routes it with
+      const classes = Object.keys(this.project.board?.netClasses || {});
+      const cls = h('select', { class: 'select', 'aria-label': 'Net class' }, h('option', { value: DEFAULT_CLASS }, `${DEFAULT_CLASS} (the Design rules)`), ...classes.map((c) => h('option', { value: c }, c)));
+      cls.value = netClassOf(this.project.board, net.name);
+      cls.addEventListener('change', () => { const r = this._edit(`${net.name} to ${cls.value}`, (p) => assignNet(p, net.name, cls.value)); if (r !== true) toast(String(r), 'error', 3000); });
+      rows.push(h('div', { class: 'param param-wide', title: 'The track width, clearance and vias the Board uses for this net (Board setup → Net classes)' }, h('label', {}, 'Net class'), cls));
+      if (!classes.length) rows.push(note('Add net classes (e.g. Power) in Board setup on the Board tab.'));
+      // the Pins it joins
+      rows.push(h('div', { class: 'param param-wide' }, h('label', {}, `Pins (${net.pins.length})`),
+        h('div', { class: 'nl-pins insp-pins' }, ...net.pins.map((x) => h('span', { class: 'nl-pin', title: `${x.ref} pin ${x.pin} → pad ${x.pad}` }, `${x.ref}.${x.pin}`)))));
+      const sheets = this.project.schematic.sheets.filter((x) => x.wires.some((w) => net.wires.includes(w.id)) || (x.labels || []).some((l) => (net.labels || []).includes(l.id)));
+      if (sheets.length > 1) rows.push(row('Sheets', sheets.map((x) => x.name).join(', ')));
+      const here = sheet.wires.filter((w) => net.wires.includes(w.id));
+      if (wires.length < here.length) rows.push(h('div', { class: 'insp-actions' }, button({ label: 'Select the whole net', icon: 'wire', cls: 'btn-outline btn-xs', title: 'Select every wire and label of this net on this sheet (or double-click a wire)', onClick: () => ed.selectNet(wires[0].id) })));
+    } else if (real.length > 1) {
+      rows.push(note(`These wires carry ${real.length} nets:`));
+      for (const n of real) rows.push(row('Net', `${n.name} · ${n.pins.length} pin${n.pins.length === 1 ? '' : 's'}`));
+    } else rows.push(note('Not connected to any pin yet.'));
+    if (nets.includes(undefined) && real.length) rows.push(note('Some of these wires connect to no pin.'));
+    // the wires themselves
+    if (wires.length === 1) {
+      const w = wires[0];
+      rows.push(row('From', `${pt(w.a)} mm`), row('To', `${pt(w.b)} mm`));
+    }
+    rows.push(row(wires.length === 1 ? 'Length' : 'Total length', `${fmtMm(len)} mm${wires.length > 1 ? ` (${what})` : ''}`));
+    if (labels.length) rows.push(note(`and ${labels.length} label${labels.length === 1 ? '' : 's'}`));
+    this.el.replaceChildren(this._head(real.length === 1 ? real[0].name : what, real.length === 1 ? what : null), h('div', { class: 'insp-body' }, ...rows));
+  }
 
   _many(syms, wires, labels = []) {
     const compIds = [...new Set(syms.map((y) => y.componentId))];

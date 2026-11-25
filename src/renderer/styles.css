@@ -749,3 +749,8 @@ body.resizing iframe, body.resizing canvas { pointer-events: none; }
 .strip-btn.strip-danger:hover { color: var(--danger); }
 .strip-seg .btn { height: 28px; }
 .outline-state-row { margin-top: 8px; }
+/* the inspector's wire and net view */
+.insp-value { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+.insp-net { font-size: 13px; }
+.insp-pins { margin-top: 2px; }
+.insp-actions { display: flex; gap: 6px; margin-top: 8px; }
