@@ -214,3 +214,24 @@ test('an untented via opens the mask; a non-plated hole opens it too', () => {
   const hole = packageToFootprint(parseXml('<package name="M"><hole x="0" y="0" drill="0.9"/></package>'));
   assert.deepEqual(hole.pads[0].layers, ['*.Mask']);
 });
+
+test('silk: a filled rectangle or polygon is a region, an outlined one strokes (#72)', () => {
+  const p = newProject('Fill');
+  p.board.outline = rectOutline([0, 0], [20 * MM, 20 * MM]);
+  // a footprint in the Project's table with a filled and an outlined rectangle, and a filled polygon
+  const fp = { name: 'F', pads: [{ number: '1', at: [0, 0], shape: 'rect', size: [MM, MM], layers: ['F.Cu', 'F.Mask'] }], graphics: [
+    { type: 'rect', a: [-2 * MM, -2 * MM], b: [-MM, -MM], fill: 'outline', layer: 'F.SilkS' },
+    { type: 'rect', a: [MM, MM], b: [2 * MM, 2 * MM], layer: 'F.SilkS' },
+    { type: 'poly', pts: [[3 * MM, 0], [4 * MM, 0], [4 * MM, MM]], fill: 'outline', layer: 'F.SilkS' },
+  ] };
+  p.footprints = { 'test:F': { library: 'test', footprint: fp } };
+  const c = { id: 'c1', partId: 'x', ref: 'U1', value: '', footprint: { fpKey: 'test:F' }, fields: {} };
+  p.components.c1 = c;
+  p.board.footprints.push({ id: 'f1', componentId: 'c1', at: [10 * MM, 10 * MM], rot: 0, side: 'F' });
+  const silk = readGerber(fabFiles(p, { fills: new Map(), date: 'd', version: 'v' }).find((f) => f.layer === 'F.SilkS').text);
+  const regions = silk.objects.filter((o) => o.kind === 'region');
+  assert.equal(regions.length, 2, 'the filled rectangle and the filled polygon');
+  assert.ok(regions.some((r) => r.pts.some((q) => near(q[0], 8 * MM) && near(q[1], 8 * MM))), JSON.stringify(regions.map((r) => r.pts)));
+  // the outlined rectangle is four strokes round (11..12, 11..12)
+  assert.ok(silk.objects.filter((o) => o.kind === 'stroke' && near(Math.max(o.a[0], o.b[0]), 12 * MM)).length >= 2);
+});

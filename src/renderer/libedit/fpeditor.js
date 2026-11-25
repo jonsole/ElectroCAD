@@ -5,6 +5,7 @@
 // standard packages from parameters with a live preview. Footprints save into the user's
 // Libraries; the Symbol editor's PART section attaches them to Parts as Preferred footprints.
 // It has its own undo history, like the Symbol editor, and draws in the Board's colours.
+import { inPolygon } from '../core/zones.js';
 import { h, icon, button, popupMenu, toast, confirmDialog, promptDialog, modal } from '../ui/dom.js';
 import { section } from '../workspaces/workspace.js';
 import { History } from '../core/history.js';
@@ -207,6 +208,8 @@ export class FootprintEditor {
       const set = (label, fn) => this.edit(label, (x) => fn(x.graphics[i]));
       const rows = [h('div', { class: 'prop-title' }, { rect: 'Rectangle', line: 'Line', poly: 'Polygon', circle: 'Circle', arc: 'Arc', text: 'Text' }[g.type] || g.type),
         select('Layer', g.layer || 'F.SilkS', FOOTPRINT_LAYERS.map((l) => [l, `${l} (${LAYER_NAMES[l]})`]), (v) => set('Graphic layer', (x) => { x.layer = v; }))];
+      // closed shapes can be filled (silk logos, Eagle's rectangles): fill: 'outline' fills with the layer's ink
+      if (g.type === 'rect' || g.type === 'poly' || g.type === 'circle') rows.push(select('Fill', g.fill === 'outline' ? 'outline' : 'none', [['none', 'Outline only'], ['outline', 'Filled']], (v) => set(v === 'outline' ? 'Fill shape' : 'Unfill shape', (x) => { if (v === 'outline') x.fill = 'outline'; else delete x.fill; })));
       if (g.type === 'text') {
         const t = h('input', { class: 'input', type: 'text', value: g.text, 'aria-label': 'Text' });
         t.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') t.blur(); });
@@ -484,8 +487,18 @@ export class FootprintEditor {
     }
     for (let i = d.graphics.length - 1; i >= 0; i--) {
       const g = d.graphics[i];
-      if (g.type === 'line' || g.type === 'poly') { for (let k = 1; k < g.pts.length; k++) if (distToSegment2(w, g.pts[k - 1], g.pts[k]) <= tol * tol) return `g:${i}`; continue; }
-      if (g.type === 'rect') { const c = [g.a, [g.b[0], g.a[1]], g.b, [g.a[0], g.b[1]]]; if (c.some((p, k) => distToSegment2(w, p, c[(k + 1) % 4]) <= tol * tol)) return `g:${i}`; continue; }
+      if (g.type === 'line' || g.type === 'poly') {
+        const pts = g.type === 'poly' ? [...g.pts, g.pts[0]] : g.pts;
+        for (let k = 1; k < pts.length; k++) if (distToSegment2(w, pts[k - 1], pts[k]) <= tol * tol) return `g:${i}`;
+        if (g.type === 'poly' && g.fill === 'outline' && inPolygon(w, g.pts)) return `g:${i}`; // inside a filled one
+        continue;
+      }
+      if (g.type === 'rect') {
+        const c = [g.a, [g.b[0], g.a[1]], g.b, [g.a[0], g.b[1]]];
+        if (c.some((p, k) => distToSegment2(w, p, c[(k + 1) % 4]) <= tol * tol)) return `g:${i}`;
+        if (g.fill === 'outline' && w[0] >= Math.min(g.a[0], g.b[0]) && w[0] <= Math.max(g.a[0], g.b[0]) && w[1] >= Math.min(g.a[1], g.b[1]) && w[1] <= Math.max(g.a[1], g.b[1])) return `g:${i}`;
+        continue;
+      }
       if (g.type === 'circle') { const r = Math.hypot(w[0] - g.c[0], w[1] - g.c[1]); if (Math.abs(r - g.r) <= tol || (g.fill === 'outline' && r < g.r)) return `g:${i}`; continue; }
       if (g.type === 'arc') { const c = arcCircle(g.start, g.mid, g.end); if (c && Math.abs(Math.hypot(w[0] - c.c[0], w[1] - c.c[1]) - c.r) <= tol) return `g:${i}`; continue; }
       if (g.type === 'text') { const half = (String(g.text).length * g.size * 0.6) / 2; if (Math.abs(w[0] - g.at[0]) <= half + tol && Math.abs(w[1] - g.at[1]) <= g.size / 2 + tol) return `g:${i}`; }

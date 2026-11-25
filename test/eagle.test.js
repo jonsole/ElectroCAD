@@ -299,3 +299,11 @@ test('Eagle parts: a multi-gate op-amp keeps A, B; its power gate is P, as Eagle
   const r1 = Object.values(p.components).find((c) => c.ref === 'R1');
   assert.equal(unitLetter(p.parts[r1.partId], 0), '');
 });
+
+test('Eagle rectangles and polygons import filled, in symbols and packages (#72)', () => {
+  const p = importEagle({ sch: SCH, brd: BRD, name: 'reg' }).project;
+  const pkg = parseXml('<package name="R"><rectangle x1="-1" y1="-0.5" x2="1" y2="0.5" layer="21"/><polygon width="0.1" layer="21"><vertex x="0" y="0"/><vertex x="1" y="0"/><vertex x="1" y="1"/></polygon><smd name="1" x="0" y="0" dx="1" dy="1" layer="1"/></package>');
+  const fp = packageToFootprint(pkg);
+  assert.deepEqual(fp.graphics.filter((g) => (g.type === 'rect' || g.type === 'poly') && g.layer === 'F.SilkS').map((g) => [g.type, g.fill]), [['rect', 'outline'], ['poly', 'outline']]);
+  assert.ok(p.schematic.sheets.length > 0);
+});

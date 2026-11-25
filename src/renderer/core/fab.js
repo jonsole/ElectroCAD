@@ -210,7 +210,7 @@ function gerberLayer(project, { layer, fn, polarity }, { fills, date, version })
         if (gr.type === 'text' && gr.text.includes('${REF}')) ownRef = true;
         if (flipLayer(gr.layer || 'F.SilkS', bf.side) !== layer) continue;
         const w = gr.width ? gr.width * SILK_WIDTH : SILK_WIDTH;
-        if (gr.type === 'rect') { const q = [gr.a, [gr.b[0], gr.a[1]], gr.b, [gr.a[0], gr.b[1]]].map(T); g.stroke(w, [...q, q[0]], null); }
+        if (gr.type === 'rect') { const q = [gr.a, [gr.b[0], gr.a[1]], gr.b, [gr.a[0], gr.b[1]]].map(T); if (gr.fill === 'outline') g.region(q, null); else g.stroke(w, [...q, q[0]], null); }
         else if (gr.type === 'line') g.stroke(w, gr.pts.map(T), null);
         else if (gr.type === 'poly') { const q = gr.pts.map(T); if (gr.fill === 'outline') g.region(q, null); else g.stroke(w, [...q, q[0]], null); }
         else if (gr.type === 'circle') { const q = circlePts(T(gr.c), gr.r); if (gr.fill === 'outline') g.region(q, null); else g.stroke(w, [...q, q[0]], null); }

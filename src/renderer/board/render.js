@@ -269,8 +269,9 @@ export function drawFootprintGraphics(ctx, view, C, fp, T, { side = 'F', visible
     ctx.save(); ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = lw(layer); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     if (/CrtYd/.test(layer)) { ctx.setLineDash([4, 3]); ctx.lineWidth = 1; }
     ctx.beginPath();
-    if (g.type === 'rect') { [g.a, [g.b[0], g.a[1]], g.b, [g.a[0], g.b[1]]].map(S).forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.stroke(); }
-    else if (g.type === 'line' || g.type === 'poly') { g.pts.map(S).forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); if (g.type === 'poly') ctx.closePath(); ctx.stroke(); }
+    // filled shapes (fill: 'outline', as Eagle's rectangles and polygons are) fill and keep their edge
+    if (g.type === 'rect') { [g.a, [g.b[0], g.a[1]], g.b, [g.a[0], g.b[1]]].map(S).forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); if (g.fill === 'outline') ctx.fill(); ctx.stroke(); }
+    else if (g.type === 'line' || g.type === 'poly') { g.pts.map(S).forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); if (g.type === 'poly') { ctx.closePath(); if (g.fill === 'outline') ctx.fill(); } ctx.stroke(); }
     else if (g.type === 'circle') {
       const [cx, cy] = S(g.c); ctx.arc(cx, cy, g.r * view.scale, 0, TAU);
       if (g.fill === 'outline') ctx.fill(); else ctx.stroke();
