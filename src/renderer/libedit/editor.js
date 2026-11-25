@@ -18,7 +18,7 @@ import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { SCHEMATIC_GRIDS, DEFAULT_SCHEMATIC_GRID, gridLabel, setGridStep, snapToGrid } from '../core/grid.js';
 import { watchAlt } from '../ui/grid.js';
 import { GridCard } from '../ui/gridCard.js';
-import { ContextStrip, stripLabel, stripSep, stripButton } from '../ui/contextStrip.js';
+import { ContextStrip, stripLabel, stripSep, stripButton, stripProps } from '../ui/contextStrip.js';
 import { CardSet } from '../ui/cards.js';
 import { highlight, screenBox } from '../view/highlight.js';
 
@@ -720,7 +720,7 @@ export class LibraryEditor {
     s.show(`sel|${sel.sort().join()}|${!!this.cards?.card('props')?.isOpen}`, () => [stripLabel(what, nK ? 'pin' : 'select'), stripSep(),
       nK ? stripButton({ icon: 'rotate', title: 'Turn the selected pins (R)', onClick: () => this.rotatePins() }) : null,
       stripButton({ icon: 'trash', title: 'Delete (Del)', danger: true, onClick: () => this.deleteSelection() }),
-      stripSep(), stripButton({ icon: 'sliders', title: 'Properties (double-click, or right-click → Properties…)', active: !!this.cards?.card('props')?.isOpen, onClick: () => (this.cards.card('props').isOpen ? this.closeProperties() : this.openProperties()) })]);
+      stripSep(), stripProps({ open: !!this.cards?.card('props')?.isOpen, onToggle: () => (this.cards.card('props').isOpen ? this.closeProperties() : this.openProperties()) })]);
   }
 
   deleteSelection() {

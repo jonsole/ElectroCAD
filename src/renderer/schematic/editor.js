@@ -15,7 +15,7 @@ import { snapToGrid, gridLabel, SCHEMATIC_GRIDS, setGridStep } from '../core/gri
 import { watchAlt } from '../ui/grid.js';
 import { RULER } from '../view/canvas2d.js';
 import { GridCard } from '../ui/gridCard.js';
-import { ContextStrip, stripLabel, stripSep, stripButton } from '../ui/contextStrip.js';
+import { ContextStrip, stripLabel, stripSep, stripButton, stripProps } from '../ui/contextStrip.js';
 import { cardHead } from '../ui/cards.js';
 import { highlight, screenBox, revealBox } from '../view/highlight.js';
 import { probeFromSchematic, schematicTargets, sheetForProbe } from '../core/probe.js';
@@ -1487,7 +1487,7 @@ export class SchematicEditor {
       stripButton({ icon: 'duplicate', title: 'Duplicate (Ctrl+D)', onClick: () => this.duplicate() }),
       stripButton({ icon: 'copy', title: 'Copy (Ctrl+C)', onClick: () => { this.copy(); this.refresh(); } }),
       stripButton({ icon: 'trash', title: 'Delete (Del)', danger: true, onClick: () => this.deleteSelection() }),
-      stripSep(), stripButton({ icon: 'sliders', title: 'Properties (double-click, or right-click → Properties…)', active: this.propsOpen, onClick: () => (this.propsOpen ? this.closeProperties() : this.openProperties()) })]);
+      stripSep(), stripProps({ open: this.propsOpen, onToggle: () => (this.propsOpen ? this.closeProperties() : this.openProperties()) })]);
   }
 
   rotate() {

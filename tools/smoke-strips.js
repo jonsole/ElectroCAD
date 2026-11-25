@@ -18,6 +18,13 @@ check('sch-hidden', strip('schematic').hidden);
 const y = app.project.schematic.sheets[0].symbols[0];
 sch.selection = new Set([y.id]); sch.refresh();
 check('sch-shown', !strip('schematic').hidden && /R1/.test(strip('schematic').textContent), strip('schematic').textContent);
+// every selection strip ends with Properties, which opens the selection's Properties
+const propsBtn = (ws) => strip(ws).querySelector('.strip-props');
+check('sch-props-button', propsBtn('schematic') === strip('schematic').lastElementChild);
+propsBtn('schematic').click();
+check('sch-props-open', sch.propsOpen && /R1/.test(document.querySelector('.inspector .insp-title')?.textContent));
+propsBtn('schematic').click();
+check('sch-props-toggle', !sch.propsOpen);
 btn('schematic', 'Rotate 90°').click();
 check('sch-rotated', app.project.schematic.sheets[0].symbols[0].rot === 90, app.project.schematic.sheets[0].symbols[0].rot);
 btn('schematic', 'Delete').click();
@@ -40,6 +47,7 @@ check('select-none', strip('board').hidden);
 const fp = app.project.board.footprints[0];
 ed.fpSel = new Set([fp.id]); ed.refresh();
 check('fp-strip', !strip('board').hidden && !!btn('board', 'Rotate 90° anticlockwise'), strip('board').textContent);
+check('fp-props-button', propsBtn('board') === strip('board').lastElementChild);
 const step = strip('board').querySelector('select[aria-label="Rotation step"]'); step.value = '45'; step.dispatchEvent(new Event('change'));
 btn('board', 'Rotate 45° anticlockwise').click();
 check('fp-rot', app.project.board.footprints[0].rot === 45 && localStorage.getItem('electrocad.boardRotStep') === '45', app.project.board.footprints[0].rot);
@@ -52,6 +60,9 @@ check('fp-lock', app.project.board.footprints[0].locked === true && btn('board',
 // a track
 app.edit('track', (pr) => pr.board.tracks.push({ id: 'tt', a: [MM, MM], b: [5 * MM, MM], width: 250000, layer: 'F.Cu', net: 'A' }));
 ed.fpSel.clear(); ed.trackSel = new Set(['tt']); ed.refresh();
+check('track-props-button', propsBtn('board') === strip('board').lastElementChild);
+propsBtn('board').click();
+check('track-props-open', ed.cards.card('props').isOpen && /1 track/.test(ed.propsEl.textContent));
 const w = strip('board').querySelector('input[aria-label="Width"]'); w.value = '0.4'; w.dispatchEvent(new Event('change'));
 check('track-width', app.project.board.tracks[0].width === 400000);
 btn('board', 'Delete').click();

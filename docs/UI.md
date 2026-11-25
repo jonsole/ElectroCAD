@@ -415,7 +415,7 @@ Selecting something in one editor highlights the same thing in the other (#18). 
 ## Properties
 
 Everywhere (the Schematic, the Board and both Library editors), an item's **Properties** card opens only when you ask for it:
-- **Opening it:** double-click the item (a part, footprint, track, via, zone, outline shape, pin, pad or graphic), or right-click it and choose **Properties…**. The context strip's Properties button toggles it too.
+- **Opening it:** every selection's context strip ends with a **Properties** button, which is always there because double-click does something else in places. You can also double-click the item (a part, footprint, track, via, zone, outline shape, pin, pad or graphic), or right-click it and choose **Properties…**. The button shows lit while the card is open, and clicking it again closes it.
 - **Closing it:** it belongs to the selection it was opened for, so selecting something else, or clearing the selection, closes it. Its × closes it as well.
 - **Double-click exceptions:** on the Schematic, double-clicking a Reference or Value still edits it in place, a net label is renamed in place, a text note is edited in place, and a wire selects its net.
 - **Select net:** on the Board, a pad's net is selected from its right-click menu (**Select net …**).

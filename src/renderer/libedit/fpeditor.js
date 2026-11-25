@@ -21,7 +21,7 @@ import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { highlight, screenBox } from '../view/highlight.js';
 import { watchAlt } from '../ui/grid.js';
 import { GridCard } from '../ui/gridCard.js';
-import { ContextStrip, stripLabel, stripSep, stripButton, stripNumber, stripSelect } from '../ui/contextStrip.js';
+import { ContextStrip, stripLabel, stripSep, stripButton, stripProps, stripNumber, stripSelect } from '../ui/contextStrip.js';
 import { CardSet } from '../ui/cards.js';
 
 export const FP_TOOLS = {
@@ -427,7 +427,7 @@ export class FootprintEditor {
     s.show(`sel|${sel.sort().join()}|${!!this.cards?.card('props')?.isOpen}`, () => [stripLabel(what, nK ? 'pad' : 'select'), stripSep(),
       nK ? stripButton({ icon: 'rotate', title: 'Turn the selected pads 90° (R)', onClick: () => this.rotatePads() }) : null,
       stripButton({ icon: 'trash', title: 'Delete (Del)', danger: true, onClick: () => this.deleteSelection() }),
-      stripSep(), stripButton({ icon: 'sliders', title: 'Properties (double-click, or right-click → Properties…)', active: !!this.cards?.card('props')?.isOpen, onClick: () => (this.cards.card('props').isOpen ? this.closeProperties() : this.openProperties()) })]);
+      stripSep(), stripProps({ open: !!this.cards?.card('props')?.isOpen, onToggle: () => (this.cards.card('props').isOpen ? this.closeProperties() : this.openProperties()) })]);
   }
 
   deleteSelection() {

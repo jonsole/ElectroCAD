@@ -68,3 +68,14 @@ export function stripSegmented({ label, items, value, onPick }) {
   return h('div', { class: 'segmented strip-seg', role: 'radiogroup', 'aria-label': label },
     ...items.map(([id, text, title]) => h('button', { class: 'btn' + (id === value ? ' active' : ''), type: 'button', role: 'radio', 'aria-checked': String(id === value), title: title || text, dataset: { value: id }, onClick: () => onPick(id) }, text)));
 }
+
+/**
+ * The Properties button every selection strip ends with: opens (or closes) the selection's
+ * Properties card. Always here, because double-click may do something else in places.
+ */
+export function stripProps({ open, onToggle }) {
+  const b = stripButton({ icon: 'sliders', label: 'Properties', active: open, title: `${open ? 'Close' : 'Open'} the Properties of the selection (also right-click → Properties…)`, onClick: onToggle });
+  b.classList.add('strip-props');
+  b.setAttribute('aria-pressed', String(!!open));
+  return b;
+}

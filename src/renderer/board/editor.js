@@ -31,7 +31,7 @@ import { ZoneFiller } from './zoneFiller.js';
 import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { watchAlt } from '../ui/grid.js';
 import { GridCard } from '../ui/gridCard.js';
-import { ContextStrip, stripLabel, stripSep, stripButton, stripNumber, stripSelect, stripSegmented } from '../ui/contextStrip.js';
+import { ContextStrip, stripLabel, stripSep, stripButton, stripNumber, stripSelect, stripSegmented, stripProps } from '../ui/contextStrip.js';
 import { CardSet } from '../ui/cards.js';
 import { highlight, screenBox, revealBox } from '../view/highlight.js';
 import { probeFromBoard, boardTargets } from '../core/probe.js';
@@ -1118,7 +1118,7 @@ export class BoardEditor {
     const shapes = [...this.selection].map((i) => this.board.outline[i]).filter(Boolean);
     const del = (title) => stripButton({ icon: 'trash', title: `${title} (Del)`, danger: true, onClick: () => this.deleteSelection() });
     const pOpen = !!this.cards?.card('props')?.isOpen;
-    const propsBtn = () => stripButton({ icon: 'sliders', title: 'Properties (double-click, or right-click → Properties…)', active: pOpen, onClick: () => (pOpen ? this.closeProperties() : this.openProperties()) });
+    const propsBtn = () => stripProps({ open: pOpen, onToggle: () => (pOpen ? this.closeProperties() : this.openProperties()) });
     if (fps.length) {
       const one = fps.length === 1 ? fps[0] : null;
       const ref = (f) => this.board.annotation?.components?.[f.componentId]?.ref || this.project.components[f.componentId]?.ref || '?';
@@ -1133,7 +1133,7 @@ export class BoardEditor {
         stripSep(),
         stripButton({ icon: 'flip', label: 'Flip', title: `Flip to the ${one?.side === 'B' ? 'front' : 'other side'} (F)`, onClick: () => this.flipSel() }),
         stripButton({ icon: locked ? 'unlock' : 'lock', label: locked ? 'Unlock' : 'Lock', active: locked, title: `${locked ? 'Unlock' : 'Lock'}: a locked footprint doesn't move (L)`, onClick: () => this.lockSel() }),
-        props ? stripButton({ icon: 'sliders', title: 'Properties: Reference, Value, Footprint, position (double-click, or right-click → Properties…)', active: props.isOpen, onClick: () => (props.isOpen ? this.closeProperties() : this.openProperties()) }) : null]);
+        stripSep(), propsBtn()]);
       return;
     }
     if (tracks.length || vias.length) {
