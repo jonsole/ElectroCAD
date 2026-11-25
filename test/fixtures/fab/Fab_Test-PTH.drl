@@ -1,0 +1,21 @@
+M48
+; DRILL file {ElectroCAD test} date 2026-01-01T00:00:00Z
+; FORMAT={-:-/ absolute / metric / decimal}
+; #@! TF.CreationDate,2026-01-01T00:00:00Z
+; #@! TF.GenerationSoftware,ElectroCAD,ElectroCAD,test
+; #@! TF.FileFunction,Plated,1,2,PTH
+FMAT,2
+METRIC
+T1C0.300
+T2C1.000
+%
+G90
+G05
+T1
+X11.000Y-6.000
+T2
+X6.730Y-15.800
+X8.000Y-18.000
+X9.270Y-20.200
+X26.000Y-20.000
+M30

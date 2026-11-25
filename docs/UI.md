@@ -510,6 +510,24 @@ The strip rebuilds only when its context changes, so a field being typed in keep
   - a "Whole connection (U)" button and Delete.
   - Mixed values show blank or "Mixed". Every edit is one undo step.
 
+## Gerber tab: fab output
+
+The **Gerber** tab makes the files a board house needs (#26).
+- **Generate** waits for any zone refill in progress, then makes:
+  - **Gerber RS-274X with X2 attributes**, one file per layer of the 2- or 4-layer stack: each copper layer, F/B mask, F/B paste, F/B silk and Edge.Cuts (`core/fab.js`, a pure function of the Project and its zone fills).
+  - **Excellon** drill files for plated holes (vias and plated pads) and non-plated ones (pads with no copper).
+- **File names and units** follow the Fab output settings in Board setup: Protel extensions (`.GTL`, `.GBL`, `.G1`/`.G2` inner, `.GTS`/`.GBS` mask, `.GTP`/`.GBP` paste, `.GTO`/`.GBO` silk, `.GKO` outline) or descriptive `-F_Cu.gbr` names; drills in mm or inches.
+- **What goes into each layer:**
+  - **Copper:** zone fills first, as hole-free regions. Each fill is cut into bands at its holes, so nothing needs clear polarity, which would also erase other copper. Then tracks (round apertures), vias on every copper layer, and pads. Circles, axis-aligned rectangles and ovals are flashed apertures; turned rectangles and rounded rectangles are regions, and turned ovals are strokes. X2 aperture functions are Conductor, ViaPad, SMDPad and ComponentPad.
+  - **Mask:** an opening at each pad with mask, grown by 0.05 mm; vias are tented. The file's polarity is Negative.
+  - **Paste:** SMD pads only.
+  - **Silk:** footprint silk lines, shapes and text. Text uses ElectroCAD's own stroke font (`core/strokefont.js`), mirrored on B.SilkS. Footprints without their own Reference text get it above the courtyard, as on screen.
+  - **Edge.Cuts:** the outline (`Profile`).
+- **Coordinates:** the Project's nanometres with +Y down become Gerber millimetres in 4.6 format, which is 1 nm per unit, with Y up. The flip happens only here (ADR-0003).
+- **The panel** lists the files with their layers and sizes. **Download zip** saves them as `<project>-fab.zip`, a stored zip made by `core/zip.js`. **Checks** shows the DRC result at generation time and an open outline, and the list says when the board has changed since generation.
+- **Zone clearance from holes:** zone fills also keep the clearance from non-plated holes.
+- Rendering the generated files on this tab comes with #28; BOM and pick-and-place with #27.
+
 ## Board setup: Fab presets, Design rules and Net classes
 
 **Board setup** (Board toolbar; or **Board setup…** on the Gerber tab) has two tabs (#24). Every change is its own undo step and shows at once.

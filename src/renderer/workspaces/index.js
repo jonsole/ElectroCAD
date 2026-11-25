@@ -9,8 +9,7 @@ import { SchematicEditor } from '../schematic/editor.js';
 import { LibraryEditor } from '../libedit/editor.js';
 import { FootprintEditor } from '../libedit/fpeditor.js';
 import { openPrintDialog } from '../print/dialog.js';
-import { openBoardSetup } from '../board/setup-dialog.js';
-import { presetState } from '../core/presets.js';
+import { GerberPanel } from '../gerber/panel.js';
 
 
 function schematic(app) {
@@ -62,35 +61,24 @@ function board(app) {
 }
 
 function gerber(app) {
-  const outputs = [['Gerber X2 (copper, mask, paste, silk, Edge.Cuts)', true], ['Excellon drill (PTH / NPTH)', true], ['BOM (CSV)', false], ['Pick-and-place (CSV)', false]];
-  // the Fab preset: which one the rules came from, and Board setup to change it (#24)
-  const presetName = h('div', { class: 'outline-state ok' });
-  const showPreset = () => {
-    const st = presetState(app.project.board);
-    presetName.replaceChildren(icon(st.mismatch ? 'info' : 'check', 16), h('span', {}, `${st.name}${st.edited.length ? ' (edited)' : ''}${st.mismatch ? ` · for ${st.preset.copper}-layer boards` : ''}`));
-    presetName.className = `outline-state ${st.mismatch ? 'bad' : 'ok'}`;
-  };
-  showPreset();
-  const side = h('div', { class: 'side-panel' },
-    section('Fab preset', h('div', { class: 'gerber-preset' }, presetName,
-      button({ label: 'Board setup…', icon: 'settings', cls: 'btn-outline', title: 'Choose a Fab preset and edit the Design rules and Fab output settings', onClick: () => openBoardSetup(app) }))),
-    section('Layers', h('p', { class: 'side-note' }, 'Generate to see each Gerber and drill file here.')),
-    section('Output', ...outputs.map(([label, on]) => h('label', { class: 'check-row' }, h('input', { type: 'checkbox', checked: on, disabled: true }), label))),
-    section('Checks', h('p', { class: 'side-note' }, 'DRC summary and missing-layer warnings appear here.')));
-  return new Workspace({
+  const panel = (app.gerberPanel ||= new GerberPanel(app));
+  const side = panel.side();
+  const ws = new Workspace({
     colors: () => app.canvasColors('board'),
     id: 'gerber', label: 'Gerber', icon: 'gerber', title: 'Gerber: generate Fab output, check it and download the zip',
     grid: mm(0.5), home: { x0: -10e6, y0: -10e6, x1: 110e6, y1: 90e6 },
-    toolbar: [later({ label: 'Generate', icon: 'play', title: 'Generate Fab output', cls: 'btn-primary' }, 26),
-      later({ label: 'Download zip', icon: 'zip', title: 'Download the fab zip' }, 26),
+    toolbar: [...panel.toolbar(),
       later({ label: 'Open Gerber files…', icon: 'folder', title: 'Open a fab zip or Gerber/Excellon files' }, 28), spacer(),
       segmented([['top', 'Top', null, 'View from the top', 28], ['bottom', 'Bottom', null, 'View from the bottom', 28]], 'top')],
-    hint: 'Nothing generated yet. Choose a Fab preset and outputs on the right, then Generate.',
+    hint: 'Generate makes the fab files (Gerber X2 and Excellon) from the Board; Download zip saves them for the board house. Viewing them here comes with #28.',
     tools: [toolButton('select', 'Pan and inspect', { active: true }), toolButton('ruler', 'Measure', { ticket: 28 })],
     side,
-    onRefresh: showPreset,
-    status: () => 'No files',
+    onRefresh: () => panel.refresh(),
+    status: () => panel.status(),
   });
+  ws.panel = panel;
+  panel.refresh();
+  return ws;
 }
 
 function library(app) {

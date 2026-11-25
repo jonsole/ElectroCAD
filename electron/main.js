@@ -122,6 +122,7 @@ const FILE_KINDS = {
   theme: { ext: 'json', filters: [{ name: 'ElectroCAD colour theme', extensions: ['json'] }, { name: 'All files', extensions: ['*'] }], open: 'Import colour theme', save: 'Export colour theme' },
   pdf: { ext: 'pdf', filters: [{ name: 'PDF', extensions: ['pdf'] }], save: 'Export schematic as PDF' },
   svg: { ext: 'svg', filters: [{ name: 'SVG image', extensions: ['svg'] }], save: 'Export sheet as SVG' },
+  zip: { ext: 'zip', filters: [{ name: 'Zip archive', extensions: ['zip'] }], save: 'Save the fab zip' },
 };
 const fileKind = (k) => FILE_KINDS[k] || FILE_KINDS.project;
 const smokeDialogs = []; // smoke tests queue dialog answers here instead of clicking
@@ -139,7 +140,7 @@ ipcMain.handle('file:import', async (_e, kind) => {
 });
 ipcMain.handle('file:export', async (_e, suggestedName, text, kind) => {
   const K = fileKind(kind);
-  if (typeof text !== 'string') throw new Error('Nothing to save');
+  if (typeof text !== 'string' && !(text instanceof Uint8Array)) throw new Error('Nothing to save'); // text, or bytes (the fab zip)
   let file;
   if (SMOKE) file = smokeDialogs.shift() || null;
   else {

@@ -764,3 +764,10 @@ body.resizing iframe, body.resizing canvas { pointer-events: none; }
 .strip-field:has(:disabled) { opacity: .45; }
 .strip-field :disabled { cursor: not-allowed; }
 .strip-btn:disabled { opacity: .4; cursor: not-allowed; }
+/* the Gerber tab's file list (#26) */
+.fab-list { display: flex; flex-direction: column; gap: 2px; margin: 4px 0; }
+.fab-file { display: grid; grid-template-columns: 16px 1fr auto auto; gap: 6px; align-items: center; font-size: 12px; padding: 2px 0; }
+.fab-name { font-family: ui-monospace, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fab-layer { color: var(--muted); font-size: 11px; }
+.fab-size { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 11px; min-width: 44px; text-align: right; }
+.fab-checks { display: flex; flex-direction: column; gap: 6px; }

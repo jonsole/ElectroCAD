@@ -121,7 +121,7 @@ export function zoneInput(project, board = project.board, extraTracks = []) {
   for (const bf of board.footprints || []) {
     for (const pad of placedPads(view, bf, nets)) {
       const layers = pad.layers.includes('*.Cu') ? copper : pad.layers.filter((l) => copper.includes(l));
-      pads.push({ key: `${bf.componentId}:${pad.number}`, at: pad.at, size: pad.size, shape: pad.shape, rot: pad.rot || 0, net: pad.net || '', layers });
+      pads.push({ key: `${bf.componentId}:${pad.number}`, at: pad.at, size: pad.size, shape: pad.shape, rot: pad.rot || 0, net: pad.net || '', layers, drill: pad.drill || 0 });
     }
   }
   return {
@@ -184,6 +184,11 @@ export function fillZone(input, z, higher = new Map()) {
   for (const t of input.tracks) if (near(t) && foreign(t.net)) keepOut.push(...shapePaths({ type: 'capsule', a: t.a, b: t.b, r: t.width / 2 }, clearanceOf(input, z, t.net) + MARGIN));
   for (const v of input.vias) if (boxesMeet(box, itemBox(v)) && foreign(v.net)) keepOut.push(...shapePaths({ type: 'capsule', a: v.at, b: v.at, r: v.diameter / 2 }, clearanceOf(input, z, v.net) + MARGIN));
   const own = [];
+  // non-plated holes (a pad with a drill and no copper here): the fill keeps the clearance from the hole
+  for (const pad of input.pads) {
+    if (!(pad.drill > 0) || onLayer(pad) || !boxesMeet(box, itemBox(pad))) continue;
+    keepOut.push(...shapePaths({ type: 'capsule', a: pad.at, b: pad.at, r: pad.drill / 2 }, clearanceOf(input, z, '') + MARGIN));
+  }
   for (const pad of input.pads) {
     if (!near(pad)) continue;
     if (foreign(pad.net)) keepOut.push(...shapePaths(padShape(pad), clearanceOf(input, z, pad.net) + MARGIN));
@@ -298,7 +303,7 @@ export function zoneSignatures(input) {
       z, shared,
       input.tracks.filter(near).map((t) => [t.a, t.b, t.width, t.net]),
       input.vias.filter((v) => boxesMeet(box, itemBox(v))).map((v) => [v.at, v.diameter, v.net]),
-      input.pads.filter(near).map((p) => [p.at, p.size, p.shape, p.rot, p.net]),
+      input.pads.filter((p) => near(p) || (p.drill > 0 && boxesMeet(box, itemBox(p)))).map((p) => [p.at, p.size, p.shape, p.rot, p.net, p.drill || 0]),
       above(input, z).map((o) => sigs.get(o.id) || o.id),
     ];
     sigs.set(z.id, hash(JSON.stringify(parts)));
