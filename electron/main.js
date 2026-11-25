@@ -123,6 +123,7 @@ const FILE_KINDS = {
   pdf: { ext: 'pdf', filters: [{ name: 'PDF', extensions: ['pdf'] }], save: 'Export schematic as PDF' },
   svg: { ext: 'svg', filters: [{ name: 'SVG image', extensions: ['svg'] }], save: 'Export sheet as SVG' },
   zip: { ext: 'zip', filters: [{ name: 'Zip archive', extensions: ['zip'] }], save: 'Save the fab zip' },
+  eagle: { ext: 'sch', filters: [{ name: 'Eagle schematic and board', extensions: ['sch', 'brd'] }, { name: 'All files', extensions: ['*'] }], open: 'Import an Eagle schematic and/or board' },
 };
 const fileKind = (k) => FILE_KINDS[k] || FILE_KINDS.project;
 const smokeDialogs = []; // smoke tests queue dialog answers here instead of clicking
@@ -137,6 +138,18 @@ ipcMain.handle('file:import', async (_e, kind) => {
   }
   if (!file) return null;
   return { name: path.basename(file), text: fs.readFileSync(file, 'utf8') };
+});
+// several files at once (an Eagle .sch and its .brd): [{ name, text }] or null
+ipcMain.handle('file:importMany', async (_e, kind) => {
+  const K = fileKind(kind);
+  let files;
+  if (SMOKE) files = [].concat(smokeDialogs.shift() || []).map((f) => path.resolve(app.getAppPath(), f)); // journeys name repo files relative to the app
+  else {
+    const r = await dialog.showOpenDialog(win, { title: K.open, filters: K.filters, properties: ['openFile', 'multiSelections'] });
+    files = r.canceled || !r.filePaths.length ? null : r.filePaths;
+  }
+  if (!files?.length) return null;
+  return [].concat(files).map((f) => ({ name: path.basename(f), text: fs.readFileSync(f, 'utf8') }));
 });
 ipcMain.handle('file:export', async (_e, suggestedName, text, kind) => {
   const K = fileKind(kind);

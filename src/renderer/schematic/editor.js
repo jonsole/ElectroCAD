@@ -1523,6 +1523,23 @@ export class SchematicEditor {
     return this.project.schematic.sheets.some((sh) => sh.symbols.some((y) => comps.has(y.componentId)) || sh.wires.some((w) => wires.has(w.id)));
   }
 
+  /** Zoom to what's drawn on the current Sheet (an imported design is small on a big sheet). */
+  fitContent() {
+    const sh = this.sheet, ids = [...sh.symbols, ...sh.wires, ...(sh.labels || [])].map((x) => x.id);
+    const b = ids.length && itemsBounds(this.project, sh, ids);
+    if (!b || !this.ws) return false;
+    this.ws.view.resize(); // a first show fits home on its first size: have that happen now, not after
+    if (!this.ws.view.w) return false;
+    const m = SCH_GRID * 6, v = this.ws.view;
+    // leave the docked cards on the right clear
+    const cr = v.canvas.getBoundingClientRect();
+    const lefts = [...this.ws.el.querySelectorAll('.card')].map((c) => c.getBoundingClientRect()).filter((r) => r.width && r.left > cr.left + v.w / 2).map((r) => r.left - cr.left);
+    const w = lefts.length && Math.min(...lefts) > 400 ? Math.min(...lefts) - 12 : v.w;
+    v.view.fit({ x0: b.x0 - m, y0: b.y0 - m, x1: b.x1 + m, y1: b.y1 + m }, w, v.h, 20);
+    this.refresh();
+    return true;
+  }
+
   /** Select these parts (by Component) or nets here, on the first Sheet that has them, and zoom to them. */
   showItems({ components = [], nets = [] }) {
     const comps = new Set(components), low = new Set(nets.map((n) => n.toLowerCase()));

@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE eagle SYSTEM "eagle.dtd">
+<!-- The board for regulator.sch (hand-written fixture): U2 on the bottom (MR90), R2 turned 90°,
+     a curved track, a GND polygon on the bottom, a via, an outline with an arc corner and a hole. -->
+<eagle version="9.6.2">
+<drawing>
+<settings><setting alwaysvectorfont="no"/></settings>
+<grid distance="0.05" unitdist="inch" unit="inch" style="lines" multiple="1" display="no" altdistance="0.025" altunitdist="inch" altunit="inch"/>
+<layers>
+<layer number="1" name="Top" color="4" fill="1" visible="yes" active="yes"/>
+<layer number="16" name="Bottom" color="1" fill="1" visible="yes" active="yes"/>
+<layer number="20" name="Dimension" color="15" fill="1" visible="yes" active="yes"/>
+</layers>
+<board>
+<plain>
+<wire x1="0" y1="0" x2="50" y2="0" width="0" layer="20"/>
+<wire x1="50" y1="0" x2="50" y2="35" width="0" layer="20"/>
+<wire x1="50" y1="35" x2="45" y2="40" width="0" layer="20" curve="90"/>
+<wire x1="45" y1="40" x2="0" y2="40" width="0" layer="20"/>
+<wire x1="0" y1="40" x2="0" y2="0" width="0" layer="20"/>
+<circle x="45" y="5" radius="1.6" width="0" layer="20"/>
+<text x="2" y="2" size="1.27" layer="21">REG v1</text>
+</plain>
+<libraries>
+<library name="rcl">
+<packages>
+<package name="R0805">
+<smd name="1" x="-0.95" y="0" dx="1.3" dy="1.5" layer="1" roundness="25"/>
+<smd name="2" x="0.95" y="0" dx="1.3" dy="1.5" layer="1" roundness="25"/>
+<wire x1="-0.41" y1="0.635" x2="0.41" y2="0.635" width="0.1524" layer="51"/>
+<text x="-1.27" y="1.27" size="1.016" layer="25">&gt;NAME</text>
+</package>
+<package name="0207/10">
+<pad name="1" x="-5.08" y="0" drill="0.8128" shape="octagon"/>
+<pad name="2" x="5.08" y="0" drill="0.8128" shape="octagon"/>
+<wire x1="-3.175" y1="1.143" x2="3.175" y2="1.143" width="0.1524" layer="21"/>
+</package>
+</packages>
+</library>
+<library name="reg">
+<packages>
+<package name="SOT223">
+<smd name="1" x="-2.3" y="-3.15" dx="1.2" dy="2.2" layer="1"/>
+<smd name="2" x="0" y="-3.15" dx="1.2" dy="2.2" layer="1"/>
+<smd name="3" x="2.3" y="-3.15" dx="1.2" dy="2.2" layer="1"/>
+<smd name="4" x="0" y="3.15" dx="3.6" dy="2.2" layer="1"/>
+</package>
+<package name="SO8">
+<smd name="1" x="-1.905" y="-2.6" dx="0.6" dy="2.2" layer="1"/>
+<smd name="2" x="-0.635" y="-2.6" dx="0.6" dy="2.2" layer="1"/>
+<smd name="3" x="0.635" y="-2.6" dx="0.6" dy="2.2" layer="1"/>
+<smd name="4" x="1.905" y="-2.6" dx="0.6" dy="2.2" layer="1"/>
+<smd name="5" x="1.905" y="2.6" dx="0.6" dy="2.2" layer="1"/>
+<smd name="6" x="0.635" y="2.6" dx="0.6" dy="2.2" layer="1"/>
+<smd name="7" x="-0.635" y="2.6" dx="0.6" dy="2.2" layer="1"/>
+<smd name="8" x="-1.905" y="2.6" dx="0.6" dy="2.2" layer="1"/>
+</package>
+</packages>
+</library>
+</libraries>
+<attributes/>
+<variantdefs/>
+<classes>
+<class number="0" name="default" width="0" drill="0"><clearance class="0" value="0.2"/></class>
+<class number="1" name="Power" width="0.6" drill="0.4"><clearance class="1" value="0.3"/></class>
+</classes>
+<designrules name="fixture">
+<param name="layerSetup" value="(1*16)"/>
+<param name="mdWireWire" value="8mil"/>
+<param name="mdWirePad" value="8mil"/>
+<param name="mdWireVia" value="8mil"/>
+<param name="mdPadPad" value="8mil"/>
+<param name="mdPadVia" value="8mil"/>
+<param name="mdViaVia" value="8mil"/>
+<param name="mdCopperDimension" value="0.5mm"/>
+<param name="msWidth" value="10mil"/>
+<param name="msDrill" value="0.35mm"/>
+<param name="rvPadTop" value="0.25"/>
+<param name="rlMinPadTop" value="10mil"/>
+<param name="rlMaxPadTop" value="20mil"/>
+<param name="rvViaOuter" value="0.25"/>
+<param name="rlMinViaOuter" value="6mil"/>
+<param name="rlMaxViaOuter" value="20mil"/>
+</designrules>
+<autorouter/>
+<elements>
+<element name="R1" library="rcl" package="R0805" value="330" x="10" y="30"/>
+<element name="R2" library="rcl" package="0207/10" value="10k" x="40" y="30" rot="R90"/>
+<element name="U1" library="reg" package="SOT223" value="78XX05SOT223" x="25" y="30" locked="yes"/>
+<element name="U2" library="reg" package="SO8" value="LM358D" x="25" y="12" rot="MR90"/>
+</elements>
+<signals>
+<signal name="VCC" class="1">
+<contactref element="R1" pad="1"/><contactref element="U1" pad="1"/><contactref element="U2" pad="8"/>
+<wire x1="9.05" y1="30" x2="9.05" y2="24" width="0.6" layer="1"/>
+<wire x1="9.05" y1="24" x2="22.7" y2="24" width="0.6" layer="1"/>
+<wire x1="22.7" y1="24" x2="22.7" y2="26.85" width="0.6" layer="1"/>
+</signal>
+<signal name="N$1">
+<contactref element="R1" pad="2"/>
+</signal>
+<signal name="VOUT">
+<contactref element="U1" pad="3"/><contactref element="R2" pad="2"/><contactref element="U2" pad="3"/>
+<wire x1="27.3" y1="26.85" x2="35" y2="26.85" width="0.254" layer="1"/>
+<wire x1="35" y1="26.85" x2="40" y2="35.08" width="0.254" layer="1" curve="-90"/>
+</signal>
+<signal name="GND">
+<contactref element="U1" pad="2"/><contactref element="U1" pad="4"/><contactref element="R2" pad="1"/><contactref element="U2" pad="4"/><contactref element="U2" pad="6"/>
+<via x="30" y="20" extent="1-16" drill="0.4"/>
+<polygon width="0.254" layer="16" isolate="0.3" rank="1" thermals="yes">
+<vertex x="1" y="1"/><vertex x="49" y="1"/><vertex x="49" y="39"/><vertex x="1" y="39"/>
+</polygon>
+</signal>
+<signal name="AOUT">
+<contactref element="U2" pad="1"/><contactref element="U2" pad="2"/><contactref element="U2" pad="5"/>
+</signal>
+</signals>
+</board>
+</drawing>
+</eagle>

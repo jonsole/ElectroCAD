@@ -587,6 +587,18 @@ Using the card:
   - `BoardEditor.whenZonesFilled()` resolves once every fill is up to date, for DRC and export.
 - Zones draw under pads and tracks, back layers first, in the layer's colour at the theme's Zone fill opacity.
 
+## Importing Eagle designs
+
+**Import → Eagle schematic and board (.sch, .brd)…** takes Eagle 6+ / Fusion Electronics XML files. Choose the `.sch`, the `.brd`, or both at once (one Open dialog, several files). It always makes a **new Project** named after the files; the open one is saved first and stays in the Projects list.
+
+- **Both files:** the Schematic comes over sheet by sheet, the Board is placed from it as Forward annotation would, then each Eagle element sets its position, rotation, side and lock. Tracks, vias, polygons (as Zones), the outline (arcs and circles included), Net classes and the Design rules come over too. The Fab preset reads "Eagle design rules" (Board setup can switch it to a fab's preset).
+- **Board only:** a stub Schematic is made, one symbol per part with net labels on its pins, so the Netlist still matches the copper.
+- **Schematic only:** the Board is left empty; Update from Schematic (F8) as usual.
+
+The import then shows a summary: what came in, whether the **Netlist matches Eagle's nets pin for pin**, whether **every board signal matches the Schematic**, and a list of what wasn't carried over or was changed (octagonal pads become round, curved tracks become short straight segments, inner layers past two, blind vias become through vias, and so on). Nothing is dropped without being listed there.
+
+The Schematic opens zoomed to what's drawn, clear of the cards on the right; the Board opens fitted to its outline. Older binary Eagle files (before 6) need opening and saving in Eagle 6 or later first. KiCad import comes with #33.
+
 ## Workspaces
 
 There are four workspace tabs: **Schematic · Board · Gerber · Library**. Each keeps its own pan/zoom and selection when you switch away and back.

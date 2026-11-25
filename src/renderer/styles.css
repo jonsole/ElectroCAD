@@ -771,3 +771,6 @@ body.resizing iframe, body.resizing canvas { pointer-events: none; }
 .fab-layer { color: var(--muted); font-size: 11px; }
 .fab-size { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 11px; min-width: 44px; text-align: right; }
 .fab-checks { display: flex; flex-direction: column; gap: 6px; }
+/* the import summary */
+.import-report .outline-state { margin: 6px 0; }
+.import-notes ul { margin: 4px 0 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; line-height: 1.5; max-height: 220px; overflow: auto; }

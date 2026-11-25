@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('electroNative', {
   saveLibrary: call('lib:save'),
   deleteLibrary: call('lib:delete'),
   importFile: call('file:import'),
+  importFiles: call('file:importMany'),
   exportFile: call('file:export'),
   onBeforeClose: (fn) => ipcRenderer.on('app:before-close', () => fn()),
   closeReady: () => ipcRenderer.send('app:close-ready'),

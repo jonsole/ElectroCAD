@@ -1,7 +1,7 @@
 // Application shell: top bar, workspace tabs, theme and dialogs (layout per docs/UI.md,
 // modelled on DabbleCAD's app shell).
 import { APP_NAME, LOGO_SVG } from './brand.js';
-import { h, button, modal, popupMenu, toast } from './ui/dom.js';
+import { h, button, icon, modal, popupMenu, toast } from './ui/dom.js';
 import { platform } from './platform.js';
 import { parseLibrary, serializeLibrary } from './core/library.js';
 import { HIGHLIGHT_STYLES, DEFAULT_HIGHLIGHT } from './view/highlight.js';
@@ -18,6 +18,7 @@ import { fieldStylesSection } from './ui/fieldStyles.js';
 import { setDefaultFieldStyle } from './core/fields.js';
 import { DEFAULT_DISPLAY } from './schematic/render.js';
 import { buildWorkspaces } from './workspaces/index.js';
+import { importEagle, eagleKind } from './io/eagle/index.js';
 import { later, sep, spacer } from './workspaces/workspace.js';
 
 /** The commit this build was made from (set in vite.config.mjs). */
@@ -70,7 +71,7 @@ export class App {
     const topbar = h('div', { class: 'topbar', role: 'toolbar', 'aria-label': 'Project and app tools' },
       logo, sep(), this.nameInput, this.saveState, spacer(),
       this.fileBtn,
-      later({ label: 'Import', icon: 'import', title: 'Import KiCad or Eagle files' }, 33),
+      this.importBtn = button({ label: 'Import', icon: 'import', title: 'Import an Eagle schematic and board (KiCad comes with #33)', onClick: () => this.importMenu() }),
       later({ label: 'Export', icon: 'export', title: 'Export to KiCad or Eagle' }, 34),
       sep(), this.themeBtn,
       button({ icon: 'help', title: 'Help: shortcuts (?)', onClick: () => this.help() }),
@@ -267,6 +268,62 @@ export class App {
     this.projects?.hide();
     toast(`Opened ${file.name}`);
     return true;
+  }
+
+  importMenu() {
+    popupMenu([
+      { label: 'Eagle schematic and board (.sch, .brd)…', icon: 'import', onClick: () => this.importEagle() },
+      { label: 'KiCad project (coming in #33)', icon: 'import', disabled: true, onClick: () => {} },
+    ], this.importBtn);
+  }
+
+  /**
+   * Import an Eagle .sch and/or .brd as a new Project: the Schematic's Netlist is checked against
+   * Eagle's nets and the Board's signals against the Netlist; what couldn't come over is listed.
+   */
+  async importEagle(files = null) {
+    try { files ||= await platform.importFiles('eagle'); } catch (err) { toast(`Couldn't read those files: ${err.message || err}`, 'error', 7000); return null; }
+    if (!files?.length) return null;
+    const pick = (k) => files.find((f) => eagleKind(f.text) === k) || null;
+    const sch = pick('sch'), brd = pick('brd');
+    if (!sch && !brd) { toast(`${files.map((f) => f.name).join(', ')}: not an Eagle 6+ schematic or board (XML). Older binary Eagle files need opening and saving in Eagle 6 or later first.`, 'error', 9000); return null; }
+    const name = (sch || brd).name.replace(/\.(sch|brd)$/i, '');
+    let r;
+    try {
+      r = importEagle({ sch: sch?.text, brd: brd?.text, name });
+      deserialize(serialize(r.project)); // what it made must be a valid Project
+    } catch (err) {
+      console.error(err);
+      toast(`Couldn't import ${name}: ${err.message || err}`, 'error', 9000);
+      return null;
+    }
+    await this.saveNow();
+    this.setProject(r.project);
+    await this.saveNow();
+    this.projects?.hide();
+    const raf = () => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+    if (sch) { this.setWorkspace('schematic'); await raf(); this.workspace('schematic')?.editor.fitContent(); }
+    if (brd) this.setWorkspace('board');
+    this._importReport(r, { sch, brd });
+    return r;
+  }
+
+  _importReport(r, { sch, brd }) {
+    const p = r.project, b = p.board;
+    const m = modal({ title: `Imported ${p.name}`, width: 600, cls: 'import-report' });
+    const nl = r.check.schematic.netlist;
+    const facts = [
+      sch ? `${sch.name}: ${p.schematic.sheets.length} sheet${p.schematic.sheets.length === 1 ? '' : 's'}, ${Object.keys(p.components).length} parts, ${nl ? nl.nets.length : '?'} nets` : null,
+      brd ? `${brd.name}: ${b.stack.copper}-layer, ${b.footprints.length} footprints, ${b.tracks.length} track segments, ${b.vias.length} vias, ${b.zones.length} zones` : null,
+    ].filter(Boolean);
+    const ok = r.check.schematic.ok && !r.check.signals.length;
+    const row = (k, t) => h('div', { class: `outline-state ${k}` }, icon(k === 'ok' ? 'check' : 'info', 16), h('span', {}, t));
+    m.body.append(...[
+      ...facts.map((t) => h('p', { class: 'modal-text' }, t)),
+      sch ? row(r.check.schematic.ok ? 'ok' : 'bad', r.check.schematic.ok ? 'The Netlist matches Eagle\'s nets, pin for pin.' : `${r.check.schematic.mismatches.length} net${r.check.schematic.mismatches.length === 1 ? '' : 's'} differ from Eagle's (listed below).`) : null,
+      brd && sch ? row(r.check.signals.length ? 'bad' : 'ok', r.check.signals.length ? `${r.check.signals.length} board signal${r.check.signals.length === 1 ? '' : 's'} don't match the Schematic.` : 'Every board signal matches the Schematic\'s nets.') : null,
+      r.report.length ? h('div', { class: 'import-notes' }, h('div', { class: 'set-group-title' }, 'Not carried over, or changed'), h('ul', {}, ...r.report.map((t) => h('li', {}, t)))) : h('p', { class: 'side-note' }, 'Nothing was left out.'),
+      h('div', { class: 'modal-actions' }, button({ label: ok ? 'Done' : 'OK', cls: 'btn-primary', onClick: () => m.close() }))].filter(Boolean));
   }
 
   /** Save as file…: write the open (or a stored) Project to an .ecad file on disk. */
