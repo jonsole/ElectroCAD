@@ -143,3 +143,56 @@ test('router: a shove that would need a pad to move walks round instead', () => 
   legalBoard(p, v.segments, 'NEW');
   void CopperIndex;
 });
+
+// ---------------------------------------------------------------- Vias (#30)
+
+import { viaMove } from '../src/renderer/core/shove.js';
+import { placeViaPushing } from '../src/renderer/core/copper.js';
+
+const via = (id, at, net, extra = {}) => ({ id, at, drill: mm(0.3), diameter: mm(0.6), from: 'F.Cu', to: 'B.Cu', net, ...extra });
+
+test('vias: a route pushes a via clear, its tracks\' ends going with it', () => {
+  // a via of net A with a track on each layer leaving it downwards
+  const v = via('v', [mm(15), mm(10.6)], 'A');
+  const ta = tr('ta', [mm(15), mm(10.6)], [mm(15), mm(18)], 'A'), tb = tr('tb', [mm(15), mm(10.6)], [mm(15), mm(18)], 'A', 'B.Cu');
+  const b = board([ta, tb], { vias: [v], stack: { copper: 2 } });
+  const h = [head([mm(5), mm(10)], [mm(25), mm(10)])];
+  const r = shove(b, h, { copper: ['F.Cu', 'B.Cu'] });
+  assert.ok(r.ok, r.reason);
+  assert.ok(r.movedVias.has('v'));
+  const nv = r.vias.find((x) => x.id === 'v');
+  assert.equal(nv.at[0], mm(15), 'straight away from the route (down)');
+  assert.ok(nv.at[1] > mm(10.6));
+  assert.ok(shapeDistance({ type: 'capsule', a: nv.at, b: nv.at, r: mm(0.3) }, { type: 'capsule', a: h[0].a, b: h[0].b, r: W / 2 }) >= C - 2);
+  for (const id of ['ta', 'tb']) assert.deepEqual(r.tracks.find((t) => t.id === id).a, nv.at, `${id} still meets the via`);
+});
+
+test('vias: a via dropped mid-route pushes tracks on every layer; a locked via stays', () => {
+  const b = board([tr('f', [0, mm(0.6)], [mm(30), mm(0.6)], 'A'), tr('k', [0, mm(0.6)], [mm(30), mm(0.6)], 'B', 'B.Cu')], { vias: [], stack: { copper: 2 } });
+  const drop = [{ a: [mm(15), 0], b: [mm(15), 0], r: mm(0.3), layers: ['F.Cu', 'B.Cu'], net: 'NEW', kind: 'via' }];
+  const r = shove(b, drop, { copper: ['F.Cu', 'B.Cu'] });
+  assert.ok(r.ok, r.reason);
+  assert.deepEqual([...r.moved].sort(), ['f', 'k'], 'both layers');
+  legal(r.tracks.filter((t) => t.layer === 'F.Cu'), [{ ...drop[0], layers: ['F.Cu'] }]);
+  legal(r.tracks.filter((t) => t.layer === 'B.Cu'), [{ ...drop[0], layers: ['B.Cu'] }]);
+  // a locked via in the way: no shove
+  const lb = board([], { vias: [via('v', [mm(15), mm(10.5)], 'A', { locked: true })], stack: { copper: 2 } });
+  assert.equal(shove(lb, [head([mm(5), mm(10)], [mm(25), mm(10)])]).ok, false);
+  assert.ok(viaMove(via('v', [mm(15), mm(10.5)], 'A'), { a: [mm(5), mm(10)], b: [mm(25), mm(10)], r: W / 2 }, C)[1] > mm(10.5));
+});
+
+test('vias: the Via tool in Shove mode pushes what it lands near', () => {
+  const p = newProject('V');
+  p.board.outline = rectOutline([0, 0], [mm(40), mm(20)]);
+  p.board.rules = { ...p.board.rules, clearance: C };
+  p.board.tracks.push(tr('a', [mm(2), mm(10.5)], [mm(38), mm(10.5)], 'A'));
+  const { via: v, pushed } = placeViaPushing(p, [mm(20), mm(10)], 0, { shove: true });
+  assert.equal(pushed, 1);
+  assert.ok(p.board.vias.includes(v));
+  legal(p.board.tracks, [{ a: v.at, b: v.at, r: v.diameter / 2, layers: ['F.Cu'], net: v.net || 'none' }]);
+  // without shove the track stays where it was
+  const q = newProject('V2');
+  q.board.tracks.push(tr('a', [mm(2), mm(10.5)], [mm(38), mm(10.5)], 'A'));
+  assert.equal(placeViaPushing(q, [mm(20), mm(10)]).pushed, 0);
+  assert.equal(q.board.tracks[0].a[1], mm(10.5));
+});

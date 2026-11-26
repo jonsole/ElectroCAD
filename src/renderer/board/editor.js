@@ -23,7 +23,7 @@ import { hitPad, footprintOutline, insidePolygon, placedPads, padNets, hitFootpr
 import { ratsnest } from '../core/ratsnest.js';
 import { copperIndex, pointSeg2 } from '../core/collision.js';
 import { CORNERS, ROUTE_MODES, startRoute, step as routeStep, click as routeClickAt, back as routeBack, flipPosture, commit as routeCommit, switchLayer, layerPairs } from '../core/router.js';
-import { connection, setTrackWidth, setTrackLayer, setViaSize, placeVia } from '../core/copper.js';
+import { connection, setTrackWidth, setTrackLayer, setViaSize, placeVia, placeViaPushing } from '../core/copper.js';
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
 import { allFootprints } from '../library/footprints.js';
 import { addBoardOnly, setBoardOnly, deleteBoardOnly } from '../core/boardOnly.js';
@@ -877,8 +877,10 @@ export class BoardEditor {
       if (this.tool === 'via') {
         const at = this.snapAt(w);
         let v = null;
-        this.app.edit('Place via', (p) => { v = placeVia(p, at, 2 / ws.view.view.scale); });
-        toast(v.net ? `Via on ${v.net}.` : 'Via with no net (it isn\'t on a track or pad).', 'info', 1600);
+        let n = 0;
+        this.app.edit('Place via', (p) => { ({ via: v, pushed: n } = placeViaPushing(p, at, 2 / ws.view.view.scale, { shove: this.routeMode === 'shove' })); });
+        const pushed = n > 0 ? ` Pushed ${n} aside.` : n < 0 ? ' Too crowded to push what it\'s near: check DRC.' : '';
+        toast(`${v.net ? `Via on ${v.net}.` : 'Via with no net (it isn\'t on a track or pad).'}${pushed}`, n < 0 ? 'error' : 'info', 2000);
         return;
       }
       if (this.tool === 'zone' && e.detail >= 2 && this.pts?.zone?.length >= 3) { this.closeZone(); return; }
@@ -1947,7 +1949,7 @@ export class BoardEditor {
   }
 
   draw(ctx, view, C) {
-    const board = { ...this.board, tracks: this.routeView?.shoved || this.board.tracks, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints, zones: this.previewZones || this.board.zones, drawings: this.previewDrawings || this.board.drawings || [] };
+    const board = { ...this.board, tracks: this.routeView?.shoved || this.board.tracks, vias: this.routeView?.shovedVias || this.board.vias, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints, zones: this.previewZones || this.board.zones, drawings: this.previewDrawings || this.board.drawings || [] };
     const labels = [];
     drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: this._rats?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure, labels, zones: { fills: this.zoneFiller.fills, outlineOnly: this._zonesAsOutlines(board) } });
     if (this.routeView) this._drawRoute(ctx, view, C);

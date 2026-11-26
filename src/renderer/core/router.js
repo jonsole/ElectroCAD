@@ -199,11 +199,11 @@ export function step(project, state, cursor, mode = 'free', index = null, to = n
     const v = stepWith(project, state, cursor, 'free', index, to);
     const r = shoveFor(project, state, v.segments, index);
     if (r.ok) {
-      // the shove moved (and checked) every Track in the way: only copper that can't move can block
-      const clear = (s) => !index.collisions(project.board, { type: 'capsule', a: s.a, b: s.b, r: state.width / 2 }, s.layer, state.net).some((it) => it.kind !== 'track');
+      // the shove moved (and checked) every Track and Via in the way: only copper that can't move can block
+      const clear = (s) => !index.collisions(project.board, { type: 'capsule', a: s.a, b: s.b, r: state.width / 2 }, s.layer, state.net).some((it) => it.kind !== 'track' && it.kind !== 'via');
       if (v.segments.every(clear)) {
         for (const s of v.segments) s.collides = false;
-        return { ...v, collisions: [], shoved: r.moved.size ? r.tracks : null, shovedIds: r.moved };
+        return { ...v, collisions: [], shoved: r.moved.size || r.movedVias.size ? r.tracks : null, shovedVias: r.movedVias.size ? r.vias : null, shovedIds: r.moved, shovedViaIds: r.movedVias };
       }
     }
     return { ...stepWith(project, state, cursor, 'walkaround', index, to), shoveFailed: r.reason || 'blocked' };
@@ -222,7 +222,7 @@ export function shoveFor(project, state, segments, index) {
     ...(state.vias || []).map((v) => ({ a: v.at, b: v.at, r: (state.via?.diameter || 0) / 2, layers: all, net: state.net, kind: 'via' })),
   ];
   index._fixed ||= fixedItems(index);
-  return shove(project.board, pushers, { fixed: index._fixed });
+  return shove(project.board, pushers, { fixed: index._fixed, copper: all });
 }
 
 function stepWith(project, state, cursor, mode, index, to) {
@@ -283,7 +283,7 @@ export function commit(project, state, { shove: pushing = false, index = null } 
       for (let i = 1; i < pts.length; i++) if (pts[i][0] !== pts[i - 1][0] || pts[i][1] !== pts[i - 1][1]) segs.push({ a: pts[i - 1], b: pts[i], layer: run.layer });
     }
     const r = shoveFor(project, state, segs, index);
-    if (r.ok && r.moved.size) project.board.tracks = r.tracks;
+    if (r.ok && (r.moved.size || r.movedVias.size)) { project.board.tracks = r.tracks; project.board.vias = r.vias; }
   }
   for (const run of [...(state.runs || []), { layer: state.layer, points: state.points }]) {
     const pts = chamferPath(run.points, state.chamfer);

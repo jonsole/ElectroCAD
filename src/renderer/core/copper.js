@@ -1,5 +1,8 @@
 // Editing Tracks and Vias (#21): the whole connection a piece of copper belongs to, width and
 // layer edits, standalone Vias that take the Net of what they land on. DOM-free.
+import { shove, fixedItems } from './shove.js';
+import { copperIndex } from './collision.js';
+import { copperLayerNames } from './board.js';
 import { pointSeg2 } from './collision.js';
 import { placedPads, padNets } from './footprint.js';
 import { newVia } from './router.js';
@@ -58,8 +61,21 @@ export function netAt(project, at, tol = 0) {
 }
 
 /** A standalone Via at `at`, taking the Net of what it lands on. Returns it. */
-export function placeVia(project, at, tol = 0) {
+export function placeVia(project, at, tol = 0, opts = {}) { return placeViaPushing(project, at, tol, opts).via; }
+
+/**
+ * Place a Via (as placeVia); in Shove mode (`shove`, #30) it first pushes other Nets' Tracks and
+ * Vias aside on every layer. Returns { via, pushed: how many moved (-1: too crowded to push) }.
+ */
+export function placeViaPushing(project, at, tol = 0, { shove: pushing = false } = {}) {
   const v = newVia(project, at, netAt(project, at, tol));
+  let pushed = 0;
+  if (pushing) {
+    const board = project.board, all = copperLayerNames(board.stack.copper);
+    const r = shove(board, [{ a: v.at, b: v.at, r: v.diameter / 2, layers: all, net: v.net, kind: 'via' }], { fixed: fixedItems(copperIndex(project)), copper: all });
+    pushed = r.ok ? r.moved.size + r.movedVias.size : -1;
+    if (r.ok) { board.tracks = r.tracks; board.vias = r.vias; }
+  }
   project.board.vias.push(v);
-  return v;
+  return { via: v, pushed };
 }

@@ -58,4 +58,16 @@ click(6.9125, 7);
 move(24, 10); await wait(50);
 check('locked-not-pushed', !ed.routeView?.shoved && !!ed.routeView?.shoveFailed);
 ed.cancelRoute();
+// #30: the Via tool in Shove mode pushes the (unlocked) second track aside
+app.edit('unlock', (pr) => { delete pr.board.tracks.find((t) => t.id === 'x0').locked; });
+const n0 = app.project.board.tracks.length;
+ed.setTool('via');
+click(24, 10.5 + 0.9 - 0.5); // just above the second track, beside the first's
+await wait(50);
+const placed = app.project.board.vias.at(-1);
+check('via-placed', !!placed);
+check('via-pushed', app.project.board.tracks.length > n0, [n0, app.project.board.tracks.length]);
+await ed.runDrc(); await wait(50);
+check('via-drc-clean', !ed.drc.list.some((v) => v.rule === 'clearance'), ed.drc.list.filter((v) => v.rule === 'clearance').map((v) => v.message));
+ed.setTool('select');
 return { fails };
