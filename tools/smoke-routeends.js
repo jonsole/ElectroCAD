@@ -1,6 +1,7 @@
-// Routing from and to copper that isn't a pad (#87, #88, #89): with the Route tool, start on the
+// Routing from and to copper that isn't a pad (#87, #88, #89), and from an airwire (#90): with the Route tool, start on the
 // free end of a track and finish on a pad; start on a pad and finish on a track end and on a via;
-// branch off the middle of a track (a T-junction), which splits it. Each clears the airwire, DRC
+// branch off the middle of a track (a T-junction), which splits it; click an airwire to route
+// it from its nearer end, switching to that end's layer (#90). Each clears the airwire, DRC
 // shows nothing unrouted, and one undo takes it back.
 const app = window.electrocad;
 const fails = [];
@@ -78,6 +79,28 @@ check('drc-clean', !ed.drc.list.some((v) => v.rule === 'clearance' || v.rule ===
 ed.drcCard?.toggle?.(false);
 await undo();
 check('undo-3', same());
+
+// #90: click an airwire: the route starts at its nearer end, the other end marked as the target
+const aw = ed._rats.wires[0];
+check('one-airwire', ed._rats.wires.length === 1 && aw.a[0] === 24 * MM, ed._rats.wires);
+const ax = (aw.a[0] * 0.7 + aw.b[0] * 0.3) / MM, ay = (aw.a[1] * 0.7 + aw.b[1] * 0.3) / MM;
+await clickAt(ax, ay);
+check('airwire-start', ed.route && ed.route.points[0][0] === aw.a[0] && ed.route.points[0][1] === aw.a[1] && ed.route.target?.[0] === aw.b[0], ed.route);
+await clickAt(aw.b[0] / MM, aw.b[1] / MM);
+check('airwire-routed', !ed.route && unrouted() === 0, unrouted());
+await undo();
+check('undo-4', same());
+// the near end on B.Cu (R2 flipped to the back): the route switches to it
+app.edit('to back', (pr) => { pr.board.footprints.find((f) => pr.components[f.componentId]?.ref === 'R2').side = 'B'; });
+await wait(30);
+const bw = ed._rats.wires[0];
+ed.setActiveLayer('F.Cu');
+await clickAt((bw.a[0] * 0.2 + bw.b[0] * 0.8) / MM, (bw.a[1] * 0.2 + bw.b[1] * 0.8) / MM);
+check('airwire-layer', ed.route?.layer === 'B.Cu' && ed.activeLayer === 'B.Cu' && ed.route.points[0][0] === bw.b[0], [ed.route?.layer, ed.activeLayer, bw]);
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await wait(30);
+check('cancelled', !ed.route);
+await undo();
+ed.setActiveLayer('F.Cu');
 
 // a click on nothing says where a track can start
 await clickAt(16, 18);

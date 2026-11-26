@@ -503,7 +503,7 @@ The strip rebuilds only when its context changes, so a field being typed in keep
 ## Routing tracks
 
 **Route (X)** draws Tracks (#20):
-- **Start:** click a pad on the active copper layer. A through-hole pad is on every layer; pick the layer in Layers or with the bottom chips. A track can also start on copper that already carries a net (#87, #89): a via (on every layer), the end of a track on the active layer, or a point part-way along one (a T-junction). The route takes that copper's net.
+- **Start:** click a pad on the active copper layer. A through-hole pad is on every layer; pick the layer in Layers or with the bottom chips. A track can also start on copper that already carries a net (#87, #89): a via (on every layer), the end of a track on the active layer, or a point part-way along one (a T-junction). The route takes that copper's net. Or click an airwire (#90): the route starts at its nearer end, switching the active layer to that end's if it's only on another layer (an SMD pad on the back, a track on another layer; a toast says so), and the airwire's other end is marked with a dashed ring as where to finish.
 - **Width and net:** the track takes the pad's Net and its Net class's width (or the default rule).
 - **Placing corners:** click to fix corners. Points snap to the grid, pad centres and handles.
 - **Square at pads:** with 45° corners a track never leaves or enters a pad at 45°. Its first run out of the start pad, and its last run into a pad of its Net under the pointer, go straight along the pad's axes. The bend sits a track width beyond the pad's edge.

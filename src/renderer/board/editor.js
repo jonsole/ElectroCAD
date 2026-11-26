@@ -1465,6 +1465,11 @@ export class BoardEditor {
       const hit = this._padOnLayer(w);
       // not on a pad: a Via, a Track end or a point along a Track of a net (#87, #89)
       const cu = !hit && this._copperTarget(w);
+      // an airwire (#90): route it from its nearer end, on that end's layer
+      if (!hit && !cu && !this._fromAirwire) {
+        const aw = this._airwireAt(w);
+        if (aw) { this._routeAirwire(aw, w); return; }
+      }
       if (!hit && !cu) {
         const other = !hitPad(this.project, w) && trackOnOtherLayer(this.board, w, 3 / this.ws.view.view.scale, this.activeLayer, this.hidden);
         toast(hitPad(this.project, w) ? `That pad isn't on ${this.activeLayer}: make its layer active (Layers, or the chips at the bottom).` : other ? `That track is on ${other.layer}: make its layer active (Layers, or the chips at the bottom).` : 'Start a track on a pad, a track or a via.', 'info', 2600);
@@ -1508,6 +1513,41 @@ export class BoardEditor {
   /** What the router proposes from the last fixed corner to `p` in the current mode. */
   _proposal(p) {
     return routeStep(this.project, this.route, p, this.routeMode, this.routeIndex, this._targetPad(p));
+  }
+
+  /** The airwire under `w` (within a few pixels), or null. */
+  _airwireAt(w) {
+    const tol = 4 / (this.ws?.view.view.scale || 1);
+    let best = null;
+    for (const a of this._rats?.wires || []) {
+      const d = Math.sqrt(pointSeg2(w, a.a, a.b));
+      if (d <= tol && (!best || d < best.d)) best = { d, wire: a };
+    }
+    return best?.wire || null;
+  }
+
+  /**
+   * Start routing airwire `aw` (#90) from its end nearer `w`: on the active layer when that end is
+   * there (a through-hole pad or a Via is on every layer), else on the end's own layer (said in a
+   * toast). Its other end is marked as the target.
+   */
+  _routeAirwire(aw, w) {
+    const [near, far] = Math.hypot(w[0] - aw.a[0], w[1] - aw.a[1]) <= Math.hypot(w[0] - aw.b[0], w[1] - aw.b[1]) ? [aw.a, aw.b] : [aw.b, aw.a];
+    const low = aw.net.toLowerCase();
+    const pad = hitPad(this.project, near, { preferBack: this.activeLayer.startsWith('B.') });
+    const copper = copperLayerNames(this.board.stack.copper);
+    let layer = this.activeLayer;
+    if (pad && pad.pad.net?.toLowerCase() === low && pad.pad.at[0] === near[0] && pad.pad.at[1] === near[1]) {
+      const ls = pad.pad.layers;
+      if (!ls.includes('*.Cu') && !ls.includes(layer)) layer = ls.find((l) => copper.includes(l)) || layer;
+    } else if (!(this.board.vias || []).some((v) => v.at[0] === near[0] && v.at[1] === near[1])) {
+      const t = (this.board.tracks || []).find((x) => x.net?.toLowerCase() === low && ((x.a[0] === near[0] && x.a[1] === near[1]) || (x.b[0] === near[0] && x.b[1] === near[1])));
+      if (t && t.layer !== layer) layer = t.layer;
+    }
+    if (layer !== this.activeLayer) { this.setActiveLayer(layer); toast(`Routing on ${layer}, where that end is.`, 'info', 1800); }
+    this._fromAirwire = true;
+    try { this.routeClick(near, false); } finally { this._fromAirwire = false; }
+    if (this.route) { this.route.target = far; this.refresh(); }
   }
 
   /** The copper under `w` (not a pad) a route on the active layer can start or finish on: a Via, a Track end or a point along a Track. */
@@ -2106,6 +2146,13 @@ export class BoardEditor {
       const [x, y] = view.toScreen(v.at);
       ctx.fillStyle = C.via || '#c8c8c8'; ctx.beginPath(); ctx.arc(x, y, Math.max(2, (st.via.diameter / 2) * view.scale), 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = C.drill || '#000'; ctx.beginPath(); ctx.arc(x, y, Math.max(1, (st.via.drill / 2) * view.scale), 0, Math.PI * 2); ctx.fill();
+    }
+    // the airwire's other end, when routing one (#90): where to finish
+    if (st.target) {
+      const [x, y] = view.toScreen(st.target), k = 7;
+      ctx.globalAlpha = 0.9; ctx.strokeStyle = C.selection; ctx.lineWidth = 2; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.arc(x, y, k + 3, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(x - k, y); ctx.lineTo(x + k, y); ctx.moveTo(x, y - k); ctx.lineTo(x, y + k); ctx.stroke();
     }
     // the copper a click would finish on
     if (this.routeView.target) {
