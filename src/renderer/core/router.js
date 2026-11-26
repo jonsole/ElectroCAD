@@ -11,12 +11,14 @@
 //          chamfer: nm,  Eagle-style mitre length cut off every bend of 90° or sharper (0: none)
 //          runs: [{ layer, points }],  the runs already finished on other layers (#21)
 //          vias: [{ at }],  where they change layer
-//          pair: [layerA, layerB], via: { drill, diameter } }
+//          pair: [layerA, layerB], via: { drill, diameter },
+//          joins: [{ id, at }]  Tracks it starts or finishes part-way along (split on commit, #89) }
 import { uid } from './project.js';
 import { netRules } from './collision.js';
 import { Obstacles, walkPath } from './walkaround.js';
 import { shove, fixedItems } from './shove.js';
 import { copperLayerNames } from './board.js';
+import { splitTrackAt } from './routeEnds.js';
 
 export const ROUTE_MODES = [['shove', 'Shove'], ['walkaround', 'Walkaround'], ['free', 'Free']];
 
@@ -285,6 +287,8 @@ export function commit(project, state, { shove: pushing = false, index = null } 
     const r = shoveFor(project, state, segs, index);
     if (r.ok && (r.moved.size || r.movedVias.size)) { project.board.tracks = r.tracks; project.board.vias = r.vias; }
   }
+  // T-junctions (#89): the Tracks the route starts or finishes part-way along are split there
+  for (const j of state.joins || []) splitTrackAt(project.board, j.id, j.at);
   for (const run of [...(state.runs || []), { layer: state.layer, points: state.points }]) {
     const pts = chamferPath(run.points, state.chamfer);
     for (let i = 1; i < pts.length; i++) {

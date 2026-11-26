@@ -503,14 +503,14 @@ The strip rebuilds only when its context changes, so a field being typed in keep
 ## Routing tracks
 
 **Route (X)** draws Tracks (#20):
-- **Start:** click a pad on the active copper layer. A through-hole pad is on every layer; pick the layer in Layers or with the bottom chips.
+- **Start:** click a pad on the active copper layer. A through-hole pad is on every layer; pick the layer in Layers or with the bottom chips. A track can also start on copper that already carries a net (#87, #89): a via (on every layer), the end of a track on the active layer, or a point part-way along one (a T-junction). The route takes that copper's net.
 - **Width and net:** the track takes the pad's Net and its Net class's width (or the default rule).
 - **Placing corners:** click to fix corners. Points snap to the grid, pad centres and handles.
 - **Square at pads:** with 45° corners a track never leaves or enters a pad at 45°. Its first run out of the start pad, and its last run into a pad of its Net under the pointer, go straight along the pad's axes. The bend sits a track width beyond the pad's edge.
   - **/** chooses which axis it leaves along (the way's major axis, or its minor one).
   - Walkaround keeps the rule.
   - 90° corners are square anyway; Any angle is left free.
-- **Finishing:** click a pad of the same Net. Double-click or Enter ends the track where it is.
+- **Finishing:** click a pad of the same Net, or a via, a track end or a point along a track of the Net on the routing layer (#88, #89). Copper the click would finish on is ringed. A track started or finished part-way along another is split there when it's committed, in the same undo step. The ratsnest counts a track end lying on another track of its net (a T) as connected, split or not. Double-click or Enter ends the track where it is.
 - **Keys while routing:** **/** flips which way the bend goes, **Backspace** takes back the last corner, **Esc** cancels.
 - **Routing options** pop up in a strip at the top of the canvas while the Route tool is active, and hide with any other tool (remembered per browser):
   - **90° | 45° | Any:** how tracks bend, as Eagle's bend styles.

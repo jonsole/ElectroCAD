@@ -28,6 +28,7 @@ import { validateRef, updateComponent, footprintChoices, footprintKey } from '..
 import { allFootprints } from '../library/footprints.js';
 import { addBoardOnly, setBoardOnly, deleteBoardOnly } from '../core/boardOnly.js';
 import { dragSegment, dragCorner, cornerAt, dragResult } from '../core/drag.js';
+import { copperTarget, trackOnOtherLayer } from '../core/routeEnds.js';
 import { STARTER_LIBRARY } from '../library/starter.js';
 import { shapeHandles, hitHandle, dragHandle, dragOutlineHandle, snapPoint, handlePoints } from '../core/handles.js';
 import { newZone, zoneInput, inPolygon, moveZones } from '../core/zones.js';
@@ -1462,11 +1463,19 @@ export class BoardEditor {
     const p = this.snapAt(w);
     if (!this.route) {
       const hit = this._padOnLayer(w);
-      if (!hit) { toast(hitPad(this.project, w) ? `That pad isn't on ${this.activeLayer}: make its layer active (Layers, or the chips at the bottom).` : 'Start a track on a pad.', 'info', 2600); return; }
-      if (!hit.pad.net) { toast('That pad has no net yet: Update from Schematic (F8) first.', 'info', 2600); return; }
+      // not on a pad: a Via, a Track end or a point along a Track of a net (#87, #89)
+      const cu = !hit && this._copperTarget(w);
+      if (!hit && !cu) {
+        const other = !hitPad(this.project, w) && trackOnOtherLayer(this.board, w, 3 / this.ws.view.view.scale, this.activeLayer, this.hidden);
+        toast(hitPad(this.project, w) ? `That pad isn't on ${this.activeLayer}: make its layer active (Layers, or the chips at the bottom).` : other ? `That track is on ${other.layer}: make its layer active (Layers, or the chips at the bottom).` : 'Start a track on a pad, a track or a via.', 'info', 2600);
+        return;
+      }
+      if (hit && !hit.pad.net) { toast('That pad has no net yet: Update from Schematic (F8) first.', 'info', 2600); return; }
       const pairs = layerPairs(this.board.stack.copper);
       const pair = this.pair && pairs.some((q) => q.join('|') === this.pair.join('|')) ? this.pair : null;
-      this.route = startRoute(this.project, hit.pad.at, this.activeLayer, hit.pad.net, { corner: this.corner, chamfer: this.chamfer, pair, pad: hit.pad });
+      const opts = { corner: this.corner, chamfer: this.chamfer, pair, pad: hit ? hit.pad : null };
+      this.route = hit ? startRoute(this.project, hit.pad.at, this.activeLayer, hit.pad.net, opts) : startRoute(this.project, cu.at, this.activeLayer, cu.net, opts);
+      if (cu && cu.kind === 'along') this.route.joins = [{ id: cu.id, at: cu.at }];
       this.routeIndex = copperIndex(this.project);
       this._routeMove();
       this.refresh();
@@ -1480,6 +1489,16 @@ export class BoardEditor {
       this.finishRoute();
       return;
     }
+    // a Via, a Track end or a point along a Track of the route's net: finish there (#88, #89)
+    const cu = !end && this._copperTarget(w);
+    if (cu && cu.net.toLowerCase() === this.route.net.toLowerCase() && !this._atStart(cu.at)) {
+      const v = this._proposal(cu.at);
+      if (v.blocked) { toast(`No clear way to that ${cu.kind === 'via' ? 'via' : 'track'} from here: place a corner nearer, or switch to Free mode.`, 'info', 2600); return; }
+      this.route = routeClickAt(this.project, this.route, cu.at, v.tail);
+      if (cu.kind === 'along') this.route = { ...this.route, joins: [...(this.route.joins || []), { id: cu.id, at: cu.at }] };
+      this.finishRoute();
+      return;
+    }
     if (dbl) { this.finishRoute(); return; }
     this.route = routeClickAt(this.project, this.route, p, this._proposal(p).tail);
     this._routeMove();
@@ -1489,6 +1508,17 @@ export class BoardEditor {
   /** What the router proposes from the last fixed corner to `p` in the current mode. */
   _proposal(p) {
     return routeStep(this.project, this.route, p, this.routeMode, this.routeIndex, this._targetPad(p));
+  }
+
+  /** The copper under `w` (not a pad) a route on the active layer can start or finish on: a Via, a Track end or a point along a Track. */
+  _copperTarget(w) {
+    return copperTarget(this.board, w, 3 / (this.ws?.view.view.scale || 1), this.activeLayer, { along: true, hidden: this.hidden });
+  }
+
+  /** Is `p` where the route started, with nothing routed yet (so a click there doesn't finish it)? */
+  _atStart(p) {
+    const st = this.route, s = st.points[0];
+    return st.points.length === 1 && !st.runs?.length && s[0] === p[0] && s[1] === p[1];
   }
 
   /** A pad of the routed Net centred on `p` on the routing layer: the track goes into it square. */
@@ -1507,6 +1537,9 @@ export class BoardEditor {
     this._routeKey = key; this._routeFor = this.route;
     const had = `${!!this.routeView?.collisions.length}${!!this.routeView?.blocked}`;
     this.routeView = this._proposal(at);
+    // copper of the route's net under the pointer that a click would finish on (#88): ringed
+    const cu = !this._targetPad(at) && this._copperTarget(at);
+    this.routeView.target = cu && cu.net.toLowerCase() === this.route.net.toLowerCase() && !this._atStart(cu.at) ? cu : null;
     if (this.ws && had !== `${!!this.routeView.collisions.length}${!!this.routeView.blocked}`) this._hint();
     this.ws?.view.invalidate();
   }
@@ -2073,6 +2106,12 @@ export class BoardEditor {
       const [x, y] = view.toScreen(v.at);
       ctx.fillStyle = C.via || '#c8c8c8'; ctx.beginPath(); ctx.arc(x, y, Math.max(2, (st.via.diameter / 2) * view.scale), 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = C.drill || '#000'; ctx.beginPath(); ctx.arc(x, y, Math.max(1, (st.via.drill / 2) * view.scale), 0, Math.PI * 2); ctx.fill();
+    }
+    // the copper a click would finish on
+    if (this.routeView.target) {
+      const [x, y] = view.toScreen(this.routeView.target.at);
+      ctx.globalAlpha = 0.9; ctx.strokeStyle = C.selection; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, Math.max(6, st.width * view.scale), 0, Math.PI * 2); ctx.stroke();
     }
     // Walkaround with no way round: where it stopped, and a dashed line on to the pointer
     if (this.routeView.blocked && this.cursor) {

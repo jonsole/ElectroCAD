@@ -2,9 +2,9 @@
 //
 // For each Net, the Pads on it (from the Board's annotation record) and the copper carrying it
 // (Tracks and Vias with that Net name) form islands: a Track end inside a Pad (on a layer the Pad
-// has) or on another Track's end or a Via joins them. The airwires are a minimum spanning tree
-// over the islands, each edge the shortest Pad-to-Pad (or copper end) distance between two
-// islands. Recomputed on every change, so it follows a drag live. Zone fills, when given, are
+// has), on another Track's end or part-way along it (a T-junction, #89), or on a Via joins them.
+// The airwires are a minimum spanning tree over the islands, each edge the shortest Pad-to-Pad
+// (or copper end) distance between two islands. Recomputed on every change, so it follows a drag live. Zone fills, when given, are
 // copper too: each filled region joins what it reaches on its layer (a Pad through its thermal
 // spokes or solidly, a Via, a Track end), so a plane connects everything dropped onto it.
 import { placedPads, padNets, padOnLayer } from './footprint.js';
@@ -118,5 +118,17 @@ function touch(x, y) {
     if (o.kind === 'via') return same(v.item.at, o.item.at);
     return o.pts.some((q) => Math.hypot(q[0] - v.item.at[0], q[1] - v.item.at[1]) <= v.item.diameter / 2);
   }
-  return x.item.layer === y.item.layer && x.pts.some((a) => y.pts.some((b) => same(a, b)));
+  if (x.item.layer !== y.item.layer) return false;
+  if (x.pts.some((a) => y.pts.some((b) => same(a, b)))) return true;
+  // a T-junction (#89): one Track's end on the other, part-way along it
+  return x.pts.some((q) => onTrack(q, y.item)) || y.pts.some((q) => onTrack(q, x.item));
+}
+
+/** Is `q` on Track `t`, part-way along it: within its half-width of its centre line? */
+function onTrack(q, t) {
+  const dx = t.b[0] - t.a[0], dy = t.b[1] - t.a[1], L2 = dx * dx + dy * dy;
+  if (!L2) return false;
+  const s = ((q[0] - t.a[0]) * dx + (q[1] - t.a[1]) * dy) / L2;
+  if (s < 0 || s > 1) return false;
+  return Math.hypot(t.a[0] + dx * s - q[0], t.a[1] + dy * s - q[1]) <= Math.max(2, t.width / 2);
 }
