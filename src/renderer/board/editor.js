@@ -995,6 +995,7 @@ export class BoardEditor {
         // a drag that can't be pushed clear stays where it last could be
         if (res.ok) d.result = res; else d.stuck = res.reason || true;
         if (res.ok) d.stuck = null;
+        if (res.ok) this.liveRats = ratsnest(this.project, { ...this.board, tracks: res.tracks, vias: res.vias }, this.zoneFiller.fills); // the airwires follow the drag
         ws.view.invalidate();
         return;
       }
@@ -1064,7 +1065,7 @@ export class BoardEditor {
     const up = () => {
       this.snapMark = null;
       if (this.trackDrag) {
-        const d = this.trackDrag; this.trackDrag = null; this.trackDragIndex = null;
+        const d = this.trackDrag; this.trackDrag = null; this.trackDragIndex = null; this.liveRats = null;
         const res = d.result;
         if (res && JSON.stringify(res.tracks) !== JSON.stringify(this.board.tracks)) {
           this.app.edit(d.kind === 'corner' ? 'Drag corner' : 'Drag track', (p) => { p.board.tracks = res.tracks; p.board.vias = res.vias; });
@@ -1580,6 +1581,11 @@ export class BoardEditor {
     // copper of the route's net under the pointer that a click would finish on (#88): ringed
     const cu = !this._targetPad(at) && this._copperTarget(at);
     this.routeView.target = cu && cu.net.toLowerCase() === this.route.net.toLowerCase() && !this._atStart(cu.at) ? cu : null;
+    // the airwires as they'd be with this route (and what it pushes) on the Board, live
+    const st = this.route, rv = this.routeView;
+    const added = rv.segments.map((sg, i) => ({ id: `route-${i}`, a: sg.a, b: sg.b, width: st.width, layer: sg.layer || st.layer, net: st.net }));
+    const vias = (st.vias || []).map((v, i) => ({ id: `route-v${i}`, at: v.at, diameter: st.via.diameter, drill: st.via.drill, net: st.net }));
+    this.liveRats = ratsnest(this.project, { ...this.board, tracks: [...(rv.shoved || this.board.tracks), ...added], vias: [...(rv.shovedVias || this.board.vias), ...vias] }, this.zoneFiller.fills);
     if (this.ws && had !== `${!!this.routeView.collisions.length}${!!this.routeView.blocked}`) this._hint();
     this.ws?.view.invalidate();
   }
@@ -1587,7 +1593,7 @@ export class BoardEditor {
   finishRoute() {
     const st = this.route;
     this.routeIndexAtEnd = this.routeIndex;
-    this.route = null; this.routeView = null; this.routeIndex = null;
+    this.route = null; this.routeView = null; this.routeIndex = null; this.liveRats = null;
     if (st && st.points.length > 1) {
       let n = 0;
       const shoving = this.routeMode === 'shove', index = this.routeIndexAtEnd;
@@ -1597,7 +1603,7 @@ export class BoardEditor {
     } else this.refresh();
   }
 
-  cancelRoute() { this.route = null; this.routeView = null; this.routeIndex = null; this.refresh(); }
+  cancelRoute() { this.route = null; this.routeView = null; this.routeIndex = null; this.liveRats = null; this.refresh(); }
 
   /** The Track under `w` on a shown layer, front layers first. */
   _hitTrack(w, tol) {
@@ -2064,7 +2070,7 @@ export class BoardEditor {
   draw(ctx, view, C) {
     const board = { ...this.board, tracks: this.routeView?.shoved || this.trackDrag?.result?.tracks || this.board.tracks, vias: this.routeView?.shovedVias || this.trackDrag?.result?.vias || this.board.vias, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints, zones: this.previewZones || this.board.zones, drawings: this.previewDrawings || this.board.drawings || [] };
     const labels = [];
-    drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: this._rats?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure, labels, zones: { fills: this.zoneFiller.fills, outlineOnly: this._zonesAsOutlines(board) } });
+    drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: ((this.route || this.trackDrag) && this.liveRats || this._rats)?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure, labels, zones: { fills: this.zoneFiller.fills, outlineOnly: this._zonesAsOutlines(board) } });
     if (this.routeView) this._drawRoute(ctx, view, C);
     drawLabels(labels);
     // the Text tool: the text it would place, at the cursor

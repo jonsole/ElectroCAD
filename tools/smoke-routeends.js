@@ -46,6 +46,11 @@ check('route-tool', ed.tool === 'route');
 // #87: start on the free end of the track, finish on R2's pad
 await clickAt(24, 8);
 check('start-on-end', ed.route && ed.route.net === net && ed.route.points[0][0] === 24 * MM, ed.route);
+// the airwire follows the route as it's drawn: from its tentative end, not the track end
+ev('pointermove', 27, 13, 0); await wait(30);
+const lw = ed.liveRats?.wires || [];
+const touches = (w, x, y) => [w.a, w.b].some((q) => q[0] === x * MM && q[1] === y * MM);
+check('live-airwire', lw.length === 1 && !touches(lw[0], 24, 8) && touches(lw[0], P2[0], P2[1]), lw);
 await clickAt(P2[0], P2[1]);
 check('finish-on-pad', !ed.route && unrouted() === 0, unrouted());
 await undo();

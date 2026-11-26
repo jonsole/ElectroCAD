@@ -510,6 +510,7 @@ The strip rebuilds only when its context changes, so a field being typed in keep
   - **/** chooses which axis it leaves along (the way's major axis, or its minor one).
   - Walkaround keeps the rule.
   - 90° corners are square anyway; Any angle is left free.
+- **Airwires while routing:** the airwires update as the track is drawn, counting the proposed track, its vias and anything it pushes as routed, so the remaining airwire runs from the route's tip to what's still unconnected. They follow a track drag the same way.
 - **Finishing:** click a pad of the same Net, or a via, a track end or a point along a track of the Net on the routing layer (#88, #89). Copper the click would finish on is ringed. A track started or finished part-way along another is split there when it's committed, in the same undo step. The ratsnest counts a track end lying on another track of its net (a T) as connected, split or not. Double-click or Enter ends the track where it is.
 - **Keys while routing:** **/** flips which way the bend goes, **Backspace** takes back the last corner, **Esc** cancels.
 - **Routing options** pop up in a strip at the top of the canvas while the Route tool is active, and hide with any other tool (remembered per browser):
