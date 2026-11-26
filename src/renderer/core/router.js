@@ -8,7 +8,8 @@
 // to walking round. DOM-free.
 //
 // state: { net, layer, width, points: [start, corner…], bend: Eagle style (BENDS) or null, corner: '90' | '45' | 'any', posture: 'a' | 'b',
-//          chamfer: nm,  Eagle-style mitre length cut off every bend of 90° or sharper (0: none)
+//          chamfer: nm,  Eagle-style mitre length (0: none); mitre: 'straight' (cut off every bend of
+//          90° or sharper) | 'round' (every bend an arc of that radius, #95)
 //          runs: [{ layer, points }],  the runs already finished on other layers (#21)
 //          vias: [{ at }],  where they change layer
 //          pair: [layerA, layerB], via: { drill, diameter },
@@ -19,6 +20,15 @@ import { Obstacles, walkPath } from './walkaround.js';
 import { shove, fixedItems } from './shove.js';
 import { copperLayerNames } from './board.js';
 import { splitTrackAt } from './routeEnds.js';
+import { trackShape, trackPoints } from './trackGeom.js';
+
+/**
+ * A corner point reached by an arc (#94): the point, carrying the arc's middle as `mid`. The
+ * segment from the point before to it is that arc. Plain [x, y] everywhere else.
+ */
+const arcTo = (p, mid) => Object.assign([p[0], p[1]], { mid });
+/** A route's points as segments { a, b, mid? } (arcs where a point carries `mid`). */
+const segOf = (a, b) => (b.mid ? { a: [a[0], a[1]], b: [b[0], b[1]], mid: b.mid } : { a: [a[0], a[1]], b: [b[0], b[1]] });
 
 export const ROUTE_MODES = [['shove', 'Shove'], ['walkaround', 'Walkaround'], ['free', 'Free']];
 
@@ -27,6 +37,7 @@ export const CORNERS = [['90', '90°'], ['45', '45°'], ['any', 'Any']];
 /**
  * Eagle's wire-bend styles (#91), each a corner style and posture: 0 horizontal then vertical,
  * 1 horizontal then 45°, 2 straight, 3 45° then horizontal, 4 vertical then horizontal,
+ * 5 arc then horizontal, 6 horizontal then arc (#94: a quarter circle tangent to the straight),
  * 7 freehand (#92: the track follows the pointer's path, `stroke`).
  * "Horizontal" for the 45° styles is the way's major axis. `mirror` is what / swaps to.
  */
@@ -36,6 +47,8 @@ export const BENDS = [
   { id: 2, corner: 'any', posture: 'a', mirror: 2, name: 'straight, any angle' },
   { id: 3, corner: '45', posture: 'b', mirror: 1, name: '45° then horizontal' },
   { id: 4, corner: '90', posture: 'b', mirror: 0, name: 'vertical then horizontal' },
+  { id: 5, corner: 'arc', posture: 'a', mirror: 6, name: 'arc then horizontal' },
+  { id: 6, corner: 'arc', posture: 'b', mirror: 5, name: 'horizontal then arc' },
   { id: 7, corner: 'free', posture: 'a', mirror: 7, name: 'freehand' },
 ];
 export const bendOf = (id) => BENDS.find((b) => b.id === id) || BENDS[1];
@@ -98,6 +111,22 @@ export const withBend = (state, id) => ({ ...state, bend: id, corner: bendOf(id)
 export function cornerPath(a, b, corner = '45', posture = 'a') {
   const dx = b[0] - a[0], dy = b[1] - a[1];
   if (corner === 'any' || !dx || !dy) return [b];
+  if (corner === 'arc') {
+    // a quarter circle of radius min(|dx|, |dy|) tangent to a straight run along the major axis:
+    // posture 'a' (bend 5) the arc first, 'b' (bend 6) the straight first
+    const r = Math.min(Math.abs(dx), Math.abs(dy));
+    const M = Math.abs(dx) >= Math.abs(dy) ? [Math.sign(dx), 0] : [0, Math.sign(dy)];
+    const m = Math.abs(dx) >= Math.abs(dy) ? [0, Math.sign(dy)] : [Math.sign(dx), 0];
+    const k = r * Math.SQRT1_2;
+    if (posture === 'a') {
+      const c = [a[0] + M[0] * r, a[1] + M[1] * r], e = [c[0] + m[0] * r, c[1] + m[1] * r];
+      const mid = [Math.round(c[0] - M[0] * k + m[0] * k), Math.round(c[1] - M[1] * k + m[1] * k)];
+      return e[0] === b[0] && e[1] === b[1] ? [arcTo(b, mid)] : [arcTo(e, mid), b];
+    }
+    const s0 = [b[0] - M[0] * r - m[0] * r, b[1] - M[1] * r - m[1] * r], c = [s0[0] + m[0] * r, s0[1] + m[1] * r];
+    const mid = [Math.round(c[0] + M[0] * k - m[0] * k), Math.round(c[1] + M[1] * k - m[1] * k)];
+    return s0[0] === a[0] && s0[1] === a[1] ? [arcTo(b, mid)] : [s0, arcTo(b, mid)];
+  }
   if (corner === '90') return [posture === 'a' ? [b[0], a[1]] : [a[0], b[1]], b];
   const ax = Math.abs(dx), ay = Math.abs(dy), sx = Math.sign(dx), sy = Math.sign(dy);
   if (ax === ay) return [b];
@@ -166,10 +195,10 @@ export function routePath(a, b, corner = '45', posture = 'a', from = null, to = 
 }
 
 /** Start routing from a pad's centre (or a point) on a layer, for a Net: width from its Net class. */
-export function startRoute(project, at, layer, net, { bend = null, corner = '45', posture = 'a', chamfer = 0, pair = null, pad = null } = {}) {
+export function startRoute(project, at, layer, net, { bend = null, corner = '45', posture = 'a', chamfer = 0, mitre = 'straight', pair = null, pad = null } = {}) {
   const r = netRules(project.board, net);
   if (bend != null) ({ corner, posture } = bendOf(bend));
-  return { bend, net, layer, width: r.trackWidth, points: [at], from: pad ? { size: pad.size, rot: pad.rot || 0 } : null, corner, posture, chamfer, runs: [], vias: [], pair: pair || defaultPair(project.board, layer), via: { drill: r.viaDrill, diameter: r.viaDiameter } };
+  return { bend, mitre, net, layer, width: r.trackWidth, points: [at], from: pad ? { size: pad.size, rot: pad.rot || 0 } : null, corner, posture, chamfer, runs: [], vias: [], pair: pair || defaultPair(project.board, layer), via: { drill: r.viaDrill, diameter: r.viaDiameter } };
 }
 
 /** The layer pairs a via can join while routing (through vias: any two copper layers). */
@@ -204,6 +233,7 @@ export function chamferPath(pts, length) {
   const out = [pts[0]];
   for (let i = 1; i < pts.length - 1; i++) {
     const p = pts[i], a = pts[i - 1], b = pts[i + 1];
+    if (p.mid || b.mid) { out.push(p); continue; } // an arc's end (#94): left as it is
     const u = [a[0] - p[0], a[1] - p[1]], v = [b[0] - p[0], b[1] - p[1]];
     const lu = Math.hypot(...u), lv = Math.hypot(...v);
     if (!lu || !lv) { out.push(p); continue; }
@@ -215,6 +245,44 @@ export function chamferPath(pts, length) {
   out.push(pts[pts.length - 1]);
   return out;
 }
+
+/**
+ * Round the bends of a path (#95, Eagle's positive mitre): each bend, of any angle, becomes an
+ * arc of `radius` tangent to both segments, smaller where a segment is too short for it (it may
+ * take at most half of either). The arc's end carries `mid` (see arcTo). The first and last
+ * points stay; an arc's own ends are left as they are.
+ */
+export function roundPath(pts, radius) {
+  if (!(radius > 0) || pts.length < 3) return pts;
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const p = pts[i], a = out[out.length - 1], b = pts[i + 1];
+    if (p.mid || b.mid) { out.push(p); continue; }
+    const u = [a[0] - p[0], a[1] - p[1]], v = [b[0] - p[0], b[1] - p[1]];
+    const lu = Math.hypot(...u), lv = Math.hypot(...v);
+    if (!lu || !lv) { out.push(p); continue; }
+    const cos = Math.max(-1, Math.min(1, (u[0] * v[0] + u[1] * v[1]) / (lu * lv)));
+    const phi = Math.acos(cos); // the inside angle: π in a straight line
+    if (phi > Math.PI - 1e-6 || phi < 1e-6) { out.push(p); continue; }
+    // the cut back along each segment for this radius: r / tan(φ/2), at most half of either
+    const half = Math.tan(phi / 2);
+    const cut = Math.min(radius / half, lu / 2, lv / 2);
+    const r = cut * half;
+    const uu = [u[0] / lu, u[1] / lu], vv = [v[0] / lv, v[1] / lv];
+    const p1 = [Math.round(p[0] + uu[0] * cut), Math.round(p[1] + uu[1] * cut)];
+    const p2 = [Math.round(p[0] + vv[0] * cut), Math.round(p[1] + vv[1] * cut)];
+    // the arc's middle: along the bisector, r short of the centre (r / sin(φ/2) from p)
+    const w = [uu[0] + vv[0], uu[1] + vv[1]], lw = Math.hypot(...w);
+    const k = r / Math.sin(phi / 2) - r;
+    const mid = [Math.round(p[0] + (w[0] / lw) * k), Math.round(p[1] + (w[1] / lw) * k)];
+    out.push(p1, arcTo(p2, mid));
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+
+/** A route's path with its bends mitred: chamfered (straight) or rounded (#95), by `state.mitre`. */
+export const mitrePath = (pts, state) => (state.mitre === 'round' && state.corner !== 'free' ? roundPath(pts, state.chamfer) : chamferPath(pts, state.chamfer));
 
 /**
  * What a walkaround Track keeps clear of, from the last fixed corner: other Nets' copper and the
@@ -256,8 +324,8 @@ export function tentative(project, state, cursor, mode = 'free', index = null, t
   let w = walkPath(obs, last, cursor, { corner: state.corner, finish, exit });
   if (state.chamfer > 0) {
     // a chamfer cuts the inside of a bend, towards what the path hugs: widen the berth and look again
-    const pts = chamferPath([...state.points, ...w.path.slice(1)], state.chamfer);
-    const from = Math.max(0, chamferPath(state.points, state.chamfer).length - 2);
+    const pts = mitrePath([...state.points, ...w.path.slice(1)], state);
+    const from = Math.max(0, mitrePath(state.points, state).length - 2);
     if (!obs.pathClear(pts.slice(from))) {
       obs = obstaclesFor(project, state, index, Math.ceil(state.chamfer * Math.SQRT1_2));
       w = walkPath(obs, last, cursor, { corner: state.corner, finish, exit });
@@ -277,7 +345,7 @@ export function step(project, state, cursor, mode = 'free', index = null, to = n
     const r = shoveFor(project, state, v.segments, index);
     if (r.ok) {
       // the shove moved (and checked) every Track and Via in the way: only copper that can't move can block
-      const clear = (s) => !index.collisions(project.board, { type: 'capsule', a: s.a, b: s.b, r: state.width / 2 }, s.layer, state.net).some((it) => it.kind !== 'track' && it.kind !== 'via');
+      const clear = (s) => !index.collisions(project.board, trackShape({ ...s, width: state.width }), s.layer, state.net).some((it) => it.kind !== 'track' && it.kind !== 'via');
       if (v.segments.every(clear)) {
         for (const s of v.segments) s.collides = false;
         return { ...v, collisions: [], shoved: r.moved.size || r.movedVias.size ? r.tracks : null, shovedVias: r.movedVias.size ? r.vias : null, shovedIds: r.moved, shovedViaIds: r.movedVias };
@@ -295,7 +363,8 @@ export function step(project, state, cursor, mode = 'free', index = null, to = n
 export function shoveFor(project, state, segments, index) {
   const all = copperLayerNames(project.board.stack.copper);
   const pushers = [
-    ...segments.map((s) => ({ a: s.a, b: s.b, r: state.width / 2, layers: [s.layer], net: state.net, kind: 'track' })),
+    // an arc pushes as the pieces of its centre line
+    ...segments.flatMap((s) => { const p = s.mid ? trackPoints(s, 20_000) : [s.a, s.b]; return p.slice(1).map((b, i) => ({ a: p[i], b, r: state.width / 2, layers: [s.layer], net: state.net, kind: 'track' })); }),
     ...(state.vias || []).map((v) => ({ a: v.at, b: v.at, r: (state.via?.diameter || 0) / 2, layers: all, net: state.net, kind: 'via' })),
   ];
   index._fixed ||= fixedItems(index);
@@ -304,20 +373,20 @@ export function shoveFor(project, state, segments, index) {
 
 function stepWith(project, state, cursor, mode, index, to) {
   const { tail, blocked } = tentative(project, state, cursor, mode, index, to);
-  const pts = chamferPath([...state.points, ...tail], state.chamfer);
-  const nFixed = chamferPath(state.points, state.chamfer).length;
+  const pts = mitrePath([...state.points, ...tail], state);
+  const nFixed = mitrePath(state.points, state).length;
   const segments = [];
   // runs finished on other layers, then this layer's
   for (const run of state.runs || []) {
-    const rp = chamferPath(run.points, state.chamfer);
-    for (let i = 1; i < rp.length; i++) if (rp[i][0] !== rp[i - 1][0] || rp[i][1] !== rp[i - 1][1]) segments.push({ a: rp[i - 1], b: rp[i], fixed: true, layer: run.layer });
+    const rp = mitrePath(run.points, state);
+    for (let i = 1; i < rp.length; i++) if (rp[i][0] !== rp[i - 1][0] || rp[i][1] !== rp[i - 1][1]) segments.push({ ...segOf(rp[i - 1], rp[i]), fixed: true, layer: run.layer });
   }
-  for (let i = 1; i < pts.length; i++) if (pts[i][0] !== pts[i - 1][0] || pts[i][1] !== pts[i - 1][1]) segments.push({ a: pts[i - 1], b: pts[i], fixed: i < nFixed - 1, layer: state.layer });
+  for (let i = 1; i < pts.length; i++) if (pts[i][0] !== pts[i - 1][0] || pts[i][1] !== pts[i - 1][1]) segments.push({ ...segOf(pts[i - 1], pts[i]), fixed: i < nFixed - 1, layer: state.layer });
   let collisions = [];
   if (index) {
     const seen = new Map();
     for (const s of segments) {
-      const hits = index.collisions(project.board, { type: 'capsule', a: s.a, b: s.b, r: state.width / 2 }, s.layer, state.net);
+      const hits = index.collisions(project.board, trackShape({ ...s, width: state.width }), s.layer, state.net);
       s.collides = hits.length > 0;
       for (const h of hits) seen.set(h.id, h);
     }
@@ -361,8 +430,8 @@ export function commit(project, state, { shove: pushing = false, index = null } 
   if (pushing && index) {
     const segs = [];
     for (const run of [...(state.runs || []), { layer: state.layer, points: state.points }]) {
-      const pts = chamferPath(run.points, state.chamfer);
-      for (let i = 1; i < pts.length; i++) if (pts[i][0] !== pts[i - 1][0] || pts[i][1] !== pts[i - 1][1]) segs.push({ a: pts[i - 1], b: pts[i], layer: run.layer });
+      const pts = mitrePath(run.points, state);
+      for (let i = 1; i < pts.length; i++) if (pts[i][0] !== pts[i - 1][0] || pts[i][1] !== pts[i - 1][1]) segs.push({ ...segOf(pts[i - 1], pts[i]), layer: run.layer });
     }
     const r = shoveFor(project, state, segs, index);
     if (r.ok && (r.moved.size || r.movedVias.size)) { project.board.tracks = r.tracks; project.board.vias = r.vias; }
@@ -370,11 +439,11 @@ export function commit(project, state, { shove: pushing = false, index = null } 
   // T-junctions (#89): the Tracks the route starts or finishes part-way along are split there
   for (const j of state.joins || []) splitTrackAt(project.board, j.id, j.at);
   for (const run of [...(state.runs || []), { layer: state.layer, points: state.points }]) {
-    const pts = chamferPath(run.points, state.chamfer);
+    const pts = mitrePath(run.points, state);
     for (let i = 1; i < pts.length; i++) {
       const a = pts[i - 1], b = pts[i];
       if (a[0] === b[0] && a[1] === b[1]) continue;
-      tracks.push({ id: uid('t'), a, b, width: state.width, layer: run.layer, net: state.net });
+      tracks.push({ id: uid('t'), ...segOf(a, b), width: state.width, layer: run.layer, net: state.net });
     }
   }
   project.board.tracks.push(...tracks);

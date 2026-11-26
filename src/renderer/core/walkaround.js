@@ -8,6 +8,7 @@
 // finishes the search when the ordinary corner path from it to the cursor is clear, so a free
 // cursor costs one check, and the corner style's own posture is kept wherever it fits. Every
 // segment is checked exactly (capsule against shape) with the collision engine. DOM-free.
+import { trackPoints } from './trackGeom.js';
 import { shapeDistance, shapeBox, clearanceBetween, pairKind } from './collision.js';
 import { arcCircle } from './geom.js';
 
@@ -98,7 +99,15 @@ export class Obstacles {
   clear(a, b) { return !this.hits(a, b, true).length; }
 
   /** Is a whole path clear? */
-  pathClear(pts) { for (let i = 1; i < pts.length; i++) if (!this.clear(pts[i - 1], pts[i])) return false; return true; }
+  pathClear(pts) {
+    for (let i = 1; i < pts.length; i++) {
+      if (pts[i].mid) { // an arc (#94): along its flattened centre line
+        const q = trackPoints({ a: pts[i - 1], mid: pts[i].mid, b: pts[i] }, 20_000);
+        if (!this.pathClear(q)) return false;
+      } else if (!this.clear(pts[i - 1], pts[i])) return false;
+    }
+    return true;
+  }
 }
 
 // ---------------------------------------------------------------- the search
@@ -139,7 +148,7 @@ export function simplify(pts) {
     if (out.length && out[out.length - 1][0] === p[0] && out[out.length - 1][1] === p[1]) continue;
     if (out.length >= 2) {
       const a = out[out.length - 2], b = out[out.length - 1];
-      if ((b[0] - a[0]) * (p[1] - b[1]) - (b[1] - a[1]) * (p[0] - b[0]) === 0 && (b[0] - a[0]) * (p[0] - b[0]) + (b[1] - a[1]) * (p[1] - b[1]) >= 0) { out[out.length - 1] = p; continue; }
+      if (!p.mid && !b.mid && (b[0] - a[0]) * (p[1] - b[1]) - (b[1] - a[1]) * (p[0] - b[0]) === 0 && (b[0] - a[0]) * (p[0] - b[0]) + (b[1] - a[1]) * (p[1] - b[1]) >= 0) { out[out.length - 1] = p; continue; }
     }
     out.push(p);
   }

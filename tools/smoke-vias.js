@@ -27,7 +27,7 @@ const click = (x, y) => { move(x, y); const o = { ...pt(x, y), button: 0, button
 const key = (k, more = {}) => document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, ...more }));
 const b = () => app.project.board;
 [...document.querySelectorAll('[data-ws="board"] .corner-seg button')].find((x) => x.dataset.bend === '0').click();
-const ch = document.querySelector('[data-ws="board"] input[aria-label="Chamfer (mm)"]'); ch.value = '0'; ch.dispatchEvent(new Event('change'));
+const ch = document.querySelector('[data-ws="board"] input[aria-label="Mitre (mm)"]'); ch.value = '0'; ch.dispatchEvent(new Event('change'));
 check('pair-hidden-2layer', document.querySelector('[data-ws="board"] .pair-box').hidden);
 key('x');
 click(5.9125, 5);

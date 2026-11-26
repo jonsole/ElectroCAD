@@ -1,4 +1,4 @@
-// Freehand routing journey (#92): bend style 7 (picked by right-click from bend 4) routes a track
+// Freehand routing journey (#92): bend style 7 (picked by Shift+right-click from bend 0) routes a track
 // that follows the pointer, off the grid and at any angle; finishing on the target pad commits it
 // in one undo step and the airwire goes; Backspace takes a fixed stretch back.
 const app = window.electrocad;
@@ -30,9 +30,9 @@ const unrouted = () => Object.values(ed._rats.unrouted).reduce((a, b) => a + b, 
 check('rats-1', unrouted() === 1, ed._rats.unrouted);
 document.querySelector('[data-ws="board"] .mode-group [data-mode="free"]').click();
 key('x');
-[...document.querySelectorAll('[data-ws="board"] .corner-seg button')].find((b) => b.dataset.bend === '4').click();
-const ch = document.querySelector('[data-ws="board"] input[aria-label="Chamfer (mm)"]'); ch.value = '0'; ch.dispatchEvent(new Event('change'));
-rclick(15, 2);
+[...document.querySelectorAll('[data-ws="board"] .corner-seg button')].find((b) => b.dataset.bend === '0').click();
+const ch = document.querySelector('[data-ws="board"] input[aria-label="Mitre (mm)"]'); ch.value = '0'; ch.dispatchEvent(new Event('change'));
+rclick(15, 2, true);
 check('freehand-picked', ed.bend === 7 && document.querySelector('[data-ws="board"] .corner-seg button.active')?.dataset.bend === '7', ed.bend);
 // an S from R1's pad 2 to R2's pad 1, off the grid
 click(5.9125, 5);

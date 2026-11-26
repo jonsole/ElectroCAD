@@ -6,7 +6,8 @@ import { changeList, applyChanges } from '../src/renderer/core/annotate.js';
 import { placedPads } from '../src/renderer/core/footprint.js';
 import { ratsnest } from '../src/renderer/core/ratsnest.js';
 import { CopperIndex, copperIndex, shapeDistance, padShape, netRules, clearanceBetween } from '../src/renderer/core/collision.js';
-import { cornerPath, chamferPath, startRoute, step, click, back, flipPosture, commit, bendOf, cycleBend, bendFromPref, withBend, strokeTo, simplifyPath } from '../src/renderer/core/router.js';
+import { cornerPath, chamferPath, startRoute, step, click, back, flipPosture, commit, bendOf, cycleBend, bendFromPref, withBend, strokeTo, simplifyPath, roundPath } from '../src/renderer/core/router.js';
+import { trackArc } from '../src/renderer/core/trackGeom.js';
 import { STARTER_LIBRARY } from '../src/renderer/library/starter.js';
 import { mm, SCH_GRID as G } from '../src/renderer/core/units.js';
 
@@ -55,8 +56,8 @@ test('Eagle bend styles 0–4 map to corner style and posture; right-click cycle
   assert.deepEqual(legs(2), [b]);                       // straight
   assert.deepEqual(legs(3), [[mm(4), mm(4)], b]);       // 45°, horizontal
   assert.deepEqual(legs(4), [[0, mm(4)], b]);           // vertical, horizontal
-  assert.deepEqual([0, 1, 2, 3, 4, 7].map((i) => bendOf(i).mirror), [4, 3, 2, 1, 0, 7]);
-  assert.equal(cycleBend(0), 1); assert.equal(cycleBend(4), 7); assert.equal(cycleBend(7), 0); assert.equal(cycleBend(0, -1), 7);
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 6, 7].map((i) => bendOf(i).mirror), [4, 3, 2, 1, 0, 6, 5, 7]);
+  assert.equal(cycleBend(0), 1); assert.equal(cycleBend(4), 5); assert.equal(cycleBend(6), 7); assert.equal(cycleBend(7), 0); assert.equal(cycleBend(0, -1), 7);
   assert.deepEqual(['90', '45', 'any', 3, 'junk'].map(bendFromPref), [0, 1, 2, 3, 1]);
   const { p, from } = board();
   let st = startRoute(p, from.at, 'F.Cu', from.net, { bend: 3 });
@@ -64,6 +65,70 @@ test('Eagle bend styles 0–4 map to corner style and posture; right-click cycle
   st = flipPosture(st);
   assert.equal(st.bend, 1); assert.equal(st.posture, 'a');
   assert.deepEqual(withBend(st, 4).corner, '90');
+});
+
+test('arc bend styles 5 and 6 (#94): a quarter circle tangent to a straight, every quadrant', () => {
+  const r = mm(4);
+  for (const [dx, dy] of [[10, 4], [-10, 4], [10, -4], [-10, -4], [4, 10], [-4, -10]]) {
+    const a = [mm(1), mm(2)], b = [a[0] + mm(dx), a[1] + mm(dy)];
+    const major = Math.abs(dx) > Math.abs(dy) ? [Math.sign(dx), 0] : [0, Math.sign(dy)];
+    // 5: arc from a, then straight to b along the major axis
+    const [e, b5] = cornerPath(a, b, 'arc', 'a');
+    assert.ok(e.mid && !b5.mid); assert.deepEqual([b5[0], b5[1]], b);
+    let k = trackArc({ a, mid: e.mid, b: [e[0], e[1]] });
+    assert.ok(Math.abs(k.r - r) < 2, `r ${k.r}`);
+    assert.ok(Math.abs(k.c[0] - (a[0] + major[0] * r)) < 2 && Math.abs(k.c[1] - (a[1] + major[1] * r)) < 2, 'centre beside the start');
+    const u = [e[0] - k.c[0], e[1] - k.c[1]], v = [b[0] - e[0], b[1] - e[1]];
+    assert.ok(Math.abs(u[0] * v[0] + u[1] * v[1]) < 1e-3 * Math.hypot(...u) * Math.hypot(...v), 'tangent to the straight');
+    assert.ok(Math.abs(Math.abs(k.sweep) - Math.PI / 2) < 1e-3);
+    // 6: straight from a, then the arc into b
+    const [s0, b6] = cornerPath(a, b, 'arc', 'b');
+    assert.ok(!s0.mid && b6.mid); assert.deepEqual([b6[0], b6[1]], b);
+    k = trackArc({ a: s0, mid: b6.mid, b });
+    assert.ok(Math.abs(k.r - r) < 2);
+    const w = [s0[0] - k.c[0], s0[1] - k.c[1]], z = [s0[0] - a[0], s0[1] - a[1]];
+    assert.ok(Math.abs(w[0] * z[0] + w[1] * z[1]) < 1e-3 * Math.hypot(...w) * Math.hypot(...z), 'tangent to the straight');
+  }
+  assert.deepEqual(cornerPath([0, 0], [mm(5), 0], 'arc', 'a'), [[mm(5), 0]]);     // in line: straight
+  // routed pad to pad with style 5: an arc track and a straight one, joined end to end
+  const { p, from, to } = board();
+  let st = startRoute(p, from.at, 'F.Cu', from.net, { bend: 5 });
+  st = click(p, st, to.at);
+  const ts = commit(p, st);
+  assert.equal(ts.length, 2);
+  assert.ok(ts[0].mid && !ts[1].mid && !('mid' in ts[1]));
+  assert.deepEqual(ts[0].b, ts[1].a); assert.deepEqual(ts[1].b, to.at);
+  assert.ok(Array.isArray(ts[0].b) && ts[0].b.mid === undefined, 'plain points on the Board');
+  assert.equal(ratsnest(p).wires.length, 0);
+});
+
+test('rounded mitre (#95): every bend becomes a tangent arc of the radius, smaller on a short leg', () => {
+  const R = mm(1);
+  const check = (pts, r) => {
+    const out = roundPath(pts, R);
+    assert.equal(out.length, 4);
+    const [, p1, p2] = out;
+    assert.ok(p2.mid && !p1.mid);
+    const k = trackArc({ a: p1, mid: p2.mid, b: p2 });
+    assert.ok(Math.abs(k.r - r) < 20, `radius ${k.r} vs ${r}`);
+    // tangent: the radius at each end is square to its segment
+    const t1 = [p1[0] - pts[0][0], p1[1] - pts[0][1]], r1 = [p1[0] - k.c[0], p1[1] - k.c[1]];
+    const t2 = [pts[2][0] - p2[0], pts[2][1] - p2[1]], r2 = [p2[0] - k.c[0], p2[1] - k.c[1]];
+    for (const [t, rr] of [[t1, r1], [t2, r2]]) assert.ok(Math.abs(t[0] * rr[0] + t[1] * rr[1]) < 1e-3 * Math.hypot(...t) * Math.hypot(...rr));
+    return out;
+  };
+  check([[0, 0], [mm(10), 0], [mm(10), mm(10)]], R);               // 90°
+  check([[0, 0], [mm(10), 0], [mm(15), mm(5)]], R);                // 45°
+  const short = check([[0, 0], [mm(0.5), 0], [mm(0.5), mm(10)]], mm(0.25)); // a 0.5 mm leg: half of it
+  assert.deepEqual([short[1][0], short[1][1]], [mm(0.25), 0]);
+  assert.deepEqual(roundPath([[0, 0], [mm(5), 0], [mm(9), 0]], R), [[0, 0], [mm(5), 0], [mm(9), 0]]); // in line
+  // routed and committed: straights joined by an arc Track
+  const { p, from, to } = board();
+  let st = startRoute(p, from.at, 'F.Cu', from.net, { bend: 0, chamfer: R, mitre: 'round' });
+  st = click(p, st, to.at);
+  const ts = commit(p, st);
+  assert.equal(ts.length, 3); assert.equal(ts.filter((t) => t.mid).length, 1);
+  assert.equal(ratsnest(p).wires.length, 0);
 });
 
 test('freehand (#92): a stroke simplifies to few points, keeps a curve, and backs up', () => {

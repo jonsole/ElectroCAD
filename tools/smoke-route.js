@@ -42,7 +42,7 @@ key('Escape');
 check('strip-hides', strip.hidden);
 // 90° with a 1 mm chamfer
 [...document.querySelectorAll('[data-ws="board"] .corner-seg button')].find((b) => b.dataset.bend === '0').click();
-const ch = document.querySelector('[data-ws="board"] input[aria-label="Chamfer (mm)"]'); ch.value = '1'; ch.dispatchEvent(new Event('change'));
+const ch = document.querySelector('[data-ws="board"] input[aria-label="Mitre (mm)"]'); ch.value = '1'; ch.dispatchEvent(new Event('change'));
 check('options', ed.bend === 0 && ed.chamfer === MM && localStorage.getItem('electrocad.boardBend') === '0');
 key('x');
 check('route-tool', ed.tool === 'route');
