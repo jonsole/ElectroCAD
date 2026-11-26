@@ -6,7 +6,7 @@ import { changeList, applyChanges } from '../src/renderer/core/annotate.js';
 import { placedPads } from '../src/renderer/core/footprint.js';
 import { ratsnest } from '../src/renderer/core/ratsnest.js';
 import { CopperIndex, copperIndex, shapeDistance, padShape, netRules, clearanceBetween } from '../src/renderer/core/collision.js';
-import { cornerPath, chamferPath, startRoute, step, click, back, flipPosture, commit } from '../src/renderer/core/router.js';
+import { cornerPath, chamferPath, startRoute, step, click, back, flipPosture, commit, bendOf, cycleBend, bendFromPref, withBend, strokeTo, simplifyPath } from '../src/renderer/core/router.js';
 import { STARTER_LIBRARY } from '../src/renderer/library/starter.js';
 import { mm, SCH_GRID as G } from '../src/renderer/core/units.js';
 
@@ -45,6 +45,51 @@ test('corner styles: 90°, 45° and any angle, with the posture flipped by /', (
   assert.deepEqual(cornerPath(a, b, '45', 'b'), [[mm(4), mm(4)], b]);   // 45°, then straight
   assert.deepEqual(cornerPath(a, b, 'any'), [b]);
   assert.deepEqual(cornerPath(a, [mm(5), 0], '45'), [[mm(5), 0]]);
+});
+
+test('Eagle bend styles 0–4 map to corner style and posture; right-click cycles, / mirrors (#91)', () => {
+  const a = [0, 0], b = [mm(10), mm(4)];
+  const legs = (id) => cornerPath(a, b, bendOf(id).corner, bendOf(id).posture);
+  assert.deepEqual(legs(0), [[mm(10), 0], b]);          // horizontal, vertical
+  assert.deepEqual(legs(1), [[mm(6), 0], b]);           // horizontal, 45°
+  assert.deepEqual(legs(2), [b]);                       // straight
+  assert.deepEqual(legs(3), [[mm(4), mm(4)], b]);       // 45°, horizontal
+  assert.deepEqual(legs(4), [[0, mm(4)], b]);           // vertical, horizontal
+  assert.deepEqual([0, 1, 2, 3, 4, 7].map((i) => bendOf(i).mirror), [4, 3, 2, 1, 0, 7]);
+  assert.equal(cycleBend(0), 1); assert.equal(cycleBend(4), 7); assert.equal(cycleBend(7), 0); assert.equal(cycleBend(0, -1), 7);
+  assert.deepEqual(['90', '45', 'any', 3, 'junk'].map(bendFromPref), [0, 1, 2, 3, 1]);
+  const { p, from } = board();
+  let st = startRoute(p, from.at, 'F.Cu', from.net, { bend: 3 });
+  assert.equal(st.corner, '45'); assert.equal(st.posture, 'b');
+  st = flipPosture(st);
+  assert.equal(st.bend, 1); assert.equal(st.posture, 'a');
+  assert.deepEqual(withBend(st, 4).corner, '90');
+});
+
+test('freehand (#92): a stroke simplifies to few points, keeps a curve, and backs up', () => {
+  const line = Array.from({ length: 101 }, (_, i) => [i * mm(0.1), (i % 2) * 1000]);   // 10 mm, 1 µm wobble
+  assert.equal(simplifyPath(line, mm(0.05)).length, 2);
+  const arc = Array.from({ length: 91 }, (_, i) => [Math.round(mm(5) * Math.cos(i * Math.PI / 180)), Math.round(mm(5) * Math.sin(i * Math.PI / 180))]);
+  const s = simplifyPath(arc, mm(0.05));
+  assert.ok(s.length > 4 && s.length < 20, `${s.length} points`);
+  // every point of the curve is within the tolerance of the simplified path
+  const dseg = (p, a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy, t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2)); return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy); };
+  for (const p of arc) assert.ok(Math.min(...s.slice(1).map((b, i) => dseg(p, s[i], b))) <= mm(0.05) + 1);
+  // the stroke grows a step at a time and backs up to an earlier point
+  const { p, from } = board();
+  let st = startRoute(p, [0, 0], 'F.Cu', from.net, { bend: 7 });
+  assert.equal(st.corner, 'free');
+  st = strokeTo(st, [mm(0.05), 0], mm(0.1)); assert.equal((st.stroke || []).length, 0);    // under a step
+  for (const q of [[mm(1), 0], [mm(2), mm(1)], [mm(3), mm(3)]]) st = strokeTo(st, q, mm(0.1));
+  assert.equal(st.stroke.length, 3);
+  st = strokeTo(st, [mm(1), mm(0.02)], mm(0.1)); assert.equal(st.stroke.length, 1);         // back along it
+  // off-grid, not 45° steps: the committed path is the stroke
+  for (const q of [[mm(2.3), mm(1.7)], [mm(4.1), mm(1.9)]]) st = strokeTo(st, q, mm(0.1));
+  const r = step(p, st, [mm(5.37), mm(3.11)], 'free');
+  assert.deepEqual(r.tail, [[mm(1), 0], [mm(2.3), mm(1.7)], [mm(4.1), mm(1.9)], [mm(5.37), mm(3.11)]]);
+  st = click(p, st, [mm(5.37), mm(3.11)], r.tail);
+  assert.equal(st.points.length, 5); assert.deepEqual(st.stroke, []);
+  assert.equal(back(st).points.length, 1);                                                // Backspace takes the whole stretch back
 });
 
 test('auto chamfer cuts 90° bends by a length (as Eagle), not 45° ones', () => {

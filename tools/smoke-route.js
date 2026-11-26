@@ -41,17 +41,24 @@ check('strip-shown', !strip.hidden && strip.contains(document.querySelector('[da
 key('Escape');
 check('strip-hides', strip.hidden);
 // 90° with a 1 mm chamfer
-[...document.querySelectorAll('[data-ws="board"] .corner-seg button')].find((b) => b.dataset.corner === '90').click();
+[...document.querySelectorAll('[data-ws="board"] .corner-seg button')].find((b) => b.dataset.bend === '0').click();
 const ch = document.querySelector('[data-ws="board"] input[aria-label="Chamfer (mm)"]'); ch.value = '1'; ch.dispatchEvent(new Event('change'));
-check('options', ed.corner === '90' && ed.chamfer === MM && localStorage.getItem('electrocad.boardCorner') === '"90"');
+check('options', ed.bend === 0 && ed.chamfer === MM && localStorage.getItem('electrocad.boardBend') === '0');
 key('x');
 check('route-tool', ed.tool === 'route');
 click(5.9125, 5);
 check('started', !!ed.route && ed.route.width === 250000 && ed.route.layer === 'F.Cu', ed.route);
+// right-click cycles Eagle's bend styles while routing, Shift+right-click goes back (#91)
+const rclick = (x, y, shiftKey = false) => { const o = { ...pt(x, y), button: 2, buttons: 2, bubbles: true, cancelable: true, pointerId: 52, shiftKey }; ws.view.canvas.dispatchEvent(new PointerEvent('pointerdown', o)); ws.view.canvas.dispatchEvent(new PointerEvent('pointerup', { ...o, buttons: 0 })); };
+const activeBend = () => document.querySelector('[data-ws="board"] .corner-seg button.active')?.dataset.bend;
+rclick(13, 11);
+check('rclick-next', !!ed.route && ed.bend === 1 && ed.route.corner === '45' && ed.route.posture === 'a' && activeBend() === '1', { bend: ed.bend, route: !!ed.route });
+rclick(13, 11, true);
+check('rclick-back', !!ed.route && ed.bend === 0 && ed.route.corner === '90' && activeBend() === '0');
 move(13, 11);
 check('collides', ed.routeView.collisions.some((c) => c.kind === 'pad') && ed.routeView.segments.some((s) => s.collides));
 key('/');
-check('posture', ed.route.posture === 'b');
+check('posture', ed.route.posture === 'b' && ed.bend === 4 && ed.route.corner === '90');
 key('/');
 click(17, 5);
 check('corner', ed.route.points.length === 2);

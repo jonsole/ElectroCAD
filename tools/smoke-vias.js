@@ -26,7 +26,7 @@ const move = (x, y) => ws.view.canvas.dispatchEvent(new PointerEvent('pointermov
 const click = (x, y) => { move(x, y); const o = { ...pt(x, y), button: 0, buttons: 1, bubbles: true, cancelable: true, pointerId: 51, detail: 1 }; ws.view.canvas.dispatchEvent(new PointerEvent('pointerdown', o)); ws.view.canvas.dispatchEvent(new PointerEvent('pointerup', { ...o, buttons: 0 })); };
 const key = (k, more = {}) => document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, ...more }));
 const b = () => app.project.board;
-[...document.querySelectorAll('[data-ws="board"] .corner-seg button')].find((x) => x.dataset.corner === '90').click();
+[...document.querySelectorAll('[data-ws="board"] .corner-seg button')].find((x) => x.dataset.bend === '0').click();
 const ch = document.querySelector('[data-ws="board"] input[aria-label="Chamfer (mm)"]'); ch.value = '0'; ch.dispatchEvent(new Event('change'));
 check('pair-hidden-2layer', document.querySelector('[data-ws="board"] .pair-box').hidden);
 key('x');

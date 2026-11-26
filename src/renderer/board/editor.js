@@ -22,7 +22,7 @@ import { boardItems, changedAreas } from '../core/drcLive.js';
 import { hitPad, footprintOutline, insidePolygon, placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation, bfFootprint, bfKey, bfRef } from '../core/footprint.js';
 import { ratsnest } from '../core/ratsnest.js';
 import { copperIndex, pointSeg2 } from '../core/collision.js';
-import { CORNERS, ROUTE_MODES, startRoute, step as routeStep, click as routeClickAt, back as routeBack, flipPosture, commit as routeCommit, switchLayer, layerPairs } from '../core/router.js';
+import { BENDS, bendOf, bendFromPref, cycleBend, withBend, strokeTo, ROUTE_MODES, startRoute, step as routeStep, click as routeClickAt, back as routeBack, commit as routeCommit, switchLayer, layerPairs } from '../core/router.js';
 import { connection, setTrackWidth, setTrackLayer, setViaSize, placeVia, placeViaPushing } from '../core/copper.js';
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
 import { allFootprints } from '../library/footprints.js';
@@ -49,7 +49,7 @@ const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
 /** The palette tools that work now: key, icon, title. */
 export const BOARD_TOOLS = {
   select: { icon: 'select', title: 'Select (V): click to select; drag a track segment sideways (its neighbours follow) or a track corner to reshape it, pushing other nets\' copper in Shove mode', key: 'v' },
-  route: { icon: 'route', title: 'Route (X): click a pad to start a track on the active copper layer, click to place corners, click a pad of the same net to finish · V drops a via and changes layer · / flips the bend · Backspace undoes a corner · Esc cancels', key: 'x' },
+  route: { icon: 'route', title: 'Route (X): click a pad to start a track on the active copper layer, click to place corners, click a pad of the same net to finish · V drops a via and changes layer · right-click cycles Eagle\'s bend styles (Shift+right-click goes back), / swaps to the mirrored one · Backspace undoes a corner · Esc cancels', key: 'x' },
   via: { icon: 'via', title: 'Via: click to place a through via; it takes the net of the track or pad it lands on' },
   footprint: { icon: 'pad', title: 'Place footprint: a footprint with no part on the Schematic, such as a mounting hole, fiducial or logo. Pick it, then click where it goes; Reference, pad nets and In BOM in Properties' },
   zone: { icon: 'zone', title: 'Zone (Z): click the corners of a copper pour on the active copper layer; click the first corner, double-click or Enter to close. Net, priority, clearance and thermal reliefs in Properties', key: 'z' },
@@ -103,7 +103,7 @@ export class BoardEditor {
     this.zoneFiller = new ZoneFiller(() => { this._rats = ratsnest(this.project, this.board, this.zoneFiller.fills); this._liveDrcFills(); this.renderProps(); this.ws?.renderBar(); this.ws?.view.invalidate(); });
     this.pair = pref.get('boardLayerPair', null); // the layers V switches between while routing (4-layer boards)
     this.routeMode = pref.get('boardRouteMode', 'shove'); // 'shove' (#29, the default) | 'walkaround' | 'free'
-    this.corner = pref.get('boardCorner', '45');            // track bends: '90' | '45' | 'any'
+    this.bend = bendFromPref(pref.get('boardBend', pref.get('boardCorner', 1))); // Eagle's bend style (#91, BENDS)
     this.chamfer = mm(pref.get('boardChamfer', 0));         // Eagle-style auto chamfer of 90° bends
     this.rotStep = pref.get('boardRotStep', 90);           // degrees R and the strip's rotate buttons turn by
     this.zoneNet = 'auto';                                 // the Zone tool's net: 'auto' (from the first corner), '' or a name
@@ -160,10 +160,10 @@ export class BoardEditor {
       onPick: () => this.setTool('origin'),
     });
     this.buildCards();
-    // how tracks bend (90°, 45°, any angle) and the auto chamfer, as Eagle's bend styles and mitre
-    this.cornerSeg = h('div', { class: 'segmented corner-seg', role: 'radiogroup', 'aria-label': 'Track corners' },
-      ...CORNERS.map(([id, label]) => h('button', { class: 'btn' + (id === this.corner ? ' active' : ''), type: 'button', role: 'radio', 'aria-checked': String(id === this.corner), dataset: { corner: id },
-        title: { 90: 'Tracks bend at 90°', 45: 'Tracks bend at 45°', any: 'Tracks go straight to the pointer, at any angle' }[id] + ' (/ flips which way the bend goes)', onClick: () => this.setCorner(id) }, label)));
+    // how tracks bend (Eagle's bend styles, #91) and the auto chamfer (Eagle's mitre)
+    this.cornerSeg = h('div', { class: 'segmented corner-seg', role: 'radiogroup', 'aria-label': 'Bend style' },
+      ...BENDS.map((b) => h('button', { class: 'btn' + (b.id === this.bend ? ' active' : ''), type: 'button', role: 'radio', 'aria-checked': String(b.id === this.bend), 'aria-label': `Bend ${b.id}: ${b.name}`, dataset: { bend: String(b.id) },
+        title: `Bend ${b.id}: ${b.name} (right-click while routing cycles the styles, Shift+right-click goes back; / swaps to the mirrored one)`, onClick: () => this.setBend(b.id) }, icon(`bend${b.id}`, 18))));
     this.chamferIn = h('input', { class: 'input', type: 'number', min: '0', max: '10', step: '0.05', value: fmt(this.chamfer), 'aria-label': 'Chamfer (mm)' });
     this.chamferIn.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') this.chamferIn.blur(); });
     this.chamferIn.addEventListener('change', () => { const v = parseFloat(this.chamferIn.value); if (Number.isFinite(v) && v >= 0) this.setChamfer(mm(v)); });
@@ -174,7 +174,7 @@ export class BoardEditor {
     this.pairSel.addEventListener('keydown', (e) => e.stopPropagation());
     this.pairBox = h('label', { class: 'chamfer-box pair-box' }, h('span', {}, 'V switches'), this.pairSel);
     this.routeStrip = h('div', { class: 'tool-strip route-strip', role: 'toolbar', 'aria-label': 'Routing options', hidden: true },
-      stripLabel('Route', 'route'), stripSep(), h('span', { class: 'tool-strip-label strip-sub' }, 'Corners'), this.cornerSeg, h('span', { class: 'sep' }), chamfer, h('span', { class: 'sep pair-sep' }), this.pairBox);
+      stripLabel('Route', 'route'), stripSep(), h('span', { class: 'tool-strip-label strip-sub' }, 'Bend'), this.cornerSeg, h('span', { class: 'sep' }), chamfer, h('span', { class: 'sep pair-sep' }), this.pairBox);
     // delete, rotate, flip and lock live on the context strip over the canvas, with what they act on
     return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), ...this.cards.buttons(), this.gridCard.button];
   }
@@ -664,8 +664,8 @@ export class BoardEditor {
           : 'Outline polygon: click the next corner · A arc side · Backspace undo corner · click the first corner to close · Esc cancel'; break;
       case 'circle': t = p ? 'Circle: click a point on the edge' : 'Circle: click the centre (a round board, or a hole inside the board)'; break;
       case 'route': t = this.route
-        ? `Routing ${this.route.net} on ${this.route.layer} (${fmt(this.route.width)} mm, ${netClassOf(this.board, this.route.net)} class): click to place a corner · click a ${this.route.net} pad to finish · V drops a via and goes to ${this.route.layer === this.route.pair[0] ? this.route.pair[1] : this.route.pair[0]} · double-click or Enter ends here · / flips the bend · Backspace undoes a corner · Esc cancels${this.routeView?.collisions.length ? ' · red: too close to another net' : ''}${this.routeView?.blocked ? ' · no clear way to the pointer: the track stops at the obstacle' : ''}`
-        : `Route (${this.routeMode === 'shove' ? 'Shove: tracks push other nets\' tracks aside' : this.routeMode === 'walkaround' ? 'Walkaround: tracks go round other nets' : 'Free: tracks go where you draw'}): click a pad on ${this.activeLayer} to start a track (corners: ${this.corner === 'any' ? 'any angle' : this.corner + '°'}${this.chamfer ? `, chamfer ${fmt(this.chamfer)} mm` : ''})`; break;
+        ? `Routing ${this.route.net} on ${this.route.layer} (${fmt(this.route.width)} mm, ${netClassOf(this.board, this.route.net)} class): click to place a corner · click a ${this.route.net} pad to finish · V drops a via and goes to ${this.route.layer === this.route.pair[0] ? this.route.pair[1] : this.route.pair[0]} · double-click or Enter ends here · right-click or / changes the bend (${this.bend}: ${bendOf(this.bend).name}) · Backspace undoes a corner · Esc cancels${this.routeView?.collisions.length ? ' · red: too close to another net' : ''}${this.routeView?.blocked ? ' · no clear way to the pointer: the track stops at the obstacle' : ''}`
+        : `Route (${this.routeMode === 'shove' ? 'Shove: tracks push other nets\' tracks aside' : this.routeMode === 'walkaround' ? 'Walkaround: tracks go round other nets' : 'Free: tracks go where you draw'}): click a pad on ${this.activeLayer} to start a track (bend ${this.bend}: ${bendOf(this.bend).name}${this.chamfer ? `, chamfer ${fmt(this.chamfer)} mm` : ''})`; break;
       case 'zone': t = !p ? `Zone on ${this.activeLayer}: click its first corner (the net comes from the pad or track there, else GND; change it in Properties)`
         : `Zone on ${this.activeLayer}: click the next corner · click the first corner, double-click or Enter to close · Backspace undo corner · Esc cancel`; break;
       case 'via': t = 'Via: click to place a through via (F.Cu to B.Cu); it takes the net of the track or pad it lands on · Esc back to Select'; break;
@@ -986,7 +986,11 @@ export class BoardEditor {
       if (this.handleDrag?.zone) { const d = this.handleDrag; this.cursor = this.snapAt(w, new Set(), shapeHandles({ type: 'poly', pts: d.zoneSnapshot }).find((x) => x.key === d.key)?.at); }
       else if (this.handleDrag?.drawing) { const d = this.handleDrag; this.cursor = this.snapAt(w, new Set(), shapeHandles(d.drawShape).find((x) => x.key === d.key)?.at); }
       else if (this.handleDrag) { const d = this.handleDrag; this.cursor = this.snapAt(w, new Set([d.index]), shapeHandles(d.snapshot[d.index]).find((x) => x.key === d.key)?.at); }
-      else if (this.tool !== 'select') this.cursor = this.snapAt(w);
+      else if (this.route && this.route.corner === 'free') {
+        // freehand (#92): off the grid, and the stroke follows the pointer
+        this.cursor = [Math.round(w[0]), Math.round(w[1])];
+        this.route = strokeTo(this.route, this.cursor, 3 / ws.view.view.scale);
+      } else if (this.tool !== 'select') this.cursor = this.snapAt(w);
       else this.cursor = this.snapPt(w);
       if (this.trackDrag && (e.buttons & 1)) {
         const d = this.trackDrag;
@@ -1256,7 +1260,8 @@ export class BoardEditor {
 
   /** Right-click: select what's under the pointer and offer what applies to it. */
   contextMenu(e) {
-    if (this.route) { this.finishRoute(); return; }
+    // with the Route tool, right-click cycles Eagle's bend styles (#91); Shift goes back
+    if (this.tool === 'route') { this.setBend(cycleBend(this.bend, e.shiftKey ? -1 : 1)); return; }
     if (this.tool !== 'select') { this.setTool('select'); return; }
     const v = this.ws.view, w = v.view.toWorld(v.local(e));
     const hit = this._hitAny(w);
@@ -1457,10 +1462,12 @@ export class BoardEditor {
 
   // ---------------------------------------------------------------- routing (#20)
 
-  setCorner(id) {
-    this.corner = id; pref.set('boardCorner', id);
-    for (const b of this.cornerSeg.querySelectorAll('button')) { const on = b.dataset.corner === id; b.classList.toggle('active', on); b.setAttribute('aria-checked', String(on)); }
-    if (this.route) { this.route = { ...this.route, corner: id }; this._routeMove(); }
+  /** Pick Eagle's bend style `id` (#91): remembered, and applied to the route in progress. */
+  setBend(id) {
+    this.bend = bendOf(id).id; pref.set('boardBend', this.bend);
+    for (const b of this.cornerSeg.querySelectorAll('button')) { const on = b.dataset.bend === String(this.bend); b.classList.toggle('active', on); b.setAttribute('aria-checked', String(on)); }
+    if (this.route) { this.route = withBend(this.route, this.bend); this._routeMove(); }
+    if (this.ws) this._hint();
   }
 
   setChamfer(nm) {
@@ -1477,7 +1484,7 @@ export class BoardEditor {
 
   /** Route tool click: start on a pad, place a corner, or finish on a pad of the same Net. */
   routeClick(w, dbl) {
-    const p = this.snapAt(w);
+    const p = this.route?.corner === 'free' ? [Math.round(w[0]), Math.round(w[1])] : this.snapAt(w);
     if (!this.route) {
       const hit = this._padOnLayer(w);
       // not on a pad: a Via, a Track end or a point along a Track of a net (#87, #89)
@@ -1495,7 +1502,7 @@ export class BoardEditor {
       if (hit && !hit.pad.net) { toast('That pad has no net yet: Update from Schematic (F8) first.', 'info', 2600); return; }
       const pairs = layerPairs(this.board.stack.copper);
       const pair = this.pair && pairs.some((q) => q.join('|') === this.pair.join('|')) ? this.pair : null;
-      const opts = { corner: this.corner, chamfer: this.chamfer, pair, pad: hit ? hit.pad : null };
+      const opts = { bend: this.bend, chamfer: this.chamfer, pair, pad: hit ? hit.pad : null };
       this.route = hit ? startRoute(this.project, hit.pad.at, this.activeLayer, hit.pad.net, opts) : startRoute(this.project, cu.at, this.activeLayer, cu.net, opts);
       if (cu && cu.kind === 'along') this.route.joins = [{ id: cu.id, at: cu.at }];
       this.routeIndex = copperIndex(this.project);
@@ -1542,7 +1549,7 @@ export class BoardEditor {
     if (this.activeLayer !== t.layer) this.setActiveLayer(t.layer);
     const pairs = layerPairs(this.board.stack.copper);
     const pair = this.pair && pairs.some((q) => q.join('|') === this.pair.join('|')) ? this.pair : null;
-    this.route = { ...startRoute(this.project, at, t.layer, t.net, { corner: this.corner, chamfer: this.chamfer, pair }), width: t.width };
+    this.route = { ...startRoute(this.project, at, t.layer, t.net, { bend: this.bend, chamfer: this.chamfer, pair }), width: t.width };
     this.routeIndex = copperIndex(this.project);
     this.routeDragging = true;
     this.routeReturn = true;
@@ -2238,7 +2245,7 @@ export class BoardEditor {
     }
     if (this.route) {
       if (e.key === 'Escape') { this.cancelRoute(); return true; }
-      if (e.key === '/') { this.route = flipPosture(this.route); this._routeMove(); return true; }
+      if (e.key === '/') { this.setBend(bendOf(this.bend).mirror); return true; }
       if (e.key.toLowerCase() === 'v') {
         const at = this.cursor || this.route.points[this.route.points.length - 1];
         const v = this._proposal(at);

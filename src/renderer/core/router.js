@@ -7,7 +7,7 @@
 // Tracks aside (core/shove.js) and proposes them, moved, as `shoved`; when it can't, it falls back
 // to walking round. DOM-free.
 //
-// state: { net, layer, width, points: [start, corner…], corner: '90' | '45' | 'any', posture: 'a' | 'b',
+// state: { net, layer, width, points: [start, corner…], bend: Eagle style (BENDS) or null, corner: '90' | '45' | 'any', posture: 'a' | 'b',
 //          chamfer: nm,  Eagle-style mitre length cut off every bend of 90° or sharper (0: none)
 //          runs: [{ layer, points }],  the runs already finished on other layers (#21)
 //          vias: [{ at }],  where they change layer
@@ -23,6 +23,72 @@ import { splitTrackAt } from './routeEnds.js';
 export const ROUTE_MODES = [['shove', 'Shove'], ['walkaround', 'Walkaround'], ['free', 'Free']];
 
 export const CORNERS = [['90', '90°'], ['45', '45°'], ['any', 'Any']];
+
+/**
+ * Eagle's wire-bend styles (#91), each a corner style and posture: 0 horizontal then vertical,
+ * 1 horizontal then 45°, 2 straight, 3 45° then horizontal, 4 vertical then horizontal,
+ * 7 freehand (#92: the track follows the pointer's path, `stroke`).
+ * "Horizontal" for the 45° styles is the way's major axis. `mirror` is what / swaps to.
+ */
+export const BENDS = [
+  { id: 0, corner: '90', posture: 'a', mirror: 4, name: 'horizontal then vertical' },
+  { id: 1, corner: '45', posture: 'a', mirror: 3, name: 'horizontal then 45°' },
+  { id: 2, corner: 'any', posture: 'a', mirror: 2, name: 'straight, any angle' },
+  { id: 3, corner: '45', posture: 'b', mirror: 1, name: '45° then horizontal' },
+  { id: 4, corner: '90', posture: 'b', mirror: 0, name: 'vertical then horizontal' },
+  { id: 7, corner: 'free', posture: 'a', mirror: 7, name: 'freehand' },
+];
+export const bendOf = (id) => BENDS.find((b) => b.id === id) || BENDS[1];
+
+/** A saved bend preference: a style number, or an old corner setting ('90', '45', 'any'). */
+export function bendFromPref(v) {
+  if (typeof v === 'number' && BENDS.some((b) => b.id === v)) return v;
+  return { 90: 0, 45: 1, any: 2 }[v] ?? 1;
+}
+
+/** The next (or, with `dir` -1, previous) bend style: Eagle's right-click cycle. */
+export function cycleBend(id, dir = 1) {
+  const i = BENDS.findIndex((b) => b.id === id);
+  return BENDS[(((i < 0 ? 1 : i) + dir) % BENDS.length + BENDS.length) % BENDS.length].id;
+}
+
+/**
+ * Freehand (#92): the pointer moved to `p`. It's added to the stroke once `step` from its last
+ * point; coming back within `step` of an earlier point takes the stroke back to there.
+ */
+export function strokeTo(state, p, step) {
+  const stroke = state.stroke || [];
+  const from = stroke.length ? stroke[stroke.length - 1] : state.points[state.points.length - 1];
+  const s2 = step * step;
+  const near = (q) => (q[0] - p[0]) ** 2 + (q[1] - p[1]) ** 2 < s2;
+  if (near(state.points[state.points.length - 1])) return stroke.length ? { ...state, stroke: [] } : state;
+  for (let i = 0; i < stroke.length - 1; i++) if (near(stroke[i])) return { ...state, stroke: stroke.slice(0, i + 1) };
+  if (near(from)) return state;
+  return { ...state, stroke: [...stroke, p] };
+}
+
+/** Ramer–Douglas–Peucker: the points of polyline `pts` that keep it within `tol` (ends kept). */
+export function simplifyPath(pts, tol) {
+  if (pts.length < 3) return pts.slice();
+  const keep = new Array(pts.length).fill(false);
+  keep[0] = keep[pts.length - 1] = true;
+  const stack = [[0, pts.length - 1]];
+  while (stack.length) {
+    const [i, j] = stack.pop();
+    const a = pts[i], b = pts[j], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy);
+    let worst = -1, k = -1;
+    for (let m = i + 1; m < j; m++) {
+      const q = pts[m];
+      const d = L ? Math.abs(dx * (q[1] - a[1]) - dy * (q[0] - a[0])) / L : Math.hypot(q[0] - a[0], q[1] - a[1]);
+      if (d > worst) { worst = d; k = m; }
+    }
+    if (worst > tol) { keep[k] = true; stack.push([i, k], [k, j]); }
+  }
+  return pts.filter((_, i) => keep[i]);
+}
+
+/** The route state's corner style and posture for bend style `id`. */
+export const withBend = (state, id) => ({ ...state, bend: id, corner: bendOf(id).corner, posture: bendOf(id).posture });
 
 /**
  * The corner points from `a` to `b` (not including a): one bend for 90° and 45° routing, none
@@ -100,9 +166,10 @@ export function routePath(a, b, corner = '45', posture = 'a', from = null, to = 
 }
 
 /** Start routing from a pad's centre (or a point) on a layer, for a Net: width from its Net class. */
-export function startRoute(project, at, layer, net, { corner = '45', posture = 'a', chamfer = 0, pair = null, pad = null } = {}) {
+export function startRoute(project, at, layer, net, { bend = null, corner = '45', posture = 'a', chamfer = 0, pair = null, pad = null } = {}) {
   const r = netRules(project.board, net);
-  return { net, layer, width: r.trackWidth, points: [at], from: pad ? { size: pad.size, rot: pad.rot || 0 } : null, corner, posture, chamfer, runs: [], vias: [], pair: pair || defaultPair(project.board, layer), via: { drill: r.viaDrill, diameter: r.viaDiameter } };
+  if (bend != null) ({ corner, posture } = bendOf(bend));
+  return { bend, net, layer, width: r.trackWidth, points: [at], from: pad ? { size: pad.size, rot: pad.rot || 0 } : null, corner, posture, chamfer, runs: [], vias: [], pair: pair || defaultPair(project.board, layer), via: { drill: r.viaDrill, diameter: r.viaDiameter } };
 }
 
 /** The layer pairs a via can join while routing (through vias: any two copper layers). */
@@ -124,7 +191,7 @@ export const nextLayer = (pair, layer) => (layer === pair[0] ? pair[1] : layer =
 export function switchLayer(project, state, at, to = null, tail = null) {
   const s1 = click(project, state, at, tail);
   const end = s1.points[s1.points.length - 1];
-  return { ...s1, runs: [...s1.runs, { layer: s1.layer, points: s1.points }], vias: [...s1.vias, { at: end }], layer: to || nextLayer(s1.pair, s1.layer), points: [end] };
+  return { ...s1, runs: [...s1.runs, { layer: s1.layer, points: s1.points }], vias: [...s1.vias, { at: end }], layer: to || nextLayer(s1.pair, s1.layer), points: [end], stroke: [], stops: [] };
 }
 
 /**
@@ -174,6 +241,14 @@ function obstaclesFor(project, state, index, margin = 0) {
 export function tentative(project, state, cursor, mode = 'free', index = null, to = null) {
   const last = state.points[state.points.length - 1];
   const from = state.points.length === 1 && !state.runs?.length ? state.from : null; // still at the start pad
+  if (state.corner === 'free') {
+    // freehand (#92): the stroke so far, then the pointer, simplified
+    const pts = simplifyPath([last, ...(state.stroke || []), cursor], state.width / 4);
+    if (mode !== 'walkaround' || !index) return { tail: pts.slice(1), blocked: false };
+    const obs = obstaclesFor(project, state, index);
+    for (let i = 1; i < pts.length; i++) if (!obs.clear(pts[i - 1], pts[i])) return { tail: pts.slice(1, i), blocked: true };
+    return { tail: pts.slice(1), blocked: false };
+  }
   const finish = (p) => routePath(p, cursor, state.corner, state.posture, p === last ? from : null, to, state.width);
   if (mode !== 'walkaround' || !index) return { tail: finish(last), blocked: false };
   const exit = from && state.corner === '45' ? (dir) => { const r = padReach(from, dir); return r == null ? null : r + state.width; } : null;
@@ -257,20 +332,25 @@ function stepWith(project, state, cursor, mode, index, to) {
  */
 export function click(project, state, point, tail = null) {
   const last = state.points[state.points.length - 1];
-  if (tail) return tail.length ? { ...state, points: [...state.points, ...tail] } : state;
-  if (last[0] === point[0] && last[1] === point[1]) return state;
-  return { ...state, points: [...state.points, ...tentative(project, state, point).tail] };
+  if (!tail && last[0] === point[0] && last[1] === point[1]) return state;
+  const add = tail || tentative(project, state, point).tail;
+  if (!add.length) return state.stroke?.length ? { ...state, stroke: [] } : state;
+  // freehand: a click fixes the stroke so far, and Backspace takes back all of it (`stops`)
+  const free = state.corner === 'free' ? { stroke: [], stops: [...(state.stops || []), state.points.length] } : {};
+  return { ...state, ...free, points: [...state.points, ...add] };
 }
 
 /** Take back the last fixed segment (the start stays); at a via, take the via back and return to the layer before. */
 export function back(state) {
-  if (state.points.length > 1) return { ...state, points: state.points.slice(0, -1) };
+  const stop = state.stops?.[state.stops.length - 1];
+  if (stop != null && stop < state.points.length) return { ...state, stroke: [], stops: state.stops.slice(0, -1), points: state.points.slice(0, stop) };
+  if (state.points.length > 1) return { ...state, stroke: [], points: state.points.slice(0, -1) };
   if (!state.runs?.length) return state;
   const prev = state.runs[state.runs.length - 1];
   return { ...state, runs: state.runs.slice(0, -1), vias: state.vias.slice(0, -1), layer: prev.layer, points: prev.points };
 }
 
-export const flipPosture = (state) => ({ ...state, posture: state.posture === 'a' ? 'b' : 'a' });
+export const flipPosture = (state) => (state.bend != null ? withBend(state, bendOf(state.bend).mirror) : { ...state, posture: state.posture === 'a' ? 'b' : 'a' });
 
 /**
  * The Tracks for the fixed points, added to the Board (in place). With `shove` (#29), the other

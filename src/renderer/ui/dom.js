@@ -140,6 +140,13 @@ const P = {
   ground: 'M12 3v9M5 12h14M8 15.500h8M10.500 19h3',
   noConnect: 'M3 12h7M10 8l8 8M18 8l-8 8',
   route: 'M3 20v-5l7-7h11M17 4l4 4-4 4',
+  // Eagle's bend styles (#91), from the bottom left to the top right
+  bend0: 'M4 18H20V7',
+  bend1: 'M4 18h5l11-11',
+  bend2: 'M4 18 20 7',
+  bend3: 'M4 18 15 7h5',
+  bend4: 'M4 18V7H20',
+  bend7: 'M4 18c3 0 3-6 7-6s3-5 9-5',
   via: 'M12 6.500a5.500 5.500 0 1 0 0 11 5.500 5.500 0 0 0 0-11zM12 10.500a1.500 1.500 0 1 0 0 3 1.500 1.500 0 0 0 0-3z',
   zone: 'M4 7l7-3 9 3-1.500 13H5.500zM7 15l6-6M9 19l9-9M5.500 11 9 7.500',
   outline: 'M8 4h8a4 4 0 0 1 4 4v8a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8a4 4 0 0 1 4-4z',
