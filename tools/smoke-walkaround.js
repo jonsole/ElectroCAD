@@ -31,8 +31,10 @@ const key = (k, more = {}) => document.dispatchEvent(new KeyboardEvent('keydown'
 const unrouted = () => Object.values(ed._rats.unrouted).reduce((a, b) => a + b, 0);
 const group = document.querySelector('[data-ws="board"] .mode-group');
 const btn = (m) => group.querySelector(`[data-mode="${m}"]`);
-check('default-walkaround', ed.routeMode === 'walkaround' && btn('walkaround').classList.contains('active') && !btn('free').classList.contains('active'));
-check('shove-later', [...group.querySelectorAll('button')].some((b) => b.textContent.includes('Shove') && b.disabled));
+// Shove is the default (#29); this journey is about Walkaround
+check('default-shove', ed.routeMode === 'shove' && btn('shove').classList.contains('active') && !btn('shove').disabled && !btn('walkaround').classList.contains('active'));
+btn('walkaround').click();
+check('walkaround-on', ed.routeMode === 'walkaround' && btn('walkaround').classList.contains('active'));
 key('x');
 click(5.9125, 5);
 check('started', !!ed.route);

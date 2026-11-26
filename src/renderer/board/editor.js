@@ -100,7 +100,7 @@ export class BoardEditor {
     // Zone fills, refilled in a Web Worker after each edit (only the Zones it touched)
     this.zoneFiller = new ZoneFiller(() => { this._rats = ratsnest(this.project, this.board, this.zoneFiller.fills); this._liveDrcFills(); this.renderProps(); this.ws?.renderBar(); this.ws?.view.invalidate(); });
     this.pair = pref.get('boardLayerPair', null); // the layers V switches between while routing (4-layer boards)
-    this.routeMode = pref.get('boardRouteMode', 'walkaround'); // 'walkaround' | 'free' (Shove: #29)
+    this.routeMode = pref.get('boardRouteMode', 'shove'); // 'shove' (#29, the default) | 'walkaround' | 'free'
     this.corner = pref.get('boardCorner', '45');            // track bends: '90' | '45' | 'any'
     this.chamfer = mm(pref.get('boardChamfer', 0));         // Eagle-style auto chamfer of 90° bends
     this.rotStep = pref.get('boardRotStep', 90);           // degrees R and the strip's rotate buttons turn by
@@ -180,6 +180,7 @@ export class BoardEditor {
   /** The routing mode switcher for the toolbar: Shove (#29, later), Walkaround, Free. */
   modeGroup(later) {
     const tips = {
+      shove: 'Shove routing mode (the default): the track goes where you draw it and pushes other nets\' tracks aside, keeping their clearance; they spring back as you pull away. Pads, vias and locked tracks never move: where they\'d have to, the track walks round instead',
       walkaround: 'Walkaround routing mode: the track goes round other nets\' copper at their clearance, the shorter way, and stops at an obstacle with no way round. Nothing existing moves',
       free: 'Free routing mode: tracks go where you draw them; collisions with other nets show in red',
     };
@@ -189,13 +190,13 @@ export class BoardEditor {
       this.modeBtn[id].dataset.mode = id;
       this.modeBtn[id].setAttribute('role', 'radio');
     }
-    const g = h('div', { class: 'mode-group', role: 'radiogroup', 'aria-label': 'Routing mode', title: 'Routing mode' }, later({ label: 'Shove', title: 'Shove routing mode' }, 29), ...ROUTE_MODES.map(([id]) => this.modeBtn[id]));
+    const g = h('div', { class: 'mode-group', role: 'radiogroup', 'aria-label': 'Routing mode', title: 'Routing mode' }, ...ROUTE_MODES.map(([id]) => this.modeBtn[id]));
     this.setRouteMode(this.routeMode, false);
     return g;
   }
 
   setRouteMode(id, save = true) {
-    if (!ROUTE_MODES.some(([m]) => m === id)) id = 'walkaround';
+    if (!ROUTE_MODES.some(([m]) => m === id)) id = 'shove';
     this.routeMode = id;
     if (save) pref.set('boardRouteMode', id);
     for (const [m, b] of Object.entries(this.modeBtn || {})) { b.classList.toggle('active', m === id); b.setAttribute('aria-checked', String(m === id)); }
@@ -376,6 +377,14 @@ export class BoardEditor {
       tent.checked = !open; tent.indeterminate = open > 0 && open < vias.length;
       tent.addEventListener('change', () => this.app.edit(tent.checked ? 'Tent vias' : 'Open vias in the mask', (p) => { for (const v of p.board.vias) if (ids.includes(v.id)) { if (tent.checked) delete v.tented; else v.tented = false; } }));
       out.push(row('Tented', tent));
+    }
+    // locked copper (#29): routing and dragging never shove it
+    {
+      const all = [...tracks, ...vias], ids = new Set(all.map((x) => x.id)), n = all.filter((x) => x.locked).length;
+      const lock = stop(h('input', { type: 'checkbox', 'aria-label': 'Locked', title: 'Locked copper is never pushed aside by shove routing or dragging' }));
+      lock.checked = n === all.length; lock.indeterminate = n > 0 && n < all.length;
+      lock.addEventListener('change', () => this.app.edit(lock.checked ? 'Lock copper' : 'Unlock copper', (p) => { for (const x of [...p.board.tracks, ...p.board.vias]) if (ids.has(x.id)) { if (lock.checked) x.locked = true; else delete x.locked; } }));
+      out.push(row('Locked', lock));
     }
     out.push(h('div', { class: 'layer-actions' },
       button({ label: 'Whole connection (U)', cls: 'btn-ghost', title: 'Select every track and via joined to these', onClick: () => this.selectConnection() }),
@@ -654,7 +663,7 @@ export class BoardEditor {
       case 'circle': t = p ? 'Circle: click a point on the edge' : 'Circle: click the centre (a round board, or a hole inside the board)'; break;
       case 'route': t = this.route
         ? `Routing ${this.route.net} on ${this.route.layer} (${fmt(this.route.width)} mm, ${netClassOf(this.board, this.route.net)} class): click to place a corner · click a ${this.route.net} pad to finish · V drops a via and goes to ${this.route.layer === this.route.pair[0] ? this.route.pair[1] : this.route.pair[0]} · double-click or Enter ends here · / flips the bend · Backspace undoes a corner · Esc cancels${this.routeView?.collisions.length ? ' · red: too close to another net' : ''}${this.routeView?.blocked ? ' · no clear way to the pointer: the track stops at the obstacle' : ''}`
-        : `Route (${this.routeMode === 'walkaround' ? 'Walkaround: tracks go round other nets' : 'Free: tracks go where you draw'}): click a pad on ${this.activeLayer} to start a track (corners: ${this.corner === 'any' ? 'any angle' : this.corner + '°'}${this.chamfer ? `, chamfer ${fmt(this.chamfer)} mm` : ''})`; break;
+        : `Route (${this.routeMode === 'shove' ? 'Shove: tracks push other nets\' tracks aside' : this.routeMode === 'walkaround' ? 'Walkaround: tracks go round other nets' : 'Free: tracks go where you draw'}): click a pad on ${this.activeLayer} to start a track (corners: ${this.corner === 'any' ? 'any angle' : this.corner + '°'}${this.chamfer ? `, chamfer ${fmt(this.chamfer)} mm` : ''})`; break;
       case 'zone': t = !p ? `Zone on ${this.activeLayer}: click its first corner (the net comes from the pad or track there, else GND; change it in Properties)`
         : `Zone on ${this.activeLayer}: click the next corner · click the first corner, double-click or Enter to close · Backspace undo corner · Esc cancel`; break;
       case 'via': t = 'Via: click to place a through via (F.Cu to B.Cu); it takes the net of the track or pad it lands on · Esc back to Select'; break;
@@ -1462,10 +1471,12 @@ export class BoardEditor {
 
   finishRoute() {
     const st = this.route;
+    this.routeIndexAtEnd = this.routeIndex;
     this.route = null; this.routeView = null; this.routeIndex = null;
     if (st && st.points.length > 1) {
       let n = 0;
-      this.app.edit(`Route ${st.net}`, (p) => { n = routeCommit(p, st).length; });
+      const shoving = this.routeMode === 'shove', index = this.routeIndexAtEnd;
+      this.app.edit(`Route ${st.net}`, (p) => { n = routeCommit(p, st, { shove: shoving, index }).length; });
       const v = st.vias?.length || 0;
       toast(`${n} track${n === 1 ? '' : 's'}${v ? ` and ${v} via${v === 1 ? '' : 's'}` : ` on ${st.layer}`} (${st.net}).`, 'info', 1600);
     } else this.refresh();
@@ -1936,7 +1947,7 @@ export class BoardEditor {
   }
 
   draw(ctx, view, C) {
-    const board = { ...this.board, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints, zones: this.previewZones || this.board.zones, drawings: this.previewDrawings || this.board.drawings || [] };
+    const board = { ...this.board, tracks: this.routeView?.shoved || this.board.tracks, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints, zones: this.previewZones || this.board.zones, drawings: this.previewDrawings || this.board.drawings || [] };
     const labels = [];
     drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: this._rats?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure, labels, zones: { fills: this.zoneFiller.fills, outlineOnly: this._zonesAsOutlines(board) } });
     if (this.routeView) this._drawRoute(ctx, view, C);

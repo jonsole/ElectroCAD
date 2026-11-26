@@ -3,8 +3,9 @@
 //   click(project, state, point)        -> new state (a corner fixed)
 //   commit(project, state)              -> the Tracks added to the Board
 // Free mode draws what the corner style says and only reports collisions; Walkaround (#22) detours
-// the tentative run round other Nets' copper (core/walkaround.js); Shove (#29) will propose other
-// copper through the same interface. DOM-free.
+// the tentative run round other Nets' copper (core/walkaround.js); Shove (#29) pushes other Nets'
+// Tracks aside (core/shove.js) and proposes them, moved, as `shoved`; when it can't, it falls back
+// to walking round. DOM-free.
 //
 // state: { net, layer, width, points: [start, corner…], corner: '90' | '45' | 'any', posture: 'a' | 'b',
 //          chamfer: nm,  Eagle-style mitre length cut off every bend of 90° or sharper (0: none)
@@ -14,8 +15,10 @@
 import { uid } from './project.js';
 import { netRules } from './collision.js';
 import { Obstacles, walkPath } from './walkaround.js';
+import { shove, fixedItems } from './shove.js';
+import { copperLayerNames } from './board.js';
 
-export const ROUTE_MODES = [['walkaround', 'Walkaround'], ['free', 'Free']];
+export const ROUTE_MODES = [['shove', 'Shove'], ['walkaround', 'Walkaround'], ['free', 'Free']];
 
 export const CORNERS = [['90', '90°'], ['45', '45°'], ['any', 'Any']];
 
@@ -191,6 +194,38 @@ export function tentative(project, state, cursor, mode = 'free', index = null, t
  * `to` is the pad under the cursor the track would finish on (entered square, not at 45°).
  */
 export function step(project, state, cursor, mode = 'free', index = null, to = null) {
+  if (mode === 'shove' && index) {
+    // the corner style's path, other Nets' Tracks pushed aside; else walk round as Walkaround does
+    const v = stepWith(project, state, cursor, 'free', index, to);
+    const r = shoveFor(project, state, v.segments, index);
+    if (r.ok) {
+      // the shove moved (and checked) every Track in the way: only copper that can't move can block
+      const clear = (s) => !index.collisions(project.board, { type: 'capsule', a: s.a, b: s.b, r: state.width / 2 }, s.layer, state.net).some((it) => it.kind !== 'track');
+      if (v.segments.every(clear)) {
+        for (const s of v.segments) s.collides = false;
+        return { ...v, collisions: [], shoved: r.moved.size ? r.tracks : null, shovedIds: r.moved };
+      }
+    }
+    return { ...stepWith(project, state, cursor, 'walkaround', index, to), shoveFailed: r.reason || 'blocked' };
+  }
+  return stepWith(project, state, cursor, mode, index, to);
+}
+
+/**
+ * The shove for a route's segments (and its vias): what they push, from the Board as it was.
+ * The index caches the copper that never moves.
+ */
+export function shoveFor(project, state, segments, index) {
+  const all = copperLayerNames(project.board.stack.copper);
+  const pushers = [
+    ...segments.map((s) => ({ a: s.a, b: s.b, r: state.width / 2, layers: [s.layer], net: state.net, kind: 'track' })),
+    ...(state.vias || []).map((v) => ({ a: v.at, b: v.at, r: (state.via?.diameter || 0) / 2, layers: all, net: state.net, kind: 'via' })),
+  ];
+  index._fixed ||= fixedItems(index);
+  return shove(project.board, pushers, { fixed: index._fixed });
+}
+
+function stepWith(project, state, cursor, mode, index, to) {
   const { tail, blocked } = tentative(project, state, cursor, mode, index, to);
   const pts = chamferPath([...state.points, ...tail], state.chamfer);
   const nFixed = chamferPath(state.points, state.chamfer).length;
@@ -235,9 +270,21 @@ export function back(state) {
 
 export const flipPosture = (state) => ({ ...state, posture: state.posture === 'a' ? 'b' : 'a' });
 
-/** The Tracks for the fixed points, added to the Board (in place). Returns them. */
-export function commit(project, state) {
+/**
+ * The Tracks for the fixed points, added to the Board (in place). With `shove` (#29), the other
+ * Nets' Tracks they push are moved first, as the route showed them. Returns the new Tracks.
+ */
+export function commit(project, state, { shove: pushing = false, index = null } = {}) {
   const tracks = [];
+  if (pushing && index) {
+    const segs = [];
+    for (const run of [...(state.runs || []), { layer: state.layer, points: state.points }]) {
+      const pts = chamferPath(run.points, state.chamfer);
+      for (let i = 1; i < pts.length; i++) if (pts[i][0] !== pts[i - 1][0] || pts[i][1] !== pts[i - 1][1]) segs.push({ a: pts[i - 1], b: pts[i], layer: run.layer });
+    }
+    const r = shoveFor(project, state, segs, index);
+    if (r.ok && r.moved.size) project.board.tracks = r.tracks;
+  }
   for (const run of [...(state.runs || []), { layer: state.layer, points: state.points }]) {
     const pts = chamferPath(run.points, state.chamfer);
     for (let i = 1; i < pts.length; i++) {

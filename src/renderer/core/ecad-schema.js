@@ -1394,6 +1394,7 @@ export const ECAD_SCHEMA = {
       ],
       "additionalProperties": false,
       "properties": {
+        "locked": { "type": "boolean", "description": "Push-and-shove (#29) never moves it." },
         "id": {
           "$ref": "#/$defs/id"
         },
@@ -1427,6 +1428,7 @@ export const ECAD_SCHEMA = {
       ],
       "additionalProperties": false,
       "properties": {
+        "locked": { "type": "boolean", "description": "Push-and-shove (#29) never moves it." },
         "id": {
           "$ref": "#/$defs/id"
         },
