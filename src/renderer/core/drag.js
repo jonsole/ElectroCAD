@@ -112,6 +112,25 @@ export function cornerAt(project, board, p, tol, hidden = new Set()) {
 }
 
 /**
+ * The free Track end under `p` (within `tol`, or the Track's half-width): an end of a Track with
+ * a net where nothing else is (no other segment of its net on its layer, no pad, no Via), which a
+ * drag carries on routing from. Returns { at, track } or null.
+ */
+export function freeEndAt(project, board, p, tol, hidden = new Set()) {
+  let best = null;
+  for (const t of board.tracks || []) {
+    if (!t.net || hidden.has(t.layer)) continue;
+    for (const q of [t.a, t.b]) {
+      const d = Math.hypot(q[0] - p[0], q[1] - p[1]);
+      if (d <= Math.max(tol, t.width / 2) && (!best || d < best.d)) best = { d, t, q };
+    }
+  }
+  if (!best) return null;
+  const m = meeting(board, project, best.q, best.t.layer, best.t.net, best.t.id);
+  return m.fixed || m.segs.length ? null : { at: best.q, track: best.t };
+}
+
+/**
  * A drag's result for the Board (`r` from dragSegment / dragCorner): in Shove mode, other Nets'
  * Tracks and Vias pushed out of the way of what changed. Returns { ok, tracks, vias, moved } or
  * { ok: false } when it can't be pushed clear (`index`: copperIndex of the Board as it was).

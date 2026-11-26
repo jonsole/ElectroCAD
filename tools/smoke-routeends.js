@@ -1,7 +1,8 @@
 // Routing from and to copper that isn't a pad (#87, #88, #89), and from an airwire (#90): with the Route tool, start on the
 // free end of a track and finish on a pad; start on a pad and finish on a track end and on a via;
 // branch off the middle of a track (a T-junction), which splits it; click an airwire to route
-// it from its nearer end, switching to that end's layer (#90). Each clears the airwire, DRC
+// it from its nearer end, switching to that end's layer (#90); and with the Select tool, drag a
+// free track end to carry on routing it. Each clears the airwire, DRC
 // shows nothing unrouted, and one undo takes it back.
 const app = window.electrocad;
 const fails = [];
@@ -106,6 +107,28 @@ document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: tr
 check('cancelled', !ed.route);
 await undo();
 ed.setActiveLayer('F.Cu');
+
+// the Select tool: a click on a free track end just selects it; dragging it carries on routing
+// the track from there (its width and layer); letting go fixes a corner, a click on the pad
+// finishes, and it's back to Select
+ed.setTool('select');
+await clickAt(24, 8);
+check('end-click', ed.tool === 'select' && !ed.route && ed.trackSel.has('s') && same());
+ev('pointermove', 24, 8, 0); ev('pointerdown', 24, 8, 1); ev('pointermove', 25, 9, 1); ev('pointermove', 26, 12, 1); await wait(30);
+check('end-drag-routes', ed.tool === 'route' && ed.route && ed.route.points[0][0] === 24 * MM && ed.route.points[0][1] === 8 * MM && ed.route.width === 250000 && ed.routeView?.segments.length > 0, ed.route);
+ev('pointerup', 26, 12, 0); await wait(40);
+check('end-drag-corner', ed.route && ed.route.points.length >= 2 && ed.route.points[ed.route.points.length - 1][1] === 12 * MM, ed.route?.points);
+await clickAt(P2[0], P2[1]);
+check('end-drag-finished', !ed.route && unrouted() === 0 && ed.tool === 'select', [unrouted(), ed.tool]);
+await undo();
+check('undo-5', same());
+// Escape while carrying on ends the track where it was let go (as routing does), back to Select
+ev('pointermove', 24, 8, 0); ev('pointerdown', 24, 8, 1); ev('pointermove', 26, 11, 1); ev('pointerup', 26, 11, 0); await wait(40);
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await wait(30);
+check('end-drag-escape', !ed.route && ed.tool === 'select' && app.project.board.tracks.some((t) => t.net === net && [t.a, t.b].some((q) => q[0] === 26 * MM && q[1] === 11 * MM)), app.project.board.tracks.map((t) => [t.a, t.b]));
+await undo();
+check('undo-6', same());
+ed.setTool('route');
 
 // a click on nothing says where a track can start
 await clickAt(16, 18);
