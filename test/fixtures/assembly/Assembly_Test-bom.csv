@@ -1,0 +1,6 @@
+Quantity,References,Value,Footprint,MPN,Manufacturer,Part,LCSC
+1,C1,"100n, 50V",C_0805_2012Metric,GRM188R71H104KA93D,Murata,Capacitor,C14663
+1,FID1,Fiducial,Fiducial_1mm,,,,
+1,J1,HDR,PinHeader_1x03_P2.54mm_Vertical,,,Resistor,
+3,"R1, R2, R10",10k,R_0805_2012Metric,,,Resistor,
+1,R3,4k7,R_0805_2012Metric,,,Resistor,

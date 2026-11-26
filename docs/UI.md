@@ -565,7 +565,10 @@ The **Gerber** tab makes the files a board house needs (#26).
 - **Coordinates:** the Project's nanometres with +Y down become Gerber millimetres in 4.6 format, which is 1 nm per unit, with Y up. The flip happens only here (ADR-0003).
 - **The panel** lists the files with their layers and sizes. **Download zip** saves them as `<project>-fab.zip`, a stored zip made by `core/zip.js`. **Checks** shows the DRC result at generation time and an open outline, and the list says when the board has changed since generation.
 - **Zone clearance from holes:** zone fills also keep the clearance from non-plated holes.
-- BOM and pick-and-place come with #27.
+- **BOM and pick-and-place** (#27, `core/assembly.js`), ticked in **Output** (off by default; for assembly):
+  - **BOM** (`<project>-bom.csv`): one row per group of identical parts (same Part, Value, Footprint, MPN, manufacturer and custom fields): Quantity, References (sorted, R2 before R10), Value, Footprint, MPN, Manufacturer, Part, then a column per custom field (e.g. an Eagle import's supplier codes, #71). It lists every part on the Schematic, and the board-only footprints marked **In BOM** (#74).
+  - **Pick-and-place** (`<project>-pnp.csv`): Designator, Value, Footprint, Mid X and Mid Y in mm, Rotation (degrees counter-clockwise, as seen from the top) and Side (Top or Bottom), for each footprint on the Board (board-only ones when In BOM), at its origin. X and Y are in the Gerbers' own coordinates (Y up, the same origin), so the placement lines up with the copper; an Eagle import's come out as Eagle's own positions.
+  - Both go into the fab zip, and each can be saved on its own from the file list.
 
 ### Viewing and comparing fab files (#28)
 

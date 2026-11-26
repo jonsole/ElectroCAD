@@ -778,6 +778,8 @@ body.resizing iframe, body.resizing canvas { pointer-events: none; }
 /* the Gerber tab's file list (#26) */
 .fab-list { display: flex; flex-direction: column; gap: 2px; margin: 4px 0; }
 .fab-file { display: grid; grid-template-columns: 16px 1fr auto auto; gap: 6px; align-items: center; font-size: 12px; padding: 2px 0; }
+.fab-file:has(> button) { grid-template-columns: 16px 1fr auto auto auto; } /* the BOM and pick-and-place save on their own (#27) */
+.fab-file > button { padding: 0 4px; height: 20px; }
 .fab-name { font-family: ui-monospace, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fab-layer { color: var(--muted); font-size: 11px; }
 .fab-size { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 11px; min-width: 44px; text-align: right; }

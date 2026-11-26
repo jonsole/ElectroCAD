@@ -125,6 +125,7 @@ const FILE_KINDS = {
   zip: { ext: 'zip', filters: [{ name: 'Zip archive', extensions: ['zip'] }], save: 'Save the fab zip' },
   fab: { ext: 'zip', filters: [{ name: 'Fab files (zip, Gerber, drill)', extensions: ['zip', 'gbr', 'ger', 'gtl', 'gbl', 'gts', 'gbs', 'gto', 'gbo', 'gtp', 'gbp', 'gko', 'gml', 'g1', 'g2', 'g2l', 'g3l', 'drl', 'xln', 'txt', 'exc'] }, { name: 'All files', extensions: ['*'] }], open: 'Open fab files: a zip, or Gerber and drill files' },
   log: { ext: 'txt', filters: [{ name: 'Text', extensions: ['txt'] }], save: 'Save the import log' },
+  csv: { ext: 'csv', filters: [{ name: 'CSV', extensions: ['csv'] }], save: 'Save the CSV file' },
   eagle: { ext: 'sch', filters: [{ name: 'Eagle schematic and board', extensions: ['sch', 'brd'] }, { name: 'All files', extensions: ['*'] }], open: 'Import an Eagle schematic and/or board' },
 };
 const fileKind = (k) => FILE_KINDS[k] || FILE_KINDS.project;

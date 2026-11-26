@@ -62,4 +62,17 @@ check('status', /11 files/.test(document.querySelector('[data-ws="gerber"] .stat
 // an edit makes them out of date
 app.edit('nudge', (pr) => { pr.board.footprints[0].at = [9 * MM, 8 * MM]; });
 check('stale', panel.stale && /changed since/.test(gws.textContent));
+// the BOM and pick-and-place (#27): ticked in Output, they're made too and go in the zip
+for (const label of ['BOM (CSV)', 'Pick-and-place (CSV)']) { const c = gws.querySelector(`input[aria-label="${label}"]`); check(`out-${label}`, !!c && !c.checked && !c.disabled); c.checked = true; c.dispatchEvent(new Event('change')); }
+await panel.generate();
+const csvs = panel.files.filter((f) => f.kind === 'bom' || f.kind === 'pnp');
+check('assembly-made', csvs.map((f) => f.name).join() === 'Fab_Smoke-bom.csv,Fab_Smoke-pnp.csv', panel.files.map((f) => f.name));
+check('bom-text', /^Quantity,References,Value,Footprint/.test(csvs[0]?.text || '') && /R1/.test(csvs[0]?.text || ''));
+check('pnp-text', /^Designator,Value,Footprint,Mid X \(mm\),Mid Y \(mm\),Rotation,Side/.test(csvs[1]?.text || ''));
+check('assembly-in-zip', L.zip.readZip(panel.zip).length === 13);
+check('save-one', gws.querySelectorAll('.fab-file button[title^="Save Fab_Smoke-bom.csv"]').length === 1);
+const csvFile = `/tmp/electrocad-smoke-bom-${Date.now()}.csv`;
+await native.smokeDialog(csvFile);
+const saved = await panel.saveFile(csvs[0]);
+check('csv-saved', saved && /electrocad-smoke-bom/.test(saved.name), saved);
 return { fails, out: { zip: file } };

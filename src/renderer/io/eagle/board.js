@@ -379,5 +379,8 @@ function smashedTexts(el, bf, fp) {
     const has = new Set(el.all('attribute').map((x) => x.attr('name')));
     for (const [name, key] of [['NAME', 'ref'], ['VALUE', 'value']]) if (!has.has(name)) { bf.texts = { ...(bf.texts || {}), [key]: { ...fieldDefaultOf(bf, key), hidden: true } }; n++; }
   }
+  // a package with no >NAME or >VALUE text shows none in Eagle: no automatic one here either (a
+  // drill legend's, say)
+  for (const key of ['ref', 'value']) if (!bf.texts?.[key] && !fieldDefault(fp, key, bf).own) bf.texts = { ...(bf.texts || {}), [key]: { ...fieldDefaultOf(bf, key), hidden: true } };
   return n;
 }

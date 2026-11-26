@@ -12,6 +12,7 @@ import { runDrc, drcCounts } from '../core/drc.js';
 import { markApproved, unapproved } from '../core/drcApprovals.js';
 import { checkOutline } from '../core/board.js';
 import { readFabFiles, FAB_LAYERS } from '../core/gerber/compare.js';
+import { assemblyFiles } from '../core/assembly.js';
 import { platform } from '../platform.js';
 import { openBoardSetup } from '../board/setup-dialog.js';
 import { GerberViewer, fabColor } from './viewer.js';
@@ -51,7 +52,7 @@ export class GerberPanel {
     this.files = null;   // the last generated files
     this.zip = null;     // and their zip (Uint8Array)
     this.made = null;    // { rev, date } they were made for
-    this.out = { gerber: true, drill: true };
+    this.out = { gerber: true, drill: true, bom: false, pnp: false }; // BOM and pick-and-place: for assembly (#27)
     this.viewer = new GerberViewer();
     this.source = 'generated'; // what the canvas shows: 'generated' | 'opened'
     this.opened = null;  // { name, layers, skipped, texts }
@@ -62,7 +63,7 @@ export class GerberPanel {
   get project() { return this.app.project; }
 
   toolbar() {
-    this.genBtn = button({ label: 'Generate', icon: 'play', cls: 'btn-primary', title: 'Make the fab files: Gerber X2 for each layer and Excellon drill files (waits for zone fills)', onClick: () => this.generate() });
+    this.genBtn = button({ label: 'Generate', icon: 'play', cls: 'btn-primary', title: 'Make the fab files: Gerber X2 for each layer, Excellon drill files, and the BOM and pick-and-place when chosen (waits for zone fills)', onClick: () => this.generate() });
     this.zipBtn = button({ label: 'Download zip', icon: 'zip', title: 'Save the fab zip to send to the board house', onClick: () => this.download() });
     this.zipBtn.disabled = true;
     this.openBtn = button({ label: 'Open fab files…', icon: 'folder', title: 'View a fab zip, or loose Gerber and drill files, from any tool', onClick: () => this.openFiles() });
@@ -79,7 +80,7 @@ export class GerberPanel {
     this.cmpEl = h('div', { class: 'fab-compare' });
     const out = (key, label, tip) => {
       const c = h('input', { type: 'checkbox', checked: this.out[key], 'aria-label': label });
-      c.addEventListener('change', () => { this.out[key] = c.checked; this.genBtn.disabled = !this.out.gerber && !this.out.drill; });
+      c.addEventListener('change', () => { this.out[key] = c.checked; this.genBtn.disabled = !Object.values(this.out).some(Boolean); });
       return h('label', { class: 'check-row', title: tip }, c, label);
     };
     const later = (label, ticket) => h('label', { class: 'check-row', title: `Coming in #${ticket}` }, h('input', { type: 'checkbox', disabled: true }), label);
@@ -89,7 +90,9 @@ export class GerberPanel {
         button({ label: 'Board setup…', icon: 'settings', cls: 'btn-outline', title: 'Choose a Fab preset and edit the Design rules and Fab output settings', onClick: () => openBoardSetup(this.app) }))),
       section('Output', out('gerber', 'Gerber X2 (copper, mask, paste, silk, Edge.Cuts)', 'One RS-274X file with X2 attributes per layer of the stack'),
         out('drill', 'Excellon drill (PTH / NPTH)', 'Plated holes (vias, plated pads) and non-plated holes, in separate files'),
-        later('BOM (CSV)', 27), later('Pick-and-place (CSV)', 27), this.namingEl),
+        out('bom', 'BOM (CSV)', 'One row per group of identical parts: quantity, References, Value, Footprint, MPN, manufacturer, Part and custom fields'),
+        out('pnp', 'Pick-and-place (CSV)', 'Each footprint\'s Reference, Value, Footprint, X and Y in mm in the Gerbers\' coordinates (Y up), rotation and side'),
+        this.namingEl),
       section('Showing', this.showEl),
       section('Layers', this.layersEl),
       section('Files', this.filesEl),
@@ -204,7 +207,9 @@ export class GerberPanel {
     this.filesEl.replaceChildren(...[
       this.stale ? h('div', { class: 'outline-state bad' }, icon('info', 16), h('span', {}, 'The board has changed since: Generate again.')) : null,
       h('div', { class: 'fab-list', role: 'list' }, ...this.files.map((x) => h('div', { class: 'fab-file', role: 'listitem', title: x.layer },
-        icon(x.kind === 'drill' ? 'via' : 'gerber', 14), h('span', { class: 'fab-name' }, x.name), h('span', { class: 'fab-layer' }, x.layer), h('span', { class: 'fab-size' }, kb(x.text.length))))),
+        icon(x.kind === 'drill' ? 'via' : x.kind === 'gerber' ? 'gerber' : 'stats', 14), h('span', { class: 'fab-name' }, x.name), h('span', { class: 'fab-layer' }, x.layer), h('span', { class: 'fab-size' }, kb(x.text.length)),
+        // the BOM and pick-and-place can be saved on their own too (#27)
+        x.kind === 'bom' || x.kind === 'pnp' ? button({ icon: 'import', cls: 'btn-ghost btn-xs', title: `Save ${x.name} on its own`, onClick: () => this.saveFile(x) }) : null))),
       h('p', { class: 'side-note' }, `${this.files.length} files · zip ${kb(total)} · made ${new Date(this.made.date).toLocaleTimeString()}`)].filter(Boolean));
   }
 
@@ -303,7 +308,7 @@ export class GerberPanel {
 
   /** Make the fab files (after any Zone refill in progress), and their zip. Returns the files. */
   async generate() {
-    if (!this.out.gerber && !this.out.drill) return null;
+    if (!Object.values(this.out).some(Boolean)) return null;
     this.genBtn.disabled = true;
     try {
       const be = this.app.workspace('board')?.editor;
@@ -313,12 +318,13 @@ export class GerberPanel {
       const date = new Date();
       let files = fabFiles(this.project, { fills, date: date.toISOString(), version: VERSION });
       files = files.filter((x) => (x.kind === 'gerber' ? this.out.gerber : this.out.drill));
+      files = [...files, ...assemblyFiles(this.project, { bom: this.out.bom, pnp: this.out.pnp })];
       this.files = files;
       this.zip = makeZip(files, date);
       this.made = { rev: this._rev(), date: date.getTime() };
       // approved problems (#69) don't count
       this.drc = unapproved(markApproved(this.project, runDrc(this.project, fills)));
-      this.generated = readFabFiles(files.map((f) => ({ name: f.name, text: f.text })));
+      this.generated = readFabFiles(files.filter((f) => f.kind === 'gerber' || f.kind === 'drill').map((f) => ({ name: f.name, text: f.text })));
       this.zipBtn.disabled = false;
       const first = !this.viewer.layers.length;
       if (this.source === 'generated' || !this.opened) { this.source = 'generated'; this._show(first); }
@@ -328,6 +334,13 @@ export class GerberPanel {
       toast(`${files.length} fab files made${c.error ? ` · DRC: ${c.error} error${c.error === 1 ? '' : 's'}` : ''}.`, c.error ? 'error' : 'info', 2600);
       return files;
     } finally { this.genBtn.disabled = false; }
+  }
+
+  /** Save one generated file on its own (the BOM or pick-and-place CSV). */
+  async saveFile(f) {
+    const r = await platform.exportFile(f.name, f.text, 'csv');
+    if (r) toast(`Saved ${r.name}`, 'info', 2500);
+    return r;
   }
 
   async download() {

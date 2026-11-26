@@ -1,0 +1,8 @@
+Designator,Value,Footprint,Mid X (mm),Mid Y (mm),Rotation,Side
+C1,"100n, 50V",C_0805_2012Metric,10.0000,-15.2500,45.50,Top
+FID1,Fiducial,Fiducial_1mm,25.0000,-3.0000,0.00,Top
+J1,HDR,PinHeader_1x03_P2.54mm_Vertical,20.0000,-20.0000,270.00,Bottom
+R1,10k,R_0805_2012Metric,10.0000,-10.0000,0.00,Top
+R2,10k,R_0805_2012Metric,12.5000,-10.0000,0.00,Top
+R3,4k7,R_0805_2012Metric,15.0000,-10.0000,90.00,Top
+R10,10k,R_0805_2012Metric,17.5000,-10.0000,0.00,Top
