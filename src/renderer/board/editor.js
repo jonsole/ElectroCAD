@@ -27,6 +27,7 @@ import { connection, setTrackWidth, setTrackLayer, setViaSize, placeVia, placeVi
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
 import { allFootprints } from '../library/footprints.js';
 import { addBoardOnly, setBoardOnly, deleteBoardOnly } from '../core/boardOnly.js';
+import { dragSegment, dragCorner, cornerAt, dragResult } from '../core/drag.js';
 import { STARTER_LIBRARY } from '../library/starter.js';
 import { shapeHandles, hitHandle, dragHandle, dragOutlineHandle, snapPoint, handlePoints } from '../core/handles.js';
 import { newZone, zoneInput, inPolygon, moveZones } from '../core/zones.js';
@@ -48,6 +49,7 @@ const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
 export const BOARD_TOOLS = {
   select: { icon: 'select', title: 'Select (V)', key: 'v' },
   route: { icon: 'route', title: 'Route (X): click a pad to start a track on the active copper layer, click to place corners, click a pad of the same net to finish · V drops a via and changes layer · / flips the bend · Backspace undoes a corner · Esc cancels', key: 'x' },
+  drag: { icon: 'dragTrack', title: 'Drag track (D): drag a track segment sideways (its neighbours follow at 45°/90°) or a corner to reshape it; in Shove mode other nets\' copper is pushed aside and springs back. Locked copper never moves', key: 'd' },
   via: { icon: 'via', title: 'Via: click to place a through via; it takes the net of the track or pad it lands on' },
   footprint: { icon: 'pad', title: 'Place footprint: a footprint with no part on the Schematic, such as a mounting hole, fiducial or logo. Pick it, then click where it goes; Reference, pad nets and In BOM in Properties' },
   zone: { icon: 'zone', title: 'Zone (Z): click the corners of a copper pour on the active copper layer; click the first corner, double-click or Enter to close. Net, priority, clearance and thermal reliefs in Properties', key: 'z' },
@@ -208,7 +210,7 @@ export class BoardEditor {
     this.toolBtn = {};
     for (const [id, t] of Object.entries(BOARD_TOOLS)) this.toolBtn[id] = button({ icon: t.icon, title: t.title, onClick: () => this.setTool(id) });
     const T = this.toolBtn;
-    return [T.select, T.route, later({ icon: 'dragTrack', title: 'Drag track (D)' }, 31),
+    return [T.select, T.route, T.drag,
       T.via, T.zone, T.footprint, null,
       T.outline, T.polygon, T.circle, null, T.text, T.gline, T.grect, T.gcircle, null, T.measure, T.origin];
   }
@@ -862,6 +864,19 @@ export class BoardEditor {
       this.setAlt(e.altKey);
       if (this.tool === 'origin') { this.placeOrigin(w); return; }
       if (this.tool === 'route') { this.routeClick(w, e.detail >= 2); return; }
+      if (this.tool === 'drag') {
+        // a corner (two segments meeting with nothing else there), else a segment
+        const tol = 6 / ws.view.view.scale;
+        const corner = cornerAt(this.project, this.board, w, tol, this.hidden);
+        const hit = !corner && this._hitTrack(w, 3 / ws.view.view.scale);
+        if (!corner && !(hit && hit.a)) return;
+        const t = hit && hit.a ? hit : null;
+        if (t?.locked) { toast('That track is locked (its Properties).', 'info', 1800); return; }
+        this.trackDrag = corner ? { kind: 'corner', at: corner.at, layer: corner.layer, start: this.snapAt(w), result: null } : { kind: 'segment', id: t.id, start: this.snapAt(w), result: null };
+        this.trackDragIndex = copperIndex(this.project);
+        try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+        return;
+      }
       if (this.tool === 'footprint') {
         if (!this.placingFp) { this.chooseBoardFootprint(); return; }
         const at = this.snapAt(w), { library, footprint } = this.placingFp;
@@ -966,6 +981,16 @@ export class BoardEditor {
       else if (this.handleDrag) { const d = this.handleDrag; this.cursor = this.snapAt(w, new Set([d.index]), shapeHandles(d.snapshot[d.index]).find((x) => x.key === d.key)?.at); }
       else if (this.tool !== 'select') this.cursor = this.snapAt(w);
       else this.cursor = this.snapPt(w);
+      if (this.trackDrag && (e.buttons & 1)) {
+        const d = this.trackDrag, to = this.cursor;
+        const r = d.kind === 'segment' ? dragSegment(this.project, this.board, d.id, [to[0] - d.start[0], to[1] - d.start[1]]) : dragCorner(this.project, this.board, d.at, to, d.layer);
+        const res = dragResult(this.project, r, { shove: this.routeMode === 'shove', index: this.trackDragIndex });
+        // a drag that can't be pushed clear stays where it last could be
+        if (res.ok) d.result = res; else d.stuck = res.reason || true;
+        if (res.ok) d.stuck = null;
+        ws.view.invalidate();
+        return;
+      }
       if (this.fieldDrag && (e.buttons & 1)) {
         const d = this.fieldDrag;
         if (d.locked) return;
@@ -1031,6 +1056,15 @@ export class BoardEditor {
     });
     const up = () => {
       this.snapMark = null;
+      if (this.trackDrag) {
+        const d = this.trackDrag; this.trackDrag = null; this.trackDragIndex = null;
+        const res = d.result;
+        if (res && JSON.stringify(res.tracks) !== JSON.stringify(this.board.tracks)) {
+          this.app.edit(d.kind === 'corner' ? 'Drag corner' : 'Drag track', (p) => { p.board.tracks = res.tracks; p.board.vias = res.vias; });
+          if (res.moved?.size) toast(`Pushed ${res.moved.size} track${res.moved.size === 1 ? '' : 's'} aside.`, 'info', 1400);
+        } else this.refresh();
+        return;
+      }
       if (this.fieldDrag) {
         const d = this.fieldDrag; this.fieldDrag = null; this.previewFps = null;
         if (d.moved && d.at) {
@@ -1949,7 +1983,7 @@ export class BoardEditor {
   }
 
   draw(ctx, view, C) {
-    const board = { ...this.board, tracks: this.routeView?.shoved || this.board.tracks, vias: this.routeView?.shovedVias || this.board.vias, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints, zones: this.previewZones || this.board.zones, drawings: this.previewDrawings || this.board.drawings || [] };
+    const board = { ...this.board, tracks: this.routeView?.shoved || this.trackDrag?.result?.tracks || this.board.tracks, vias: this.routeView?.shovedVias || this.trackDrag?.result?.vias || this.board.vias, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints, zones: this.previewZones || this.board.zones, drawings: this.previewDrawings || this.board.drawings || [] };
     const labels = [];
     drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: this._rats?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure, labels, zones: { fills: this.zoneFiller.fills, outlineOnly: this._zonesAsOutlines(board) } });
     if (this.routeView) this._drawRoute(ctx, view, C);

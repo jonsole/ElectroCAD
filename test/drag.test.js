@@ -1,0 +1,85 @@
+// Dragging Tracks (#31): segment and corner drags keep the geometry and connectivity, and in
+// Shove mode push other nets' copper aside, clear, springing back; locked copper never moves.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { newProject } from '../src/renderer/core/project.js';
+import { copperIndex, shapeDistance } from '../src/renderer/core/collision.js';
+import { dragSegment, dragCorner, cornerAt, dragResult } from '../src/renderer/core/drag.js';
+import { rectOutline } from '../src/renderer/core/board.js';
+import { mm } from '../src/renderer/core/units.js';
+
+const W = mm(0.25);
+const tr = (id, a, b, net = 'N', layer = 'F.Cu') => ({ id, a: a.map(mm), b: b.map(mm), width: W, layer, net });
+function project(tracks, extra = {}) {
+  const p = newProject('D');
+  p.board.outline = rectOutline([0, 0], [mm(40), mm(30)]);
+  p.board.rules = { ...p.board.rules, clearance: mm(0.2) };
+  p.board.tracks = tracks;
+  Object.assign(p.board, extra);
+  return p;
+}
+const angle = (t) => { const dx = t.b[0] - t.a[0], dy = t.b[1] - t.a[1]; return dx === 0 || dy === 0 || Math.abs(dx) === Math.abs(dy); };
+/** the net's segments still run end to end, from `from` to `to` */
+function runs(tracks, net, from, to) {
+  const ends = new Map();
+  for (const t of tracks.filter((x) => x.net === net)) for (const q of [t.a, t.b]) { const k = q.join(','); ends.set(k, (ends.get(k) || 0) + 1); }
+  const odd = [...ends].filter(([, n]) => n % 2).map(([k]) => k).sort();
+  assert.deepEqual(odd, [from.map(mm).join(','), to.map(mm).join(',')].sort());
+}
+
+test('segment drag: square neighbours lengthen to follow, keeping 90°', () => {
+  const p = project([tr('l', [5, 5], [5, 15]), tr('m', [5, 15], [15, 15]), tr('r', [15, 15], [15, 5])]);
+  const r = dragSegment(p, p.board, 'm', [mm(3), mm(2)]); // only the sideways (y) part counts
+  const m = r.tracks.find((t) => t.id === 'm');
+  assert.deepEqual([m.a, m.b], [[mm(5), mm(17)], [mm(15), mm(17)]]);
+  assert.ok(r.tracks.every(angle));
+  runs(r.tracks, 'N', [5, 5], [15, 5]);
+  assert.equal(r.tracks.length, 3, 'no jogs needed');
+});
+
+test('segment drag: 45° neighbours slide along their own lines, staying 45°', () => {
+  const p = project([tr('l', [0, 0], [5, 5]), tr('m', [5, 5], [15, 5]), tr('r', [15, 5], [20, 0])]);
+  const r = dragSegment(p, p.board, 'm', [0, mm(2)]);
+  const m = r.tracks.find((t) => t.id === 'm');
+  assert.deepEqual([m.a, m.b], [[mm(7), mm(7)], [mm(13), mm(7)]]);
+  assert.ok(r.tracks.every(angle));
+  runs(r.tracks, 'N', [0, 0], [20, 0]);
+});
+
+test('segment drag: an end on a via (or with no single neighbour) gets a square jog', () => {
+  const p = project([tr('m', [5, 15], [15, 15])], { vias: [{ id: 'v', at: [mm(5), mm(15)], drill: mm(0.3), diameter: mm(0.6), from: 'F.Cu', to: 'B.Cu', net: 'N' }] });
+  const r = dragSegment(p, p.board, 'm', [0, mm(-2)]);
+  assert.equal(r.tracks.length, 3);
+  assert.ok(r.tracks.every(angle));
+  runs(r.tracks, 'N', [5, 15], [15, 15]);
+});
+
+test('corner drag: the two segments are redrawn to the new corner at 45°', () => {
+  const p = project([tr('a', [0, 0], [10, 0]), tr('b', [10, 0], [10, 10])]);
+  assert.deepEqual(cornerAt(p, p.board, [mm(10.1), 0], mm(0.3)), { at: [mm(10), 0], layer: 'F.Cu' });
+  assert.equal(cornerAt(p, p.board, [mm(5), 0], mm(0.3)), null, 'not a corner');
+  const r = dragCorner(p, p.board, [mm(10), 0], [mm(13), mm(4)]);
+  assert.ok(r.tracks.every(angle));
+  runs(r.tracks, 'N', [0, 0], [10, 10]);
+  assert.ok(r.tracks.some((t) => t.a.join() === [mm(13), mm(4)].join() || t.b.join() === [mm(13), mm(4)].join()), 'through the new corner');
+});
+
+test('Shove: dragging pushes other nets\' tracks clear and they spring back; locked ones stop it', () => {
+  const tracks = () => [tr('l', [5, 5], [5, 15]), tr('m', [5, 15], [25, 15]), tr('r', [25, 15], [25, 5]), tr('o', [2, 15.9], [30, 15.9], 'O')];
+  const p = project(tracks());
+  const index = copperIndex(p);
+  const near = dragResult(p, dragSegment(p, p.board, 'm', [0, mm(0.6)]), { shove: true, index });
+  assert.ok(near.ok, near.reason);
+  assert.ok(near.moved.has('o'));
+  const m = near.tracks.find((t) => t.id === 'm'), o = near.tracks.filter((t) => t.net === 'O');
+  for (const s of o) assert.ok(shapeDistance({ type: 'capsule', a: m.a, b: m.b, r: W / 2 }, { type: 'capsule', a: s.a, b: s.b, r: W / 2 }) >= mm(0.2) - 2);
+  runs(near.tracks, 'O', [2, 15.9], [30, 15.9]);
+  // spring-back: a smaller drag pushes nothing
+  const small = dragResult(p, dragSegment(p, p.board, 'm', [0, mm(0.2)]), { shove: true, index });
+  assert.ok(small.ok && !small.moved.size);
+  // without Shove nothing else moves (Free / Walkaround)
+  assert.equal(dragResult(p, dragSegment(p, p.board, 'm', [0, mm(0.6)])).tracks.find((t) => t.id === 'o').a[1], mm(15.9));
+  // a locked track in the way: the drag can't go there
+  const q = project(tracks().map((t) => (t.id === 'o' ? { ...t, locked: true } : t)));
+  assert.equal(dragResult(q, dragSegment(q, q.board, 'm', [0, mm(0.6)]), { shove: true, index: copperIndex(q) }).ok, false);
+});
