@@ -125,7 +125,7 @@ Both editors share `view/canvas.js`: a Canvas2D viewport with wheel zoom about t
 
 **Schematic tools:** Select/move (V), Place part (A, then choose the Unit for multi-Unit Parts), Wire (W, orthogonal, auto-ends on a Pin or Wire), Net label (L), Global label (Ctrl+L), GND/Power (G/P), No-connect (Q), Rotate (R), Mirror (X), Delete, plus Undo/Redo (Ctrl+Z / Ctrl+Shift+Z). Grid: 50 mil (1.27 mm), the KiCad convention, so KiCad symbols land on-grid.
 
-**Board tools:** Select/move, Route (X; switch layer with V, which drops a Via), Drag track (D), Via, Zone, Outline, Measure.
+**Board tools:** Select/move (also drags tracks), Route (X; switch layer with V, which drops a Via), Via, Zone, Outline, Measure.
 
 **Routing** ([ADR-0006](adr/0006-push-and-shove-routing-in-v1.md)). Tracks are 45°/90° only. All three Routing modes sit on one collision engine (`core/collide.js`, which also backs DRC):
 - **Walkaround** (M4): the Track hugs the clearance contour of foreign copper and never moves anything.

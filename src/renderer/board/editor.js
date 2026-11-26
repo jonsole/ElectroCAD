@@ -47,9 +47,8 @@ const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
 
 /** The palette tools that work now: key, icon, title. */
 export const BOARD_TOOLS = {
-  select: { icon: 'select', title: 'Select (V)', key: 'v' },
+  select: { icon: 'select', title: 'Select (V): click to select; drag a track segment sideways (its neighbours follow) or a track corner to reshape it, pushing other nets\' copper in Shove mode', key: 'v' },
   route: { icon: 'route', title: 'Route (X): click a pad to start a track on the active copper layer, click to place corners, click a pad of the same net to finish · V drops a via and changes layer · / flips the bend · Backspace undoes a corner · Esc cancels', key: 'x' },
-  drag: { icon: 'dragTrack', title: 'Drag track (D): drag a track segment sideways (its neighbours follow at 45°/90°) or a corner to reshape it; in Shove mode other nets\' copper is pushed aside and springs back. Locked copper never moves', key: 'd' },
   via: { icon: 'via', title: 'Via: click to place a through via; it takes the net of the track or pad it lands on' },
   footprint: { icon: 'pad', title: 'Place footprint: a footprint with no part on the Schematic, such as a mounting hole, fiducial or logo. Pick it, then click where it goes; Reference, pad nets and In BOM in Properties' },
   zone: { icon: 'zone', title: 'Zone (Z): click the corners of a copper pour on the active copper layer; click the first corner, double-click or Enter to close. Net, priority, clearance and thermal reliefs in Properties', key: 'z' },
@@ -210,7 +209,7 @@ export class BoardEditor {
     this.toolBtn = {};
     for (const [id, t] of Object.entries(BOARD_TOOLS)) this.toolBtn[id] = button({ icon: t.icon, title: t.title, onClick: () => this.setTool(id) });
     const T = this.toolBtn;
-    return [T.select, T.route, T.drag,
+    return [T.select, T.route,
       T.via, T.zone, T.footprint, null,
       T.outline, T.polygon, T.circle, null, T.text, T.gline, T.grect, T.gcircle, null, T.measure, T.origin];
   }
@@ -864,19 +863,6 @@ export class BoardEditor {
       this.setAlt(e.altKey);
       if (this.tool === 'origin') { this.placeOrigin(w); return; }
       if (this.tool === 'route') { this.routeClick(w, e.detail >= 2); return; }
-      if (this.tool === 'drag') {
-        // a corner (two segments meeting with nothing else there), else a segment
-        const tol = 6 / ws.view.view.scale;
-        const corner = cornerAt(this.project, this.board, w, tol, this.hidden);
-        const hit = !corner && this._hitTrack(w, 3 / ws.view.view.scale);
-        if (!corner && !(hit && hit.a)) return;
-        const t = hit && hit.a ? hit : null;
-        if (t?.locked) { toast('That track is locked (its Properties).', 'info', 1800); return; }
-        this.trackDrag = corner ? { kind: 'corner', at: corner.at, layer: corner.layer, start: this.snapAt(w), result: null } : { kind: 'segment', id: t.id, start: this.snapAt(w), result: null };
-        this.trackDragIndex = copperIndex(this.project);
-        try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
-        return;
-      }
       if (this.tool === 'footprint') {
         if (!this.placingFp) { this.chooseBoardFootprint(); return; }
         const at = this.snapAt(w), { library, footprint } = this.placingFp;
@@ -909,7 +895,7 @@ export class BoardEditor {
           return;
         }
         // a Track: a click selects it; dragging it slides the segment (its neighbours follow) or,
-        // pressed at a corner, moves the corner, as the Drag track tool does (#31)
+        // pressed at a corner, moves the corner (#31)
         const corner = !e.shiftKey && cornerAt(this.project, this.board, w, 6 / ws.view.view.scale, this.hidden);
         const tr = this._hitTrack(w, tol) || (corner && this.board.tracks.find((t) => t.layer === corner.layer && ((t.a[0] === corner.at[0] && t.a[1] === corner.at[1]) || (t.b[0] === corner.at[0] && t.b[1] === corner.at[1]))));
         if (tr) {

@@ -1,4 +1,4 @@
-// Drag track (#31): with the Drag track tool (D), drag a segment of a routed U sideways towards
+// Dragging tracks (#31): with the Select tool, drag a segment of a routed U sideways towards
 // another net's track: its neighbours follow at 90°, the other track is pushed aside (Shove mode)
 // and springs back as the pointer returns; release commits it with no DRC clearance error and the
 // ratsnest unchanged; undo puts it back. Then drag a corner.
@@ -35,9 +35,8 @@ const before = structuredClone(app.project.board.tracks);
 ws.view.view.fit({ x0: 4 * MM, y0: 5 * MM, x1: 36 * MM, y1: 16 * MM }, ws.view.w, ws.view.h, 20);
 const pt = (x, y) => { const r = ws.view.canvas.getBoundingClientRect(); const [sx, sy] = ws.view.view.toScreen([x * MM, y * MM]); return { clientX: r.left + sx, clientY: r.top + sy }; };
 const ev = (type, x, y, buttons) => ws.view.canvas.dispatchEvent(new PointerEvent(type, { ...pt(x, y), button: 0, buttons, bubbles: true, cancelable: true, pointerId: 54 }));
-check('tool', !!document.querySelector('[data-ws="board"] button[title^="Drag track"]') && !document.querySelector('[data-ws="board"] button[title^="Drag track"]').disabled);
-document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true }));
-check('drag-tool', ed.tool === 'drag');
+check('no-drag-tool', !document.querySelector('[data-ws="board"] button[title^="Drag track"]'));
+ed.setTool('select');
 check('shove-mode', ed.routeMode === 'shove');
 ev('pointermove', 20, 12, 0); ev('pointerdown', 20, 12, 1);
 ev('pointermove', 20, 12.5, 1); await wait(30);
@@ -60,7 +59,7 @@ await wait(50);
 check('undo', JSON.stringify(app.project.board.tracks) === JSON.stringify(before));
 // a corner: drag the U's bottom-left corner out
 ed.drcCard?.toggle?.(false);
-ed.setTool('drag');
+ed.setTool('select');
 ev('pointermove', 6.9125, 12, 0); ev('pointerdown', 6.9125, 12, 1);
 check('corner', ed.trackDrag?.kind === 'corner', ed.trackDrag);
 ev('pointermove', 8, 11, 1); await wait(30);
