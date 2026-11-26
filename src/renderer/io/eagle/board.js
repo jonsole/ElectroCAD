@@ -190,9 +190,10 @@ export function importEagleBoard(root, project, { report = new Report(), eagle =
         if (!L) { if (Number(c.attr('layer')) !== 19) report.add(`Copper on layer ${c.attr('layer')} was left out`); continue; }
         const a = pt(c.attr('x1'), c.attr('y1')), e = pt(c.attr('x2'), c.attr('y2'));
         const curve = Number(c.attr('curve', 0));
-        const pts = curve ? arcPoints(a, e, curve) : [a, e];
-        if (curve) report.add('Curved tracks were made of short straight segments');
-        for (let i = 1; i < pts.length; i++) if (pts[i][0] !== pts[i - 1][0] || pts[i][1] !== pts[i - 1][1]) b.tracks.push({ id: uid('t'), a: pts[i - 1], b: pts[i], width: nm(c.attr('width')) || rules.minWidth, layer: L, net });
+        const w = nm(c.attr('width')) || rules.minWidth;
+        if (a[0] === e[0] && a[1] === e[1]) continue;
+        // a curved wire is one arc Track (#93)
+        b.tracks.push({ id: uid('t'), a, b: e, ...(curve ? { mid: arcMid(a, e, curve) } : {}), width: w, layer: L, net });
       } else if (c.name === 'via') {
         const drill = nm(c.attr('drill'));
         const extent = c.attr('extent', '1-16');

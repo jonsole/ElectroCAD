@@ -6,6 +6,7 @@
 // with Y up at this boundary: format 4.6 in mm means one unit = 1 nm, so X = x and Y = -y.
 //
 //   fabFiles(project, { fills, date, version }) -> [{ name, kind: 'gerber' | 'drill', layer, text }]
+import { trackArc } from './trackGeom.js';
 import ClipperLib from 'clipper-lib';
 import { copperLayerNames } from './board.js';
 import { placedPads, padNets, fpTransform, flipLayer, padOnLayer, courtyardBounds, bfFootprint, bfRef, bfValue } from './footprint.js';
@@ -52,6 +53,20 @@ class GerberFile {
     this._use(this._ap(`C,${mm6(width)}`, fn));
     this.body.push(`${X(pts[0])}D02*`);
     for (const p of pts.slice(1)) this.body.push(`${X(p)}D01*`);
+  }
+
+  /**
+   * An arc Track (#93) drawn with a round pen: a true circular draw (G75 multi-quadrant, G02
+   * clockwise / G03 anticlockwise as seen with Y up), not chords.
+   */
+  arc(width, t, fn) {
+    const k = trackArc(t);
+    if (!k) { this.stroke(width, [t.a, t.b], fn); return; }
+    this._use(this._ap(`C,${mm6(width)}`, fn));
+    if (!this.g75) { this.body.push('G75*'); this.g75 = true; }
+    // +Y down here; the file's Y is up, so a sweep that increases the angle here runs clockwise there
+    const i = Math.round(k.c[0] - t.a[0]), j = Math.round(-(k.c[1] - t.a[1]));
+    this.body.push(`${X(t.a)}D02*`, k.sweep > 0 ? 'G02*' : 'G03*', `${X(t.b)}I${i}J${j}D01*`, 'G01*');
   }
 
   /** A filled polygon (a simple contour, no holes). */
@@ -189,7 +204,7 @@ function gerberLayer(project, { layer, fn, polarity }, { fills, date, version })
       const f = fills.get(z.id);
       if (f) for (const ring of fillRegions(f.polys)) g.region(ring, 'Conductor');
     }
-    for (const t of board.tracks || []) if (t.layer === layer) g.stroke(t.width, [t.a, t.b], 'Conductor');
+    for (const t of board.tracks || []) if (t.layer === layer) { if (t.mid) g.arc(t.width, t, 'Conductor'); else g.stroke(t.width, [t.a, t.b], 'Conductor'); }
     for (const v of board.vias || []) g.flash(`C,${mm6(v.diameter)}`, v.at, 'ViaPad');
     for (const p of pads) {
       const tht = p.layers.includes('*.Cu');

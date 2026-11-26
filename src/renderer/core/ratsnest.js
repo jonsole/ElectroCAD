@@ -7,6 +7,7 @@
 // (or copper end) distance between two islands. Recomputed on every change, so it follows a drag live. Zone fills, when given, are
 // copper too: each filled region joins what it reaches on its layer (a Pad through its thermal
 // spokes or solidly, a Via, a Track end), so a plane connects everything dropped onto it.
+import { nearestOnTrack } from './trackGeom.js';
 import { placedPads, padNets, padOnLayer } from './footprint.js';
 
 const low = (s) => s.toLowerCase();
@@ -126,9 +127,6 @@ function touch(x, y) {
 
 /** Is `q` on Track `t`, part-way along it: within its half-width of its centre line? */
 function onTrack(q, t) {
-  const dx = t.b[0] - t.a[0], dy = t.b[1] - t.a[1], L2 = dx * dx + dy * dy;
-  if (!L2) return false;
-  const s = ((q[0] - t.a[0]) * dx + (q[1] - t.a[1]) * dy) / L2;
-  if (s < 0 || s > 1) return false;
-  return Math.hypot(t.a[0] + dx * s - q[0], t.a[1] + dy * s - q[1]) <= Math.max(2, t.width / 2);
+  if (t.a[0] === t.b[0] && t.a[1] === t.b[1]) return false;
+  return nearestOnTrack(t, q).d <= Math.max(2, t.width / 2);
 }

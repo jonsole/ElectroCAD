@@ -407,9 +407,12 @@ export function drawTracks(ctx, view, C, board, hidden = new Set(), ids = null, 
     ctx.strokeStyle = C[layer] || '#c33';
     for (const t of board.tracks || []) {
       if (t.layer !== layer || (ids && !ids.has(t.id))) continue;
-      const [x0, y0] = view.toScreen(t.a), [x1, y1] = view.toScreen(t.b);
+      const [x0, y0] = view.toScreen(t.a);
       ctx.lineWidth = Math.max(1, t.width * view.scale);
-      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x0, y0);
+      if (t.mid) arcTo(ctx, view, { start: t.a, mid: t.mid, end: t.b }, false); // an arc Track (#93)
+      else ctx.lineTo(...view.toScreen(t.b));
+      ctx.stroke();
     }
   }
   ctx.restore();

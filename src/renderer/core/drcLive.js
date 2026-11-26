@@ -3,6 +3,7 @@
 // signature and a box; an edit's areas are the old and new boxes of the items it changed. Changes
 // that reach the whole board (rules, Net classes, the stack, the Outline, the Board's record of the
 // Schematic) ask for a full run instead. DOM-free.
+import { trackBox } from './trackGeom.js';
 import { footprintOutline, placedPads, padNets, bfFootprint } from './footprint.js';
 import { footprintOf } from './project.js';
 import { drawingBox } from './boardDrawings.js';
@@ -21,7 +22,7 @@ const box = (pts, m = 0) => {
  */
 export function boardItems(project, board = project.board) {
   const items = new Map();
-  for (const t of board.tracks || []) items.set(`t:${t.id}`, { sig: JSON.stringify(t), box: box([t.a, t.b], t.width / 2) });
+  for (const t of board.tracks || []) items.set(`t:${t.id}`, { sig: JSON.stringify(t), box: t.mid ? trackBox(t) : box([t.a, t.b], t.width / 2) });
   for (const v of board.vias || []) items.set(`v:${v.id}`, { sig: JSON.stringify(v), box: box([v.at], v.diameter / 2) });
   const nets = padNets(board), view = { ...project, board };
   for (const bf of board.footprints || []) {

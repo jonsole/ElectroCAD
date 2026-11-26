@@ -20,19 +20,19 @@ const p = app.project, b = p.board;
 check('new-project', p.id !== before && p.name === 'regulator', p.name);
 check('sheets', p.schematic.sheets.length === 2);
 check('parts', Object.values(p.components).map((c) => c.ref).sort().join() === 'R1,R2,U1,U2', Object.values(p.components).map((c) => c.ref));
-check('board', b.footprints.length === 4 && b.tracks.length === 13 && b.vias.length === 1 && b.zones.length === 1, [b.footprints.length, b.tracks.length, b.vias.length, b.zones.length]);
+check('board', b.footprints.length === 4 && b.tracks.length === 5 && b.tracks.filter((t) => t.mid).length === 1 && b.vias.length === 1 && b.zones.length === 1, [b.footprints.length, b.tracks.length, b.vias.length, b.zones.length]);
 check('bottom', b.footprints.find((f) => p.components[f.componentId].ref === 'U2')?.side === 'B');
 check('locked', b.footprints.find((f) => p.components[f.componentId].ref === 'U1')?.locked === true);
 check('on-board', app.active.id === 'board');
 // the summary
 const m = document.querySelector('.import-report');
 check('report', !!m && /The Netlist matches Eagle's nets, pin for pin/.test(m.textContent) && /Every board signal matches/.test(m.textContent), m?.textContent);
-check('losses', !/Octagonal pads became round/.test(m?.textContent || '') && /Curved tracks/.test(m?.textContent || '')); // octagons stay octagons (#70)
+check('losses', !/Octagonal pads became round/.test(m?.textContent || '') && !/Curved tracks/.test(m?.textContent || '')); // octagons stay octagons (#70), curves stay arcs (#93)
 // the DRC row fills in once the Zones have filled, and the log has it
 for (let i = 0; i < 100 && /waiting for the Zones/.test(m?.textContent || ''); i++) await new Promise((r) => setTimeout(r, 100));
 check('drc-row', /DRC: 0 errors/.test(m?.textContent || ''), m?.textContent);
 const log = app.importLog?.text || '';
-check('log', /ElectroCAD import log/.test(log) && /regulator\.sch \(Eagle [\d.]+/.test(log) && /\[ok\] The Netlist matches/.test(log) && /DRC: 0 errors, \d+ warnings/.test(log) && /- Curved tracks/.test(log) && !/Octagonal/.test(log), log);
+check('log', /ElectroCAD import log/.test(log) && /regulator\.sch \(Eagle [\d.]+/.test(log) && /\[ok\] The Netlist matches/.test(log) && /DRC: 0 errors, \d+ warnings/.test(log) && !/Curved tracks/.test(log) && !/Octagonal/.test(log), log);
 check('log-buttons', [...m.querySelectorAll('button')].some((x) => x.textContent === 'Copy log') && [...m.querySelectorAll('button')].some((x) => /Save log/.test(x.textContent)));
 const logFile = `/tmp/electrocad-smoke-eagle-${Date.now()}.txt`;
 await native.smokeDialog(logFile);

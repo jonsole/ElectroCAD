@@ -3,7 +3,7 @@
 import { shove, fixedItems } from './shove.js';
 import { copperIndex } from './collision.js';
 import { copperLayerNames } from './board.js';
-import { pointSeg2 } from './collision.js';
+import { nearestOnTrack } from './trackGeom.js';
 import { placedPads, padNets } from './footprint.js';
 import { newVia } from './router.js';
 
@@ -51,7 +51,7 @@ export function setViaSize(project, ids, { drill, diameter }) {
 /** The Net at `at`: a Track or Via there, else a pad, else none (''). */
 export function netAt(project, at, tol = 0) {
   const b = project.board;
-  const t = (b.tracks || []).find((x) => pointSeg2(at, x.a, x.b) <= (x.width / 2 + tol) ** 2);
+  const t = (b.tracks || []).find((x) => nearestOnTrack(x, at).d <= x.width / 2 + tol);
   if (t) return t.net;
   const v = (b.vias || []).find((x) => Math.hypot(at[0] - x.at[0], at[1] - x.at[1]) <= x.diameter / 2 + tol);
   if (v) return v.net;

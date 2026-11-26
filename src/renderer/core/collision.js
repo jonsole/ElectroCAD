@@ -4,10 +4,12 @@
 // Shapes (nm):
 //   { type: 'capsule', a, b, r }  a Track (a circle when a = b: a Via, a round pad)
 //   { type: 'poly', pts }          a rectangular pad (its corners, rotated)
+//   { type: 'chain', pts, r, a, b } an arc Track (#93): capsules along its flattened centre line
 // An item is { kind: 'track' | 'via' | 'pad', id, net, layers: Set, shape, box }.
 import { copperDrawingItems } from './boardDrawings.js';
 import { placedPads, padNets, padByLayers } from './footprint.js';
 import { copperLayerNames } from './board.js';
+import { trackShape } from './trackGeom.js';
 
 const low = (s) => String(s || '').toLowerCase();
 
@@ -46,6 +48,12 @@ function inPoly(p, pts) {
 
 /** Edge-to-edge distance between two shapes (0 or less when they touch or overlap). */
 export function shapeDistance(s, t) {
+  if (t.type === 'chain' && s.type !== 'chain') return shapeDistance(t, s);
+  if (s.type === 'chain') { // the nearest of its capsules
+    let m = Infinity;
+    for (const c of chainCapsules(s)) { m = Math.min(m, shapeDistance(c, t)); if (m <= 0) break; }
+    return m;
+  }
   if (s.type === 'poly' && t.type !== 'poly') return shapeDistance(t, s);
   if (s.type === 'capsule' && t.type === 'capsule') return segSeg(s.a, s.b, t.a, t.b) - s.r - t.r;
   if (s.type === 'capsule') { // capsule – poly
@@ -61,7 +69,18 @@ export function shapeDistance(s, t) {
   return m;
 }
 
+/** A chain's capsules, one per piece. */
+export function chainCapsules(s) {
+  const out = [];
+  for (let i = 1; i < s.pts.length; i++) out.push({ type: 'capsule', a: s.pts[i - 1], b: s.pts[i], r: s.r });
+  return out;
+}
+
 export function shapeBox(s) {
+  if (s.type === 'chain') {
+    const xs = s.pts.map((p) => p[0]), ys = s.pts.map((p) => p[1]);
+    return { x0: Math.min(...xs) - s.r, y0: Math.min(...ys) - s.r, x1: Math.max(...xs) + s.r, y1: Math.max(...ys) + s.r };
+  }
   if (s.type === 'capsule') return { x0: Math.min(s.a[0], s.b[0]) - s.r, y0: Math.min(s.a[1], s.b[1]) - s.r, x1: Math.max(s.a[0], s.b[0]) + s.r, y1: Math.max(s.a[1], s.b[1]) + s.r };
   const xs = s.pts.map((p) => p[0]), ys = s.pts.map((p) => p[1]);
   return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
@@ -193,7 +212,7 @@ export class CopperIndex {
 export function copperIndex(project, board = project.board) {
   const copper = copperLayerNames(board.stack.copper);
   const items = [];
-  for (const t of board.tracks || []) items.push({ kind: 'track', id: t.id, net: t.net, layers: new Set([t.layer]), shape: { type: 'capsule', a: t.a, b: t.b, r: t.width / 2 }, item: t });
+  for (const t of board.tracks || []) items.push({ kind: 'track', id: t.id, net: t.net, layers: new Set([t.layer]), shape: trackShape(t), item: t });
   for (const v of board.vias || []) items.push({ kind: 'via', id: v.id, net: v.net, layers: new Set(copper), shape: { type: 'capsule', a: v.at, b: v.at, r: v.diameter / 2 }, item: v });
   const nets = padNets(board), view = { ...project, board };
   for (const bf of board.footprints) {

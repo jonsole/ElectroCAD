@@ -5,7 +5,7 @@
 // pusher is lifted clear of it in a bump, a raised run parallel to the Track joined back by two
 // 45° ramps (shove(), bumpOf()). The bump is new copper of the Track's Net, so it may push the next
 // Track in turn: the push travels through a chain of parallel Tracks. Pads, copper drawings and
-// locked Tracks and Vias never move; when a push would need them to (or a bump doesn't fit
+// locked Tracks and Vias never move, nor do arc Tracks (#93); when a push would need them to (or a bump doesn't fit
 // in its Track, or the push goes round in circles), the shove fails and the router falls back to
 // walking round. A Via in the way moves clear in a 45° direction (viaMove), its Tracks' ends
 // going with it (#30). It is worked out afresh from the Board as it was for every cursor position, so
@@ -13,13 +13,14 @@
 import { shapeDistance, shapeBox, clearanceBetween, pairKind } from './collision.js';
 import { outlineSegments } from './walkaround.js';
 import { uid } from './project.js';
+import { trackShape } from './trackGeom.js';
 
 const MAX_PUSHES = 400;    // give up past this many pushes in one shove
 const MAX_PER_TRACK = 6;   // or when one Track is pushed this many times over (times 4 pushers)
 const SLACK = 2_000;       // nm beyond the clearance, so rounding never leaves a pushed Track short
 const low = (s) => String(s || '').toLowerCase();
 
-const cap = (t) => ({ type: 'capsule', a: t.a, b: t.b, r: t.width / 2 });
+const cap = trackShape; // a capsule, or a chain along an arc Track (#93)
 const boxesMeet = (a, b, m = 0) => a.x0 - m <= b.x1 && a.x1 + m >= b.x0 && a.y0 - m <= b.y1 && a.y1 + m >= b.y0;
 
 /** Do segments p1-p2 and q1-q2 cross (their centre lines)? */
@@ -123,6 +124,7 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
       if (!boxesMeet(pb, shapeBox(cap(t)), need)) continue;
       if (shapeDistance(pc, cap(t)) >= need) continue;
       if (locked.has(id) || t.locked) return { ok: false, reason: 'locked' };
+      if (t.mid) return { ok: false, reason: 'arc' }; // an arc Track isn't bent: walk round it
       if (++pushes > MAX_PUSHES) return { ok: false, reason: 'too many pushes' };
       const list = [...(pushedBy.get(id) || []), { a: p.a, b: p.b, r: p.r, need }];
       if (list.length > MAX_PER_TRACK * 4) return { ok: false, reason: 'loop' };
@@ -161,6 +163,7 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
       const same = (q) => q[0] === from[0] && q[1] === from[1];
       for (const t of [...tracks]) {
         if (low(t.net) !== low(v.net) || (!same(t.a) && !same(t.b))) continue;
+        if (t.mid) return { ok: false, reason: 'arc' };
         const id = origin.get(t);
         const o = orig.get(id);
         if (o && (same(o.a) || same(o.b))) orig.set(id, { ...o, a: same(o.a) ? to : o.a, b: same(o.b) ? to : o.b });

@@ -2,15 +2,9 @@
 // Track end (#87, #88), or a point along a Track (a T-junction, #89), which splits the Track there
 // when the route is committed. DOM-free.
 import { uid } from './project.js';
+import { nearestOnTrack, splitGeometry } from './trackGeom.js';
 
 const d2 = (p, q) => (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2;
-
-/** The point of segment a–b nearest `p`, and how far along it is (0 at a, 1 at b). */
-function nearestOn(p, a, b) {
-  const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy;
-  const s = L2 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2)) : 0;
-  return { at: [Math.round(a[0] + dx * s), Math.round(a[1] + dy * s)], s };
-}
 
 /**
  * The copper under `p` a route on `layer` can join: { kind: 'via' | 'end' | 'along', at, net,
@@ -32,8 +26,8 @@ export function copperTarget(board, p, tol, layer, { along = false, hidden = new
   if (best) return { kind: 'end', at: best.q, net: best.t.net, layer, id: best.t.id };
   if (!along) return null;
   for (const t of ts) {
-    const n = nearestOn(p, t.a, t.b);
-    if (d2(p, n.at) > (t.width / 2 + tol) ** 2) continue;
+    const n = nearestOnTrack(t, p);
+    if (n.d > t.width / 2 + tol) continue;
     // at an end it is that end
     if (n.s <= 0 || n.s >= 1 || d2(n.at, t.a) === 0 || d2(n.at, t.b) === 0) return { kind: 'end', at: n.s < 0.5 ? t.a : t.b, net: t.net, layer, id: t.id };
     return { kind: 'along', at: n.at, net: t.net, layer, id: t.id };
@@ -43,7 +37,7 @@ export function copperTarget(board, p, tol, layer, { along = false, hidden = new
 
 /** A Track of a net on another layer than `layer` under `p` (to say which layer to make active). */
 export function trackOnOtherLayer(board, p, tol, layer, hidden = new Set()) {
-  return (board.tracks || []).find((t) => t.net && t.layer !== layer && !hidden.has(t.layer) && d2(p, nearestOn(p, t.a, t.b).at) <= (t.width / 2 + tol) ** 2) || null;
+  return (board.tracks || []).find((t) => t.net && t.layer !== layer && !hidden.has(t.layer) && nearestOnTrack(t, p).d <= t.width / 2 + tol) || null;
 }
 
 /**
@@ -54,8 +48,9 @@ export function trackOnOtherLayer(board, p, tol, layer, hidden = new Set()) {
 export function splitTrackAt(board, id, at, newId = uid('t')) {
   const t = (board.tracks || []).find((x) => x.id === id);
   if (!t || d2(t.a, at) === 0 || d2(t.b, at) === 0) return null;
-  const piece = { ...t, id: newId, a: at, b: t.b };
-  t.b = at;
+  const [g1, g2] = splitGeometry(t, at); // an arc gives two arcs of its circle (#93)
+  const piece = { ...t, id: newId, ...g2 };
+  t.b = g1.b; if (g1.mid) t.mid = g1.mid;
   board.tracks.push(piece);
   return piece;
 }

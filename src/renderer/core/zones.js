@@ -10,6 +10,7 @@
 //   5. islands that touch none of the Zone's own Net's copper are removed (unless keepIslands).
 // Everything here is plain data in, plain data out, so the same code runs in the Web Worker
 // (board/zoneWorker.js) and, synchronously, in the tests. DOM-free.
+import { trackPoints } from './trackGeom.js';
 import { copperDrawingTracks } from './boardDrawings.js';
 import ClipperLib from 'clipper-lib';
 import { placedPads, padNets, padByLayers, bfKey } from './footprint.js';
@@ -79,6 +80,7 @@ const area = (paths) => paths.reduce((s, p) => s + CL.Clipper.Area(p), 0);
 
 /** A collision-engine shape grown by d, as paths. */
 function shapePaths(shape, d) {
+  if (shape.type === 'chain') return shape.r + d > 0 ? offset([P(shape.pts)], shape.r + d, true) : []; // an arc Track (#93)
   if (shape.type === 'capsule') {
     const r = shape.r + d;
     if (r <= 0) return [];
@@ -141,8 +143,17 @@ export function zoneInput(project, board = project.board, extraTracks = []) {
   return {
     rules: board.rules, netClasses: board.netClasses || {}, outline: board.outline || [], copper,
     // drawings on copper (#66) are net-less copper the pour keeps clear of
-    zones: board.zones || [], tracks: [...(board.tracks || []), ...copperDrawingTracks(board), ...extraTracks], vias: board.vias || [], pads,
+    zones: board.zones || [], tracks: [...straightTracks(board.tracks || []), ...copperDrawingTracks(board), ...straightTracks(extraTracks)], vias: board.vias || [], pads,
   };
+}
+
+/** Tracks with each arc (#93) as the straight pieces of its flattened centre line, for the pour. */
+function straightTracks(tracks) {
+  return tracks.flatMap((t) => {
+    if (!t.mid) return [t];
+    const pts = trackPoints(t), { mid: _m, ...base } = t;
+    return pts.slice(1).map((b, i) => ({ ...base, id: `${t.id}:${i}`, a: pts[i], b }));
+  });
 }
 
 const boardOf = (input) => ({ rules: input.rules, netClasses: input.netClasses });

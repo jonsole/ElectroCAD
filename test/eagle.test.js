@@ -135,7 +135,7 @@ test('board: every pad lands where Eagle puts it, on the right side and net', ()
   assert.equal(n, 2 + 2 + 4 + 8);
   // copper: tracks on their signals, the via, the bottom GND zone, the Power class
   assert.ok(b.tracks.length >= 4 && b.tracks.every((t) => ['VCC', 'VOUT'].includes(t.net)));
-  assert.ok(b.tracks.filter((t) => t.net === 'VOUT').length > 3, 'the curved track is several segments');
+  assert.equal(b.tracks.filter((t) => t.net === 'VOUT' && t.mid).length, 1, 'the curved track is one arc (#93)');
   assert.ok(b.tracks.filter((t) => t.net === 'VCC').every((t) => t.width === 600_000));
   assert.equal(b.vias.length, 1); assert.equal(b.vias[0].net, 'GND');
   assert.equal(b.zones.length, 1); assert.equal(b.zones[0].layer, 'B.Cu'); assert.equal(b.zones[0].net, 'GND');

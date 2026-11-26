@@ -10,6 +10,7 @@
 // need: the clearance or size the rule asks for; outlines / overlap: courtyard rings and their
 // overlap; wire: an unrouted connection [a, b]; label: a short note to draw (sizes).
 import ClipperLib from 'clipper-lib';
+import { trackShape, trackBox, pointAlong } from './trackGeom.js';
 import { copperIndex, shapeDistance, shapeBox, clearanceBetween, netRules, pointSeg2, pairKind, pairKey, maxClearance } from './collision.js';
 import { fpTransform, flipLayer, placedPads, padNets, bfFootprint, bfRef } from './footprint.js';
 import { footprintOf } from './project.js';
@@ -59,7 +60,7 @@ function closestSegs(a, b, c, d) {
   for (const [p, q] of cands) { const dd = (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2; if (dd < bd) { bd = dd; best = [p, q]; } }
   return best;
 }
-const edges = (s) => (s.type === 'capsule' ? [[s.a, s.b]] : s.pts.map((p, i) => [p, s.pts[(i + 1) % s.pts.length]]));
+const edges = (s) => (s.type === 'capsule' ? [[s.a, s.b]] : s.type === 'chain' ? s.pts.slice(1).map((p, i) => [s.pts[i], p]) : s.pts.map((p, i) => [p, s.pts[(i + 1) % s.pts.length]]));
 /** Where two shapes come closest (the midpoint between them). */
 function nearestPoint(s, t) {
   let best = null, bd = Infinity;
@@ -83,7 +84,7 @@ export function closestPair(s, t) {
     if (dd < bd) { bd = dd; best = [p, q]; }
   }
   const [p, q] = best, L = Math.sqrt(bd);
-  const rs = s.type === 'capsule' ? s.r : 0, rt = t.type === 'capsule' ? t.r : 0;
+  const rs = s.type === 'capsule' || s.type === 'chain' ? s.r : 0, rt = t.type === 'capsule' || t.type === 'chain' ? t.r : 0;
   const ux = L ? (q[0] - p[0]) / L : 1, uy = L ? (q[1] - p[1]) / L : 0;
   const r2 = (v) => Math.round(v);
   return { a: [r2(p[0] + ux * rs), r2(p[1] + uy * rs)], b: [r2(q[0] - ux * rt), r2(q[1] - uy * rt)], d: Math.round(shapeDistance(s, t)) };
@@ -210,7 +211,7 @@ export function runDrc(project, fills = new Map(), { areas = null, rats = null }
   for (const it of local) {
     if (it.kind === 'zone') continue; // fills are cut back from the edge
     if (it.kind === 'drawing') { if (edgeSeen.has(it.id)) continue; }
-    const probe = it.shape.type === 'capsule' ? it.shape.a : it.shape.pts[0];
+    const probe = it.shape.type === 'capsule' || it.shape.type === 'chain' ? it.shape.a : it.shape.pts[0];
     if (rings && !inRings(probe, rings)) {
       edgeSeen.add(it.id);
       add({ rule: 'edge', severity: 'error', at: probe, box: boxAround(probe, 2_000_000), items: [it.id], layer: [...it.layers][0], show: { shapes: [it.shape] }, message: `${name(it)} is off the board.` });
@@ -232,7 +233,7 @@ export function runDrc(project, fills = new Map(), { areas = null, rats = null }
   // track width (narrower than its Net class's), annular ring and hole size
   for (const t of board.tracks || []) {
     const need = netRules(board, t.net).trackWidth;
-    if (t.width < need) { const at = mid(t.a, t.b); add({ rule: 'width', severity: 'error', at, box: merge(boxAround(t.a, 1_000_000), boxAround(t.b, 1_000_000)), items: [t.id], layer: t.layer, show: { shapes: [{ type: 'capsule', a: t.a, b: t.b, r: t.width / 2 }], label: `${mmText(t.width)} wide · ${mmText(need)} needed`, labelAt: at }, message: `Track (${t.net || 'no net'}) is ${mmText(t.width)} wide; its ${netClassOf(board, t.net)} class needs ${mmText(need)}.` }); }
+    if (t.width < need) { const at = pointAlong(t, 0.5), bx = trackBox(t); add({ rule: 'width', severity: 'error', at, box: { x0: bx.x0 - 1_000_000, y0: bx.y0 - 1_000_000, x1: bx.x1 + 1_000_000, y1: bx.y1 + 1_000_000 }, items: [t.id], layer: t.layer, show: { shapes: [trackShape(t)], label: `${mmText(t.width)} wide · ${mmText(need)} needed`, labelAt: at }, message: `Track (${t.net || 'no net'}) is ${mmText(t.width)} wide; its ${netClassOf(board, t.net)} class needs ${mmText(need)}.` }); }
   }
   const holes = [];
   for (const v of board.vias || []) holes.push({ id: v.id, at: v.at, drill: v.drill, copper: v.diameter, what: `Via (${v.net || 'no net'})` });

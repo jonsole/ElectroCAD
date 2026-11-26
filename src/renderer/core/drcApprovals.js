@@ -9,7 +9,7 @@ import { footprintOf } from './project.js';
 /** How each kind of item looks to an approval: its geometry and net, or null when it's gone. */
 function itemSigs(project, board = project.board) {
   const byId = new Map();
-  for (const t of board.tracks || []) byId.set(t.id, () => ['t', t.a, t.b, t.width, t.layer, t.net || '']);
+  for (const t of board.tracks || []) byId.set(t.id, () => ['t', t.a, t.b, t.width, t.layer, t.net || '', ...(t.mid ? [t.mid] : [])]);
   for (const v of board.vias || []) byId.set(v.id, () => ['v', v.at, v.diameter, v.drill, v.net || '']);
   for (const z of board.zones || []) byId.set(z.id, () => ['z', z.outline, z.layer, z.net || '', z.priority, z.clearance || 0]);
   for (const d of board.drawings || []) byId.set(d.id, () => ['d', d]);

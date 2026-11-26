@@ -147,7 +147,7 @@ The ordered set of copper and dielectric layers of a Board. ElectroCAD supports 
 One conductive layer: F.Cu (top), In1.Cu, In2.Cu or B.Cu (bottom).
 
 **Track**:
-A copper line segment on one Copper layer that carries a Net.
+A copper line segment on one Copper layer that carries a Net: straight from end to end, or an arc through a middle point (an arc Track, #93).
 _Avoid_: Trace, wire (wire means the schematic line)
 
 **Via**:

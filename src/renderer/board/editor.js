@@ -22,6 +22,7 @@ import { boardItems, changedAreas } from '../core/drcLive.js';
 import { hitPad, footprintOutline, insidePolygon, placedPads, padNets, hitFootprint, moveFootprints, rotateFootprints, flipFootprints, setLocked, setFootprintRotation, bfFootprint, bfKey, bfRef } from '../core/footprint.js';
 import { ratsnest } from '../core/ratsnest.js';
 import { copperIndex, pointSeg2 } from '../core/collision.js';
+import { trackArc, trackBox, trackLength, trackPoints, nearestOnTrack } from '../core/trackGeom.js';
 import { BENDS, bendOf, bendFromPref, cycleBend, withBend, strokeTo, ROUTE_MODES, startRoute, step as routeStep, click as routeClickAt, back as routeBack, commit as routeCommit, switchLayer, layerPairs } from '../core/router.js';
 import { connection, setTrackWidth, setTrackLayer, setViaSize, placeVia, placeViaPushing } from '../core/copper.js';
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
@@ -358,9 +359,10 @@ export class BoardEditor {
       return row(label, i, 'mm');
     };
     const nets = [...new Set([...tracks, ...vias].map((x) => x.net || '(no net)'))];
-    const len = tracks.reduce((a, t) => a + Math.hypot(t.b[0] - t.a[0], t.b[1] - t.a[1]), 0);
+    const len = tracks.reduce((a, t) => a + trackLength(t), 0);
+    const arcs = tracks.filter((t) => t.mid).map(trackArc).filter(Boolean);
     const out = [h('div', { class: 'prop-title' }, [tracks.length ? `${tracks.length} track${tracks.length === 1 ? '' : 's'}` : '', vias.length ? `${vias.length} via${vias.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')),
-      h('p', { class: 'side-note' }, `Net ${nets.map((n) => (n === '(no net)' ? n : `${n} (${netClassOf(this.board, n)} class)`)).join(', ')}${tracks.length ? ` · ${fmt(Math.round(len))} mm long` : ''}`)];
+      h('p', { class: 'side-note' }, `Net ${nets.map((n) => (n === '(no net)' ? n : `${n} (${netClassOf(this.board, n)} class)`)).join(', ')}${tracks.length ? ` · ${fmt(Math.round(len))} mm long` : ''}${arcs.length ? ` · ${arcs.length === tracks.length && arcs.length === 1 ? 'an arc' : `${arcs.length} arc${arcs.length === 1 ? '' : 's'}`}${arcs.length === 1 ? `, radius ${fmt(Math.round(arcs[0].r))} mm` : ''}` : ''}`)];
     if (tracks.length) {
       const ids = tracks.map((t) => t.id);
       out.push(num('Width', one(tracks, 'width'), (w) => this.app.edit('Track width', (p) => setTrackWidth(p, ids, w))));
@@ -1342,7 +1344,7 @@ export class BoardEditor {
     this.fpSel = new Set(fps.map((f) => f.id));
     this.trackSel = new Set(copper.map((t) => t.id));
     this.netSel = new Set([...new Set(padMap.values())].filter((n) => n && low.has(n.toLowerCase())));
-    const pts = [...fps.flatMap((f) => footprintOutline(this.project, f)), ...copper.flatMap((t) => (t.at ? [t.at] : [t.a, t.b])), ...padPts];
+    const pts = [...fps.flatMap((f) => footprintOutline(this.project, f)), ...copper.flatMap((t) => (t.at ? [t.at] : trackPoints(t, 10_000))), ...padPts];
     if (pts.length && this.ws) {
       const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
       const m = mm(4), w = Math.max(Math.max(...xs) - Math.min(...xs), mm(12)), hh = Math.max(Math.max(...ys) - Math.min(...ys), mm(8));
@@ -1380,7 +1382,7 @@ export class BoardEditor {
   _zoneNet(p, layer) {
     const hit = hitPad(this.project, p, { preferBack: layer.startsWith('B.') });
     if (hit?.pad.net && (hit.pad.layers.includes(layer) || hit.pad.layers.includes('*.Cu'))) return hit.pad.net;
-    const tr = (this.board.tracks || []).find((t) => t.layer === layer && t.net && pointSeg2(p, t.a, t.b) <= (t.width / 2) ** 2);
+    const tr = (this.board.tracks || []).find((t) => t.layer === layer && t.net && nearestOnTrack(t, p).d <= t.width / 2);
     if (tr) return tr.net;
     return [...new Set(padNets(this.board).values())].find((n) => /^gnd$/i.test(n)) || '';
   }
@@ -1416,7 +1418,7 @@ export class BoardEditor {
     const nets = padNets(board), proj = { ...this.project, board };
     const boxes = [
       ...sub.outline.map((sh) => outlineBounds([sh])),
-      ...(board.tracks || []).filter((t) => trackIds.has(t.id)).map((t) => ({ x0: Math.min(t.a[0], t.b[0]) - t.width / 2, y0: Math.min(t.a[1], t.b[1]) - t.width / 2, x1: Math.max(t.a[0], t.b[0]) + t.width / 2, y1: Math.max(t.a[1], t.b[1]) + t.width / 2 })),
+      ...(board.tracks || []).filter((t) => trackIds.has(t.id)).map(trackBox),
       ...sub.zones.map((z) => { const xs = z.outline.map((q) => q[0]), ys = z.outline.map((q) => q[1]); return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }; }),
       ...(board.drawings || []).filter((d) => trackIds.has(d.id)).map((d) => drawingBox(d, board.textFont || 'stroke')),
       ...(board.vias || []).filter((v) => trackIds.has(v.id)).map((v) => ({ x0: v.at[0] - v.diameter / 2, y0: v.at[1] - v.diameter / 2, x1: v.at[0] + v.diameter / 2, y1: v.at[1] + v.diameter / 2 })),
@@ -1657,7 +1659,7 @@ export class BoardEditor {
     const order = ['F.Cu', 'In1.Cu', 'In2.Cu', 'B.Cu'];
     const ts = (this.board.tracks || []).filter((t) => !this.hidden.has(t.layer)).sort((a, b) => order.indexOf(a.layer) - order.indexOf(b.layer));
     const via = (this.hidden.has('F.Cu') && this.hidden.has('B.Cu')) ? null : (this.board.vias || []).find((v) => Math.hypot(w[0] - v.at[0], w[1] - v.at[1]) <= v.diameter / 2 + tol);
-    return via || ts.find((t) => pointSeg2(w, t.a, t.b) <= (t.width / 2 + tol) ** 2) || null;
+    return via || ts.find((t) => nearestOnTrack(t, w).d <= t.width / 2 + tol) || null;
   }
 
   /** U: select the whole connection the selected copper belongs to. */
@@ -2225,6 +2227,7 @@ export class BoardEditor {
     for (const it of collisions) {
       ctx.beginPath();
       if (it.shape.type === 'poly') it.shape.pts.map((q) => view.toScreen(q)).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      else if (it.shape.type === 'chain') { ctx.lineWidth = (it.shape.r * view.scale + 2) * 2; ctx.globalAlpha = 0.35; it.shape.pts.map((q) => view.toScreen(q)).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); ctx.lineWidth = 2; ctx.globalAlpha = 1; continue; }
       else { const [x0, y0] = view.toScreen(it.shape.a), [x1, y1] = view.toScreen(it.shape.b); const r = it.shape.r * view.scale + 2; if (x0 === x1 && y0 === y1) ctx.arc(x0, y0, r, 0, Math.PI * 2); else { ctx.lineWidth = r * 2; ctx.globalAlpha = 0.35; ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); } }
       ctx.closePath(); ctx.stroke(); ctx.lineWidth = 2; ctx.globalAlpha = 1;
     }
@@ -2299,7 +2302,16 @@ export class BoardEditor {
 /** A collision shape's outline on screen: a capsule (round-ended segment, or circle) or a polygon. */
 function shapePathDrc(ctx, view, sh, grow = 0) {
   ctx.beginPath();
-  if (sh.type === 'capsule') {
+  if (sh.type === 'chain') { // an arc Track (#93): its capsules, one sub-path each
+    for (let i = 1; i < sh.pts.length; i++) {
+      const [ax, ay] = view.toScreen(sh.pts[i - 1]), [bx, by] = view.toScreen(sh.pts[i]), r = Math.max(0.5, (sh.r + grow) * view.scale);
+      const ang = Math.atan2(by - ay, bx - ax);
+      ctx.moveTo(ax + r * Math.cos(ang + Math.PI / 2), ay + r * Math.sin(ang + Math.PI / 2));
+      ctx.arc(ax, ay, r, ang + Math.PI / 2, ang + (3 * Math.PI) / 2);
+      ctx.arc(bx, by, r, ang - Math.PI / 2, ang + Math.PI / 2);
+      ctx.closePath();
+    }
+  } else if (sh.type === 'capsule') {
     const [ax, ay] = view.toScreen(sh.a), [bx, by] = view.toScreen(sh.b), r = Math.max(0.5, (sh.r + grow) * view.scale);
     const ang = Math.atan2(by - ay, bx - ax);
     ctx.arc(ax, ay, r, ang + Math.PI / 2, ang + (3 * Math.PI) / 2);
@@ -2320,7 +2332,7 @@ function drawDrcShow(ctx, view, C, v, col, strong) {
   if (strong && s.need && s.shapes?.[0]) {
     const sh = s.shapes[0];
     ctx.fillStyle = col; ctx.globalAlpha = 0.18;
-    if (sh.type === 'capsule') { shapePathDrc(ctx, view, sh, s.need); ctx.fill(); }
+    if (sh.type === 'capsule' || sh.type === 'chain') { shapePathDrc(ctx, view, sh, s.need); ctx.fill(); }
     else { shapePathDrc(ctx, view, sh); ctx.lineWidth = 2 * s.need * view.scale; ctx.strokeStyle = col; ctx.stroke(); ctx.fill(); }
   }
   for (const sh of s.shapes || []) {

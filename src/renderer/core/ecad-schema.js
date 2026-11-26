@@ -1404,6 +1404,7 @@ export const ECAD_SCHEMA = {
         "b": {
           "$ref": "#/$defs/point"
         },
+        "mid": { "$ref": "#/$defs/point", "description": "A point on the arc between a and b: an arc Track (#93). Absent: straight." },
         "width": {
           "$ref": "#/$defs/nm"
         },
