@@ -70,5 +70,17 @@ check('corner-moved', after.some((t) => (t.a[0] === 8 * MM && t.a[1] === 11 * MM
 await ed.runDrc(); await wait(50);
 check('corner-still-routed', !ed.drc.list.some((v) => v.rule === 'unrouted'));
 ed.drcCard?.toggle?.(false);
+// the Select tool: a click selects a track without moving it; a drag slides it the same way
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+await wait(50);
 ed.setTool('select');
+ev('pointermove', 20, 12, 0); ev('pointerdown', 20, 12, 1); ev('pointerup', 20, 12, 0); await wait(50);
+check('select-click', ed.trackSel.has('u2') && JSON.stringify(app.project.board.tracks) === JSON.stringify(before));
+ev('pointerdown', 20, 12, 1); ev('pointermove', 20, 12.5, 1); await wait(30);
+check('select-drag-preview', ed.trackDrag?.result?.moved?.has('o'));
+ev('pointerup', 20, 12.5, 0); await wait(50);
+check('select-drag', app.project.board.tracks.find((t) => t.id === 'u2')?.a[1] === 12.5 * MM && ed.trackSel.has('u2'));
+app.edit('lock', (pr) => { pr.board.tracks.find((t) => t.id === 'u2').locked = true; });
+ev('pointerdown', 20, 12.5, 1); ev('pointermove', 20, 11, 1); await wait(30); ev('pointerup', 20, 11, 0); await wait(50);
+check('select-locked', app.project.board.tracks.find((t) => t.id === 'u2')?.a[1] === 12.5 * MM);
 return { fails };

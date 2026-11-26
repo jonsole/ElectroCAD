@@ -908,10 +908,21 @@ export class BoardEditor {
           try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
           return;
         }
-        const tr = this._hitTrack(w, tol);
+        // a Track: a click selects it; dragging it slides the segment (its neighbours follow) or,
+        // pressed at a corner, moves the corner, as the Drag track tool does (#31)
+        const corner = !e.shiftKey && cornerAt(this.project, this.board, w, 6 / ws.view.view.scale, this.hidden);
+        const tr = this._hitTrack(w, tol) || (corner && this.board.tracks.find((t) => t.layer === corner.layer && ((t.a[0] === corner.at[0] && t.a[1] === corner.at[1]) || (t.b[0] === corner.at[0] && t.b[1] === corner.at[1]))));
         if (tr) {
           if (e.shiftKey) { if (this.trackSel.has(tr.id)) this.trackSel.delete(tr.id); else this.trackSel.add(tr.id); }
-          else { this.trackSel = new Set([tr.id]); this.fpSel.clear(); this.selection.clear(); this.netSel.clear(); this.zoneSel.clear(); }
+          else {
+            this.trackSel = new Set([tr.id]); this.fpSel.clear(); this.selection.clear(); this.netSel.clear(); this.zoneSel.clear(); this.drawSel.clear();
+            if (tr.a) {
+              const start = this.snapAt(w);
+              this.trackDrag = corner ? { kind: 'corner', at: corner.at, layer: corner.layer, start, result: null } : { kind: 'segment', id: tr.id, start, result: null };
+              Object.assign(this.trackDrag, { pending: true, startPx: [e.clientX, e.clientY], locked: !!tr.locked });
+              try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+            }
+          }
           this.refresh();
           return;
         }
@@ -982,7 +993,16 @@ export class BoardEditor {
       else if (this.tool !== 'select') this.cursor = this.snapAt(w);
       else this.cursor = this.snapPt(w);
       if (this.trackDrag && (e.buttons & 1)) {
-        const d = this.trackDrag, to = this.cursor;
+        const d = this.trackDrag;
+        // from the Select tool: only once the pointer has moved a few pixels (a click just selects)
+        if (d.pending) {
+          if (Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 4) return;
+          if (d.locked) { this.trackDrag = null; toast('That track is locked (its Properties).', 'info', 1800); return; }
+          d.pending = false;
+          this.trackDragIndex = copperIndex(this.project);
+        }
+        this.cursor = this.snapAt(w);
+        const to = this.cursor;
         const r = d.kind === 'segment' ? dragSegment(this.project, this.board, d.id, [to[0] - d.start[0], to[1] - d.start[1]]) : dragCorner(this.project, this.board, d.at, to, d.layer);
         const res = dragResult(this.project, r, { shove: this.routeMode === 'shove', index: this.trackDragIndex });
         // a drag that can't be pushed clear stays where it last could be
