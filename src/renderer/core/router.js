@@ -220,7 +220,7 @@ export const nextLayer = (pair, layer) => (layer === pair[0] ? pair[1] : layer =
 export function switchLayer(project, state, at, to = null, tail = null) {
   const s1 = click(project, state, at, tail);
   const end = s1.points[s1.points.length - 1];
-  return { ...s1, runs: [...s1.runs, { layer: s1.layer, points: s1.points }], vias: [...s1.vias, { at: end }], layer: to || nextLayer(s1.pair, s1.layer), points: [end], stroke: [], stops: [] };
+  return { ...s1, runs: [...s1.runs, { layer: s1.layer, points: s1.points }], vias: [...s1.vias, { at: end }], layer: to || nextLayer(s1.pair, s1.layer), points: [end], stroke: [], stops: [], lead: null, forced: false };
 }
 
 /**
@@ -301,6 +301,47 @@ function obstaclesFor(project, state, index, margin = 0) {
   return index._walk.get(k);
 }
 
+const unitOf = (v) => { const L = Math.hypot(v[0], v[1]); return L ? [v[0] / L, v[1] / L] : null; };
+
+/**
+ * Which way the route is heading at its last fixed corner (a unit vector): along its last fixed
+ * segment (an arc's tangent at its end), or `state.lead` before there is one (the Track it
+ * carries on from); null at a pad or a via.
+ */
+export function heading(state) {
+  const n = state.points.length;
+  if (n < 2) return state.lead || null;
+  const p = state.points[n - 1];
+  let q = state.points[n - 2];
+  if (p.mid) { const pts = trackPoints({ a: q, mid: p.mid, b: p }, 2_000); q = pts[pts.length - 2]; }
+  return unitOf([p[0] - q[0], p[1] - q[1]]);
+}
+
+/** The direction a path from `from` sets off in (an arc's tangent). */
+function setsOff(from, path) {
+  const p = path[0];
+  if (!p) return null;
+  if (p.mid) { const pts = trackPoints({ a: from, mid: p.mid, b: p }, 2_000); return unitOf([pts[1][0] - from[0], pts[1][1] - from[1]]); }
+  return unitOf([p[0] - from[0], p[1] - from[1]]);
+}
+
+/**
+ * The posture for the leg from the last fixed corner to `cursor`: the one whose first segment
+ * carries on the way the route is heading, as schematic wires do, where the bend style can;
+ * else the style's own. `state.forced` (/ pressed for this leg) keeps the style's.
+ */
+export function legPosture(state, cursor) {
+  if (state.forced || state.corner === 'any' || state.corner === 'free') return state.posture;
+  const h = heading(state);
+  if (!h) return state.posture;
+  const from = state.points[state.points.length - 1];
+  for (const ps of state.posture === 'a' ? ['a', 'b'] : ['b', 'a']) {
+    const d = setsOff(from, cornerPath(from, cursor, state.corner, ps));
+    if (d && d[0] * h[0] + d[1] * h[1] > 0.999) return ps;
+  }
+  return state.posture;
+}
+
 /**
  * The tentative corners from the last fixed one towards `cursor` (not including it): the corner
  * style's path in Free mode; in Walkaround mode a clear path round other Nets' copper, which
@@ -317,7 +358,9 @@ export function tentative(project, state, cursor, mode = 'free', index = null, t
     for (let i = 1; i < pts.length; i++) if (!obs.clear(pts[i - 1], pts[i])) return { tail: pts.slice(1, i), blocked: true };
     return { tail: pts.slice(1), blocked: false };
   }
-  const finish = (p) => routePath(p, cursor, state.corner, state.posture, p === last ? from : null, to, state.width);
+  // the first leg carries on the way the route is heading where it can (legPosture)
+  const lead = legPosture(state, cursor);
+  const finish = (p) => routePath(p, cursor, state.corner, p === last ? lead : state.posture, p === last ? from : null, to, state.width);
   if (mode !== 'walkaround' || !index) return { tail: finish(last), blocked: false };
   const exit = from && state.corner === '45' ? (dir) => { const r = padReach(from, dir); return r == null ? null : r + state.width; } : null;
   let obs = obstaclesFor(project, state, index);
@@ -406,7 +449,7 @@ export function click(project, state, point, tail = null) {
   if (!add.length) return state.stroke?.length ? { ...state, stroke: [] } : state;
   // freehand: a click fixes the stroke so far, and Backspace takes back all of it (`stops`)
   const free = state.corner === 'free' ? { stroke: [], stops: [...(state.stops || []), state.points.length] } : {};
-  return { ...state, ...free, points: [...state.points, ...add] };
+  return { ...state, ...free, forced: false, points: [...state.points, ...add] };
 }
 
 /** Take back the last fixed segment (the start stays); at a via, take the via back and return to the layer before. */

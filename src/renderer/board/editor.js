@@ -1518,6 +1518,8 @@ export class BoardEditor {
       const opts = { bend: this.bend, chamfer: this.chamfer, mitre: this.mitre, pair, pad: hit ? hit.pad : null };
       this.route = hit ? startRoute(this.project, hit.pad.at, this.activeLayer, hit.pad.net, opts) : startRoute(this.project, cu.at, this.activeLayer, cu.net, opts);
       if (cu && cu.kind === 'along') this.route.joins = [{ id: cu.id, at: cu.at }];
+      // from a Track's end: carry on the way it was going
+      if (cu && cu.kind === 'end') { const t = this.board.tracks.find((x) => x.id === cu.id); if (t) this.route.lead = this._leadAt(t, cu.at); }
       this.routeIndex = copperIndex(this.project);
       this._routeMove();
       this.refresh();
@@ -1562,10 +1564,18 @@ export class BoardEditor {
     if (this.activeLayer !== t.layer) this.setActiveLayer(t.layer);
     const pairs = layerPairs(this.board.stack.copper);
     const pair = this.pair && pairs.some((q) => q.join('|') === this.pair.join('|')) ? this.pair : null;
-    this.route = { ...startRoute(this.project, at, t.layer, t.net, { bend: this.bend, chamfer: this.chamfer, mitre: this.mitre, pair }), width: t.width };
+    this.route = { ...startRoute(this.project, at, t.layer, t.net, { bend: this.bend, chamfer: this.chamfer, mitre: this.mitre, pair }), width: t.width, lead: this._leadAt(t, at) };
     this.routeIndex = copperIndex(this.project);
     this.routeDragging = true;
     this.routeReturn = true;
+  }
+
+  /** The way Track `t` is heading at its end `at` (a unit vector), for a route carrying it on. */
+  _leadAt(t, at) {
+    const pts = trackPoints(t, 2_000), atB = t.b[0] === at[0] && t.b[1] === at[1];
+    const q = atB ? pts[pts.length - 2] : pts[1];
+    const v = [at[0] - q[0], at[1] - q[1]], L = Math.hypot(...v);
+    return L ? [v[0] / L, v[1] / L] : null;
   }
 
   /** The airwire under `w` (within a few pixels), or null. */
@@ -2262,7 +2272,8 @@ export class BoardEditor {
     }
     if (this.route) {
       if (e.key === 'Escape') { this.cancelRoute(); return true; }
-      if (e.key === '/') { this.setBend(bendOf(this.bend).mirror); return true; }
+      // / swaps to the mirrored style and keeps it for this leg, over carrying on straight
+      if (e.key === '/') { this.setBend(bendOf(this.bend).mirror); this.route = { ...this.route, forced: true }; this._routeMove(); return true; }
       if (e.key.toLowerCase() === 'v') {
         const at = this.cursor || this.route.points[this.route.points.length - 1];
         const v = this._proposal(at);

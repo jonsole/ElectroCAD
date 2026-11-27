@@ -6,7 +6,7 @@ import { changeList, applyChanges } from '../src/renderer/core/annotate.js';
 import { placedPads } from '../src/renderer/core/footprint.js';
 import { ratsnest } from '../src/renderer/core/ratsnest.js';
 import { CopperIndex, copperIndex, shapeDistance, padShape, netRules, clearanceBetween } from '../src/renderer/core/collision.js';
-import { cornerPath, chamferPath, startRoute, step, click, back, flipPosture, commit, bendOf, cycleBend, bendFromPref, withBend, strokeTo, simplifyPath, roundPath } from '../src/renderer/core/router.js';
+import { cornerPath, chamferPath, startRoute, step, click, back, flipPosture, commit, bendOf, cycleBend, bendFromPref, withBend, strokeTo, simplifyPath, roundPath, tentative, heading } from '../src/renderer/core/router.js';
 import { trackArc } from '../src/renderer/core/trackGeom.js';
 import { STARTER_LIBRARY } from '../src/renderer/library/starter.js';
 import { mm, SCH_GRID as G } from '../src/renderer/core/units.js';
@@ -129,6 +129,33 @@ test('rounded mitre (#95): every bend becomes a tangent arc of the radius, small
   const ts = commit(p, st);
   assert.equal(ts.length, 3); assert.equal(ts.filter((t) => t.mid).length, 1);
   assert.equal(ratsnest(p).wires.length, 0);
+});
+
+test('after a corner, the next leg carries on the way the track was going where the style can', () => {
+  const p = newProject('A');
+  const leg = (st, c) => tentative(p, st, c).tail;
+  // bend 0 (horizontal first) going down: the next leg carries on down, then turns
+  let st = startRoute(p, [0, 0], 'F.Cu', 'A', { bend: 0 });
+  st = click(p, st, [0, mm(10)]);
+  assert.deepEqual(heading(st), [0, 1]);
+  assert.deepEqual(leg(st, [mm(5), mm(20)]), [[0, mm(20)], [mm(5), mm(20)]]);
+  // where it can't (the pointer is behind), the style's own order
+  assert.deepEqual(leg(st, [mm(5), -mm(5)]), [[mm(5), mm(10)], [mm(5), -mm(5)]]);
+  // / for this leg: the style's order (forced) until the next click
+  assert.deepEqual(leg({ ...st, forced: true }, [mm(5), mm(20)]), [[mm(5), mm(10)], [mm(5), mm(20)]]);
+  assert.equal(click(p, { ...st, forced: true }, [mm(5), mm(20)]).forced, false);
+  // bend 1 (straight then 45°) after a 45° run: the next leg carries on at 45° first
+  st = click(p, startRoute(p, [0, 0], 'F.Cu', 'A', { bend: 1 }), [mm(5), mm(5)]);
+  assert.deepEqual(leg(st, [mm(15), mm(8)]), [[mm(8), mm(8)], [mm(15), mm(8)]]);
+  // and after an arc (bend 5), from its tangent
+  st = click(p, startRoute(p, [0, 0], 'F.Cu', 'A', { bend: 5 }), [mm(10), mm(4)]);
+  assert.deepEqual(heading(st).map((x) => Math.round(x * 1000) / 1000), [1, 0]);
+  // carrying on a Track (lead): the first leg goes its way
+  st = { ...startRoute(p, [0, 0], 'F.Cu', 'A', { bend: 0 }), lead: [0, -1] };
+  assert.deepEqual(leg(st, [mm(5), -mm(8)]), [[0, -mm(8)], [mm(5), -mm(8)]]);
+  // straight and freehand have nothing to choose
+  st = click(p, startRoute(p, [0, 0], 'F.Cu', 'A', { bend: 2 }), [0, mm(10)]);
+  assert.deepEqual(leg(st, [mm(5), mm(20)]), [[mm(5), mm(20)]]);
 });
 
 test('freehand (#92): a stroke simplifies to few points, keeps a curve, and backs up', () => {

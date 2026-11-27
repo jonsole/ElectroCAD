@@ -83,4 +83,17 @@ key('Delete');
 check('deleted', app.project.board.tracks.length === 3 && unrouted() === 1);
 key('z', { ctrlKey: true });
 check('undo-delete', app.project.board.tracks.length === 4);
+// after a corner the next leg carries on the way the track was going: bend 0 goes horizontal
+// first, but after a run down it carries on down; / keeps the style's order for this leg
+key('x');
+click(5.9125, 5); click(5.9125, 9); move(12, 12);
+check('carries-on', ed.route?.points.length >= 2 && ed.routeView.tail[0][0] === 6 * MM && ed.routeView.tail[0][1] === 12 * MM, ed.routeView?.tail);
+key('/'); // bend 4, vertical first: the same way
+check('slash-4', ed.bend === 4 && ed.routeView.tail[0][0] === 6 * MM && ed.routeView.tail[0][1] === 12 * MM, ed.routeView.tail);
+key('/'); // bend 0 kept for this leg: horizontal first, though the track was going down
+check('slash-forces', ed.bend === 0 && ed.routeView.tail[0][0] === 12 * MM && ed.routeView.tail[0][1] === 9 * MM, ed.routeView.tail);
+click(12, 12);
+move(14, 15);
+check('next-leg-auto', ed.route.forced === false && ed.routeView.tail[0][0] === 12 * MM && ed.routeView.tail[0][1] === 15 * MM, ed.routeView.tail);
+key('Escape');
 return { fails };
