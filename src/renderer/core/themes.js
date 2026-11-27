@@ -65,14 +65,14 @@ const SCH_CLASSIC = {
 };
 const BOARD_DARK = {
   background: '#14161b', gridMinor: '#232831', gridMajor: '#2f3542', origin: '#e5484d',
-  'F.Cu': '#e5484d', 'In1.Cu': '#e5b84d', 'In2.Cu': '#46a758', 'B.Cu': '#4f8cff', via: '#c9d1dc', padThroughHole: '#d4a017', drill: '#0b0c0f', zoneOpacity: 0.45,
+  'F.Cu': '#e5484d', 'In1.Cu': '#e5b84d', 'In2.Cu': '#46a758', 'B.Cu': '#4f8cff', via: '#2bd46a', padThroughHole: '#d4a017', drill: '#0b0c0f', zoneOpacity: 0.45,
   'F.SilkS': '#e7eaf0', 'B.SilkS': '#b6bfcc', 'F.Mask': '#7a2e8c', 'B.Mask': '#2e6f8c', 'F.Paste': '#9aa0a6', 'B.Paste': '#6e7a86',
   'F.CrtYd': '#d0d0d0', 'B.CrtYd': '#8a8a8a', 'F.Fab': '#a3a86b', 'B.Fab': '#5a6fb0', 'Edge.Cuts': '#f2c94c',
   ratsnest: '#98a2b3', selection: '#29c5ff', highlight: '#ffffff', drcError: '#ff3b6b', inactiveDim: 0.35,
 };
 const BOARD_LIGHT = {
   background: '#e4e9f0', gridMinor: '#d8dfe8', gridMajor: '#c3ccd8', origin: '#e5484d',
-  'F.Cu': '#c62828', 'In1.Cu': '#b7791f', 'In2.Cu': '#2f855a', 'B.Cu': '#2463eb', via: '#6e7a86', padThroughHole: '#b8860b', drill: '#ffffff', zoneOpacity: 0.35,
+  'F.Cu': '#c62828', 'In1.Cu': '#b7791f', 'In2.Cu': '#2f855a', 'B.Cu': '#2463eb', via: '#16a34a', padThroughHole: '#b8860b', drill: '#ffffff', zoneOpacity: 0.35,
   'F.SilkS': '#1c2430', 'B.SilkS': '#5f6b7c', 'F.Mask': '#8e44ad', 'B.Mask': '#1f7a8c', 'F.Paste': '#7a7f86', 'B.Paste': '#9aa3ad',
   'F.CrtYd': '#4a4a4a', 'B.CrtYd': '#8a8a8a', 'F.Fab': '#7a7f3a', 'B.Fab': '#3a4f9a', 'Edge.Cuts': '#b8860b',
   ratsnest: '#5f6b7c', selection: '#0a84ff', highlight: '#1c2430', drcError: '#d6004c', inactiveDim: 0.3,
