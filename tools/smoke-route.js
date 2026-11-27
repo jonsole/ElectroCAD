@@ -108,4 +108,22 @@ check('undo-to-start', !!ed.route && ed.route.points.length === 1 && ed.tool ===
 key('Backspace');
 check('backspace-at-start', !!ed.route && ed.route.points.length === 1);
 key('Escape');
+// R8: Esc ends the route, keeping its fixed corners, and stays in Route; Esc again goes to Select
+check('esc-nothing-fixed', !ed.route && ed.tool === 'route', [!!ed.route, ed.tool]);
+const t8 = app.project.board.tracks.length, h8 = app.history.undoStack.length;
+click(5.9125, 5); click(5.9125, 9); move(12, 12); key('Escape');
+check('esc-ends', !ed.route && ed.tool === 'route' && app.project.board.tracks.length > t8 && app.history.undoStack.length === h8 + 1 && !app.project.board.tracks.some((t) => t.b[0] === 12 * MM && t.b[1] === 12 * MM), [!!ed.route, ed.tool, app.project.board.tracks.length - t8]);
+key('Escape');
+check('esc-select', ed.tool === 'select');
+app.undo();
+// R2: a corner near a via of the route's net snaps onto it (off the grid)
+key('x');
+click(5.9125, 5);
+const rnet = ed.route.net;
+key('Escape');
+app.edit('via', (pr) => { pr.board.vias.push({ id: 'snapvia', at: [9.37 * MM, 9.21 * MM], drill: 300000, diameter: 600000, from: 'F.Cu', to: 'B.Cu', net: rnet }); });
+click(5.9125, 5); move(9.4, 9.25);
+check('snap-via', ed.cursor && ed.cursor[0] === 9.37 * MM && ed.cursor[1] === 9.21 * MM, ed.cursor);
+key('Escape'); key('Escape');
+app.undo();
 return { fails };

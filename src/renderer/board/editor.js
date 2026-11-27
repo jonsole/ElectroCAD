@@ -51,7 +51,7 @@ const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
 /** The palette tools that work now: key, icon, title. */
 export const BOARD_TOOLS = {
   select: { icon: 'select', title: 'Select (V): click to select, or drag a box on empty space (left to right: what is wholly inside; right to left: what it touches; Shift adds); drag a track segment sideways (its neighbours follow), a track corner to reshape it, or a free track end to move it, pushing other nets\' copper in Shove mode', key: 'v' },
-  route: { icon: 'route', title: 'Route (X): click a pad to start a track on the active copper layer, click to place corners, click a pad of the same net to finish · V drops a via and changes layer · right-click cycles Eagle\'s bend styles (Shift+right-click goes back), / swaps to the mirrored one · Backspace or Ctrl+Z undoes a segment · Esc cancels', key: 'x' },
+  route: { icon: 'route', title: 'Route (X): click a pad to start a track on the active copper layer, click to place corners, click a pad of the same net to finish · V drops a via and changes layer · right-click cycles Eagle\'s bend styles (Shift+right-click goes back), / swaps to the mirrored one · Backspace or Ctrl+Z undoes a segment · Esc ends the route here (Esc again: Select)', key: 'x' },
   via: { icon: 'via', title: 'Via: click to place a through via; it takes the net of the track or pad it lands on' },
   ripup: { icon: 'ripup', title: 'Rip up: click a track or via to take its run (pad to pad) back to an airwire; Shift+click takes just that segment; drag a box to rip up every track and via in it' },
   footprint: { icon: 'pad', title: 'Place footprint: a footprint with no part on the Schematic, such as a mounting hole, fiducial or logo. Pick it, then click where it goes; Reference, pad nets and In BOM in Properties' },
@@ -135,10 +135,18 @@ export class BoardEditor {
    */
   snapAt(w, skip = new Set(), not = null, extra = []) {
     const tol = this.app.snapDistance() / (this.ws?.view.view.scale || 1);
+    // R2: routing also snaps onto via centres and the route's net's track ends
+    if (this.tool === 'route') extra = [...extra, ...this._routeSnapPoints()];
     const targets = [...handlePoints(this.board.outline, skip), this.board.origin, ...this._padPoints(), ...extra].filter((t) => !not || t[0] !== not[0] || t[1] !== not[1]);
     const r = snapPoint(w, targets, tol, (p) => this.snapPt(p));
     this.snapMark = r.target;
     return r.at;
+  }
+  /** Copper a route's corners snap onto (R2): via centres, and track ends of its net (any net before it starts). */
+  _routeSnapPoints() {
+    const net = this.route?.net?.toLowerCase();
+    const ends = (this.board.tracks || []).filter((t) => t.net && !this.hidden.has(t.layer) && (!net || t.net.toLowerCase() === net)).flatMap((t) => [t.a, t.b]);
+    return [...(this.board.vias || []).map((v) => v.at), ...ends];
   }
   /** A point as the user sees it: measured from the origin, in mm. */
   rel(p) { return `${fmt(p[0] - this.board.origin[0])}, ${fmt(p[1] - this.board.origin[1])}`; }
@@ -674,7 +682,7 @@ export class BoardEditor {
           : 'Outline polygon: click the next corner · A arc side · Backspace undo corner · click the first corner to close · Esc cancel'; break;
       case 'circle': t = p ? 'Circle: click a point on the edge' : 'Circle: click the centre (a round board, or a hole inside the board)'; break;
       case 'route': t = this.route
-        ? `Routing ${this.route.net} on ${this.route.layer} (${fmt(this.route.width)} mm, ${netClassOf(this.board, this.route.net)} class): click to place a corner · click a ${this.route.net} pad to finish · V drops a via and goes to ${this.route.layer === this.route.pair[0] ? this.route.pair[1] : this.route.pair[0]} · double-click or Enter ends here · right-click or / changes the bend (${this.bend}: ${bendOf(this.bend).name}) · Backspace or Ctrl+Z undoes a segment · Esc cancels${this.routeView?.collisions.length ? ' · red: too close to another net' : ''}${this.routeView?.blocked ? ' · no clear way to the pointer: the track stops at the obstacle' : ''}`
+        ? `Routing ${this.route.net} on ${this.route.layer} (${fmt(this.route.width)} mm, ${netClassOf(this.board, this.route.net)} class): click to place a corner · click a ${this.route.net} pad to finish · V drops a via and goes to ${this.route.layer === this.route.pair[0] ? this.route.pair[1] : this.route.pair[0]} · double-click or Enter ends here · right-click or / changes the bend (${this.bend}: ${bendOf(this.bend).name}) · Backspace or Ctrl+Z undoes a segment · Esc ends the route here${this.routeView?.collisions.length ? ' · red: too close to another net' : ''}${this.routeView?.blocked ? ' · no clear way to the pointer: the track stops at the obstacle' : ''}`
         : `Route (${this.routeMode === 'shove' ? 'Shove: tracks push other nets\' tracks aside' : this.routeMode === 'walkaround' ? 'Walkaround: tracks go round other nets' : 'Free: tracks go where you draw'}): click a pad on ${this.activeLayer} to start a track (bend ${this.bend}: ${bendOf(this.bend).name}${this.chamfer ? `, ${this.mitre === 'round' ? 'rounded' : 'chamfered'} ${fmt(this.chamfer)} mm` : ''})`; break;
       case 'ripup': t = 'Rip up: click a track or via to take its run (pad to pad) back to an airwire · Shift+click: just that segment · drag a box: every track and via in it (left to right: wholly inside; right to left: touching)'; break;
       case 'zone': t = !p ? `Zone on ${this.activeLayer}: click its first corner (the net comes from the pad or track there, else GND; change it in Properties)`
@@ -2371,13 +2379,14 @@ export class BoardEditor {
   onKey(e) {
     const k = e.key.toLowerCase();
     if (e.key === 'Escape') {
+      // R8: Esc ends a route in progress (its fixed corners kept) and stays in Route
+      if (this.route) { this.finishRoute(); return true; }
       if (this.pts || (this.measure && !this.measure.done)) { this.pts = null; this.arcNext = false; this.measure = null; this.refresh(); }
       else if (this.tool !== 'select') this.setTool('select');
       else if (this.selection.size || this.fpSel.size || this.netSel.size || this.trackSel.size || this.zoneSel.size || this.drawSel.size) { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); this.trackSel.clear(); this.zoneSel.clear(); this.drawSel.clear(); this.refresh(); }
       return true;
     }
     if (this.route) {
-      if (e.key === 'Escape') { this.cancelRoute(); return true; }
       // / swaps to the mirrored style and keeps it for this leg, over carrying on straight
       if (e.key === '/') { this.setBend(bendOf(this.bend).mirror); this.route = { ...this.route, forced: true }; this._routeMove(); return true; }
       if (e.key.toLowerCase() === 'v') {
