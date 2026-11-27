@@ -82,4 +82,18 @@ check('select-drag', app.project.board.tracks.find((t) => t.id === 'u2')?.a[1] =
 app.edit('lock', (pr) => { pr.board.tracks.find((t) => t.id === 'u2').locked = true; });
 ev('pointerdown', 20, 12.5, 1); ev('pointermove', 20, 11, 1); await wait(30); ev('pointerup', 20, 11, 0); await wait(50);
 check('select-locked', app.project.board.tracks.find((t) => t.id === 'u2')?.a[1] === 12.5 * MM);
+// a junction: with a stub off the U's bottom-left corner, dragging the corner moves all three
+app.undo(); app.undo(); await wait(50);
+check('back', JSON.stringify(app.project.board.tracks) === JSON.stringify(before));
+app.edit('stub', (pr) => { pr.board.tracks.push({ id: 'st', a: [6.9125 * MM, 12 * MM], b: [4 * MM, 12 * MM], width: 250000, layer: 'F.Cu', net }); });
+ev('pointermove', 6.9125, 12, 0); ev('pointerdown', 6.9125, 12, 1);
+check('junction-corner', ed.trackDrag?.kind === 'corner', ed.trackDrag);
+ev('pointermove', 7.5, 11, 1); ev('pointermove', 8, 10.5, 1); await wait(30);
+ev('pointerup', 8, 10.5, 0); await wait(50);
+const tj = app.project.board.tracks.filter((t) => t.net === net);
+const at = (q, x, y) => q[0] === Math.round(x * MM) && q[1] === Math.round(y * MM);
+check('junction-moved', tj.filter((t) => at(t.a, 8, 10.5) || at(t.b, 8, 10.5)).length === 3 && !tj.some((t) => at(t.a, 6.9125, 12) || at(t.b, 6.9125, 12)), tj.map((t) => [t.id, t.a, t.b]));
+await ed.runDrc(); await wait(50);
+check('junction-still-routed', !ed.drc.list.some((v) => v.rule === 'unrouted'));
+ed.drcCard?.toggle?.(false);
 return { fails };

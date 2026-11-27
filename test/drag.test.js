@@ -64,6 +64,24 @@ test('corner drag: the two segments are redrawn to the new corner at 45°', () =
   assert.ok(r.tracks.some((t) => t.a.join() === [mm(13), mm(4)].join() || t.b.join() === [mm(13), mm(4)].join()), 'through the new corner');
 });
 
+test('corner drag at a junction: every track meeting there follows (a T, a star)', () => {
+  const p = project([tr('a', [0, 0], [10, 0]), tr('b', [10, 0], [20, 0]), tr('c', [10, 0], [10, 10])]);
+  assert.deepEqual(cornerAt(p, p.board, [mm(10.1), 0], mm(0.3)), { at: [mm(10), 0], layer: 'F.Cu' });
+  const to = [mm(11), mm(3)];
+  const r = dragCorner(p, p.board, [mm(10), 0], to);
+  assert.ok(r.tracks.every(angle));
+  // each far end still joins the new corner, through the redrawn tracks
+  const k = (q) => q.join(','), adj = new Map();
+  for (const t of r.tracks) for (const [x, y] of [[t.a, t.b], [t.b, t.a]]) { if (!adj.has(k(x))) adj.set(k(x), []); adj.get(k(x)).push(k(y)); }
+  const reach = new Set([k(to)]), q = [k(to)];
+  while (q.length) for (const n of adj.get(q.pop()) || []) if (!reach.has(n)) { reach.add(n); q.push(n); }
+  for (const far of [[0, 0], [20, 0], [10, 10]]) assert.ok(reach.has(k(far.map(mm))), `${far} joined`);
+  assert.ok(!r.tracks.some((t) => [t.a, t.b].some((q2) => q2[0] === mm(10) && q2[1] === 0)), 'nothing left at the old corner');
+  // not where a via is
+  const v = project([tr('a', [0, 0], [10, 0]), tr('b', [10, 0], [10, 10])], { vias: [{ id: 'v', at: [mm(10), 0], drill: mm(0.3), diameter: mm(0.6), from: 'F.Cu', to: 'B.Cu', net: 'N' }] });
+  assert.equal(cornerAt(v, v.board, [mm(10), 0], mm(0.3)), null);
+});
+
 test('Shove: dragging pushes other nets\' tracks clear and they spring back; locked ones stop it', () => {
   const tracks = () => [tr('l', [5, 5], [5, 15]), tr('m', [5, 15], [25, 15]), tr('r', [25, 15], [25, 5]), tr('o', [2, 15.9], [30, 15.9], 'O')];
   const p = project(tracks());

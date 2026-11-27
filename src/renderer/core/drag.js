@@ -1,8 +1,8 @@
 // Dragging routed Tracks (#31): a segment slides sideways, its neighbours keeping their own
 // directions (they lengthen or shorten to meet it, so 45° and 90° stay 45° and 90°); where a
 // neighbour can't (the end is on a pad, a Via or a junction, or the neighbour runs the same way), a
-// short square jog joins the old end to the moved segment. A corner moves to the pointer, the two
-// segments meeting there redrawn to it with 45° corners. In Shove mode other Nets' copper is
+// short square jog joins the old end to the moved segment. A corner (a bend or a junction) moves to the
+// pointer, every segment meeting there redrawn to it with a 45° corner. In Shove mode other Nets' copper is
 // pushed aside as the drag goes (core/shove.js), springing back as it returns. An arc Track (#93)
 // dragged by its middle changes its bulge, its ends staying put; its corners move keeping its
 // shape. DOM-free.
@@ -97,13 +97,14 @@ function dragBulge(board, t, delta) {
 }
 
 /**
- * The Board's Tracks with the corner at `at` (where exactly two segments of one Net meet on a
- * layer, with no pad or Via there) moved to `to`: the two segments redrawn from their far ends to
- * `to` with 45° corners. Returns { tracks, changed } or null when `at` isn't such a corner.
+ * The Board's Tracks with the corner at `at` (where two or more segments of one Net meet on a
+ * layer, a bend or a junction, with no pad or Via there) moved to `to`: every segment meeting
+ * there follows, redrawn from its far end to `to` with a 45° corner (an arc keeping its shape).
+ * Returns { tracks, changed } or null when `at` isn't such a corner.
  */
 export function dragCorner(project, board, at, to, layer = null) {
   const segs = (board.tracks || []).filter((t) => (!layer || t.layer === layer) && (eq(t.a, at) || eq(t.b, at)));
-  if (segs.length !== 2 || segs[0].net !== segs[1].net || segs[0].layer !== segs[1].layer) return null;
+  if (segs.length < 2 || segs.some((t) => t.net !== segs[0].net || t.layer !== segs[0].layer)) return null;
   if (meeting(board, project, at, segs[0].layer, segs[0].net).fixed) return null;
   const out = (board.tracks || []).filter((x) => !segs.includes(x)).map((x) => ({ ...x }));
   const changed = [];
@@ -111,12 +112,15 @@ export function dragCorner(project, board, at, to, layer = null) {
     let prev = from;
     pts.forEach((p, i) => { if (eq(prev, p)) return; const s = { ...proto, id: i === 0 && keepId ? proto.id : uid('t'), a: prev, b: p }; out.push(s); changed.push(s); prev = p; });
   };
-  const [s1, s2] = segs;
-  const far1 = eq(s1.a, at) ? s1.b : s1.a, far2 = eq(s2.a, at) ? s2.b : s2.a;
   // an arc (#93) keeps its shape, its end at the corner moving to `to`
   const arc = (sg) => { const m = withEnds(sg, eq(sg.a, at) ? to : sg.a, eq(sg.b, at) ? to : sg.b); out.push(m); changed.push(m); };
-  if (s1.mid) arc(s1); else run(far1, cornerPath(far1, to, '45', 'a'), s1, true);
-  if (s2.mid) arc(s2); else run(to, cornerPath(to, far2, '45', 'b'), s2, true);
+  segs.forEach((sg, k) => {
+    const far = eq(sg.a, at) ? sg.b : sg.a;
+    if (sg.mid) arc(sg);
+    // the first runs from its far end into the corner, the others out of it (as a bend's two did)
+    else if (k === 0) run(far, cornerPath(far, to, '45', 'a'), sg, true);
+    else run(to, cornerPath(to, far, '45', 'b'), sg, true);
+  });
   return { tracks: out, changed };
 }
 
@@ -135,14 +139,14 @@ export function dragEnd(board, id, at, to) {
   return { tracks: out, changed: [moved] };
 }
 
-/** The corner under `p` (within `tol`): { at, layer } where two segments of one Net meet with nothing else there. */
+/** The corner under `p` (within `tol`): { at, layer } where two or more segments of one Net meet with no pad or Via there. */
 export function cornerAt(project, board, p, tol, hidden = new Set()) {
   const ends = new Map();
   for (const t of board.tracks || []) {
     if (hidden.has(t.layer)) continue;
     for (const q of [t.a, t.b]) if (Math.hypot(q[0] - p[0], q[1] - p[1]) <= tol) { const k = `${key(q)}|${t.layer}`; if (!ends.has(k)) ends.set(k, { at: q, layer: t.layer, segs: [] }); ends.get(k).segs.push(t); }
   }
-  for (const e of ends.values()) if (e.segs.length === 2 && e.segs[0].net === e.segs[1].net && !meeting(board, project, e.at, e.layer, e.segs[0].net).fixed) return { at: e.at, layer: e.layer };
+  for (const e of ends.values()) if (e.segs.length >= 2 && e.segs.every((t) => t.net === e.segs[0].net) && !meeting(board, project, e.at, e.layer, e.segs[0].net).fixed) return { at: e.at, layer: e.layer };
   return null;
 }
 
