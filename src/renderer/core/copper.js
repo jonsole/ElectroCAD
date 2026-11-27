@@ -29,6 +29,38 @@ export function connection(board, ids) {
   return out;
 }
 
+/**
+ * What a rip-up of copper `id` takes: the run of Tracks and Vias joined to it end to end (on its
+ * layer, or through a Via), stopping at pads, so the connection it was part of goes back to an
+ * airwire while the copper beyond the pads stays. Returns a Set of ids.
+ */
+export function ripupRun(project, board, id) {
+  const nets = padNets(board), view = { ...project, board };
+  const padAt = new Set((board.footprints || []).flatMap((bf) => placedPads(view, bf, nets).map((q) => q.at.join(','))));
+  const tracks = board.tracks || [], vias = board.vias || [];
+  const out = new Set([id]);
+  const queue = [id];
+  while (queue.length) {
+    const cur = queue.pop();
+    const t = tracks.find((x) => x.id === cur), v = !t && vias.find((x) => x.id === cur);
+    const ends = t ? [t.a, t.b] : v ? [v.at] : [];
+    for (const e of ends) {
+      if (padAt.has(e.join(','))) continue; // a pad ends the run
+      for (const u of tracks) if (!out.has(u.id) && (same(u.a, e) || same(u.b, e)) && (!t || u.layer === t.layer || vias.some((w) => same(w.at, e)))) { out.add(u.id); queue.push(u.id); }
+      for (const w of vias) if (!out.has(w.id) && same(w.at, e)) { out.add(w.id); queue.push(w.id); }
+    }
+  }
+  return out;
+}
+
+/** Remove the Tracks and Vias (ids) from the Board: they go back to airwires. Returns how many of each. */
+export function ripUp(board, ids) {
+  const nt = (board.tracks || []).filter((t) => ids.has(t.id)).length, nv = (board.vias || []).filter((v) => ids.has(v.id)).length;
+  board.tracks = (board.tracks || []).filter((t) => !ids.has(t.id));
+  board.vias = (board.vias || []).filter((v) => !ids.has(v.id));
+  return { tracks: nt, vias: nv };
+}
+
 /** Set the width of Tracks (ids). */
 export function setTrackWidth(project, ids, width) {
   if (!(width > 0)) throw new RangeError('A track needs a width above zero.');

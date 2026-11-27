@@ -23,8 +23,9 @@ import { hitPad, footprintOutline, insidePolygon, placedPads, padNets, hitFootpr
 import { ratsnest } from '../core/ratsnest.js';
 import { copperIndex, pointSeg2 } from '../core/collision.js';
 import { trackArc, trackBox, trackLength, trackPoints, nearestOnTrack } from '../core/trackGeom.js';
+import { boardItemsInBox, moveCopper } from '../core/boardSelect.js';
 import { BENDS, bendOf, bendFromPref, cycleBend, withBend, strokeTo, ROUTE_MODES, startRoute, step as routeStep, click as routeClickAt, back as routeBack, commit as routeCommit, switchLayer, layerPairs } from '../core/router.js';
-import { connection, setTrackWidth, setTrackLayer, setViaSize, placeVia, placeViaPushing } from '../core/copper.js';
+import { connection, ripupRun, ripUp, setTrackWidth, setTrackLayer, setViaSize, placeVia, placeViaPushing } from '../core/copper.js';
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
 import { allFootprints } from '../library/footprints.js';
 import { addBoardOnly, setBoardOnly, deleteBoardOnly } from '../core/boardOnly.js';
@@ -49,9 +50,10 @@ const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
 
 /** The palette tools that work now: key, icon, title. */
 export const BOARD_TOOLS = {
-  select: { icon: 'select', title: 'Select (V): click to select; drag a track segment sideways (its neighbours follow), a track corner to reshape it, or a free track end to move it, pushing other nets\' copper in Shove mode', key: 'v' },
+  select: { icon: 'select', title: 'Select (V): click to select, or drag a box on empty space (left to right: what is wholly inside; right to left: what it touches; Shift adds); drag a track segment sideways (its neighbours follow), a track corner to reshape it, or a free track end to move it, pushing other nets\' copper in Shove mode', key: 'v' },
   route: { icon: 'route', title: 'Route (X): click a pad to start a track on the active copper layer, click to place corners, click a pad of the same net to finish · V drops a via and changes layer · right-click cycles Eagle\'s bend styles (Shift+right-click goes back), / swaps to the mirrored one · Backspace or Ctrl+Z undoes a segment · Esc cancels', key: 'x' },
   via: { icon: 'via', title: 'Via: click to place a through via; it takes the net of the track or pad it lands on' },
+  ripup: { icon: 'ripup', title: 'Rip up: click a track or via to take its run (pad to pad) back to an airwire; Shift+click takes just that segment; drag a box to rip up every track and via in it' },
   footprint: { icon: 'pad', title: 'Place footprint: a footprint with no part on the Schematic, such as a mounting hole, fiducial or logo. Pick it, then click where it goes; Reference, pad nets and In BOM in Properties' },
   zone: { icon: 'zone', title: 'Zone (Z): click the corners of a copper pour on the active copper layer; click the first corner, double-click or Enter to close. Net, priority, clearance and thermal reliefs in Properties', key: 'z' },
   outline: { icon: 'outline', title: 'Outline rectangle (B): click two corners. Round the corners with Corner radius in Properties', key: 'b' },
@@ -217,7 +219,7 @@ export class BoardEditor {
     for (const [id, t] of Object.entries(BOARD_TOOLS)) this.toolBtn[id] = button({ icon: t.icon, title: t.title, onClick: () => this.setTool(id) });
     const T = this.toolBtn;
     return [T.select, T.route,
-      T.via, T.zone, T.footprint, null,
+      T.ripup, T.via, T.zone, T.footprint, null,
       T.outline, T.polygon, T.circle, null, T.text, T.gline, T.grect, T.gcircle, null, T.measure, T.origin];
   }
 
@@ -674,6 +676,7 @@ export class BoardEditor {
       case 'route': t = this.route
         ? `Routing ${this.route.net} on ${this.route.layer} (${fmt(this.route.width)} mm, ${netClassOf(this.board, this.route.net)} class): click to place a corner · click a ${this.route.net} pad to finish · V drops a via and goes to ${this.route.layer === this.route.pair[0] ? this.route.pair[1] : this.route.pair[0]} · double-click or Enter ends here · right-click or / changes the bend (${this.bend}: ${bendOf(this.bend).name}) · Backspace or Ctrl+Z undoes a segment · Esc cancels${this.routeView?.collisions.length ? ' · red: too close to another net' : ''}${this.routeView?.blocked ? ' · no clear way to the pointer: the track stops at the obstacle' : ''}`
         : `Route (${this.routeMode === 'shove' ? 'Shove: tracks push other nets\' tracks aside' : this.routeMode === 'walkaround' ? 'Walkaround: tracks go round other nets' : 'Free: tracks go where you draw'}): click a pad on ${this.activeLayer} to start a track (bend ${this.bend}: ${bendOf(this.bend).name}${this.chamfer ? `, ${this.mitre === 'round' ? 'rounded' : 'chamfered'} ${fmt(this.chamfer)} mm` : ''})`; break;
+      case 'ripup': t = 'Rip up: click a track or via to take its run (pad to pad) back to an airwire · Shift+click: just that segment · drag a box: every track and via in it (left to right: wholly inside; right to left: touching)'; break;
       case 'zone': t = !p ? `Zone on ${this.activeLayer}: click its first corner (the net comes from the pad or track there, else GND; change it in Properties)`
         : `Zone on ${this.activeLayer}: click the next corner · click the first corner, double-click or Enter to close · Backspace undo corner · Esc cancel`; break;
       case 'via': t = 'Via: click to place a through via (F.Cu to B.Cu); it takes the net of the track or pad it lands on · Esc back to Select'; break;
@@ -703,7 +706,7 @@ export class BoardEditor {
     if (!BOARD_TOOLS[t]) return;
     if (this.route && t !== 'route') this.finishRoute();
     if (t === 'route' && !copperLayerNames(this.board.stack.copper).includes(this.activeLayer)) this.activeLayer = 'F.Cu';
-    this.tool = t; this.pts = null; this.arcNext = false; this.measure = null;
+    this.tool = t; this.pts = null; this.arcNext = false; this.measure = null; this.ripHover = null; this.marquee = null;
     if (t !== 'select') { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); this.trackSel.clear(); this.zoneSel.clear(); this.drawSel.clear(); }
     if (t === 'zone' && !copperLayerNames(this.board.stack.copper).includes(this.activeLayer)) this.activeLayer = 'F.Cu'; // zones are copper
     if (['outline', 'polygon', 'circle'].includes(t)) this.activeLayer = 'Edge.Cuts'; // the Outline lives on Edge.Cuts
@@ -806,9 +809,10 @@ export class BoardEditor {
   }
 
   nudge(dx, dy) {
-    const sel = [...this.selection], fps = [...this.fpSel], zs = new Set(this.zoneSel), ds = new Set(this.drawSel);
-    const label = fps.length ? 'Move' : zs.size && !sel.length ? 'Move zone' : ds.size && !sel.length ? (ds.size === 1 ? 'Move drawing' : 'Move drawings') : 'Move outline';
-    this.app.edit(label, (p) => { moveOutline(sel.map((i) => p.board.outline[i]), [dx, dy]); moveFootprints(p, fps, [dx, dy]); moveZones(p.board.zones, zs, [dx, dy]); moveDrawings((p.board.drawings || []).filter((d) => ds.has(d.id)), [dx, dy]); });
+    const sel = [...this.selection], fps = [...this.fpSel], zs = new Set(this.zoneSel), ds = new Set(this.drawSel), cu = new Set(this.trackSel);
+    const kinds = [sel.length, fps.length, zs.size, ds.size, cu.size].filter(Boolean).length;
+    const label = kinds > 1 || fps.length ? 'Move' : zs.size ? 'Move zone' : ds.size ? (ds.size === 1 ? 'Move drawing' : 'Move drawings') : cu.size ? 'Move tracks' : 'Move outline';
+    this.app.edit(label, (p) => { moveOutline(sel.map((i) => p.board.outline[i]), [dx, dy]); moveFootprints(p, fps, [dx, dy]); moveZones(p.board.zones, zs, [dx, dy]); moveDrawings((p.board.drawings || []).filter((d) => ds.has(d.id)), [dx, dy]); moveCopper(p.board, cu, [dx, dy]); });
   }
 
   _lockedNote(ids) {
@@ -872,6 +876,12 @@ export class BoardEditor {
       this.setAlt(e.altKey);
       if (this.tool === 'origin') { this.placeOrigin(w); return; }
       if (this.tool === 'route') { this.routeClick(w, e.detail >= 2); return; }
+      if (this.tool === 'ripup') {
+        // a click rips up the run under the pointer; a drag on the board boxes what to rip up
+        this.marquee = { a: w, b: w, startPx: [e.clientX, e.clientY], rip: true, shift: e.shiftKey };
+        try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+        return;
+      }
       if (this.tool === 'footprint') {
         if (!this.placingFp) { this.chooseBoardFootprint(); return; }
         const at = this.snapAt(w), { library, footprint } = this.placingFp;
@@ -907,6 +917,14 @@ export class BoardEditor {
         // pressed at a corner, moves the corner (#31)
         // a free Track end: a click selects the Track, dragging moves that end (to carry the
         // Track on, start the Route tool on its end)
+        // a press on selected copper when more than that is selected (a box selection): drag the
+        // whole group, its tracks and vias with it
+        const grouped = !e.shiftKey && this._hitTrack(w, tol);
+        if (grouped && this.trackSel.has(grouped.id) && (this.fpSel.size || this.zoneSel.size || this.drawSel.size || this.selection.size || this.trackSel.size > 1)) {
+          this.drag = { start: w, anchor: this.snapPt(w), fpAnchor: true, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), fpSnapshot: structuredClone(this.board.footprints), zoneSnapshot: structuredClone(this.board.zones), drawSnapshot: structuredClone(this.board.drawings || []), moved: false, delta: [0, 0], onlyCopper: grouped.id };
+          try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+          return;
+        }
         const free = !e.shiftKey && freeEndAt(this.project, this.board, w, 6 / ws.view.view.scale, this.hidden);
         if (free) {
           this.trackSel = new Set([free.track.id]); this.fpSel.clear(); this.selection.clear(); this.netSel.clear(); this.zoneSel.clear(); this.drawSel.clear();
@@ -931,7 +949,9 @@ export class BoardEditor {
           this.refresh();
           return;
         }
-        if (!e.shiftKey) this.trackSel.clear();
+        // a press on something already selected keeps the rest of the selection (to move the group)
+        const onSel = this._onSelected(w);
+        if (!e.shiftKey && !onSel) this.trackSel.clear();
         // the Board's own drawings (#66): over the footprints they're drawn on
         const dr = this._hitDrawing(w, tol);
         if (dr) {
@@ -943,7 +963,7 @@ export class BoardEditor {
           this.refresh();
           return;
         }
-        if (!e.shiftKey) this.drawSel.clear();
+        if (!e.shiftKey && !onSel) this.drawSel.clear();
         // a Footprint's Reference or Value text: drag it to move it (#65)
         const ft = !e.shiftKey && this._hitFieldText(w, tol);
         if (ft) {
@@ -982,7 +1002,13 @@ export class BoardEditor {
           const anchor = zn.outline.reduce((b, p) => (Math.hypot(p[0] - w[0], p[1] - w[1]) < Math.hypot(b[0] - w[0], b[1] - w[1]) ? p : b), zn.outline[0]);
           this.drag = { start: w, anchor, startPx: [e.clientX, e.clientY], snapshot: structuredClone(this.board.outline), fpSnapshot: structuredClone(this.board.footprints), zoneSnapshot: structuredClone(this.board.zones), drawSnapshot: structuredClone(this.board.drawings || []), moved: false, delta: [0, 0], onlyZone: zn.id };
           try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
-        } else { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); this.zoneSel.clear(); }
+        } else {
+          // empty space: drag a box to select (left to right: what's wholly inside; right to left:
+          // what it touches); Shift adds to the selection
+          if (!e.shiftKey) { this.selection.clear(); this.fpSel.clear(); this.netSel.clear(); this.zoneSel.clear(); this.trackSel.clear(); this.drawSel.clear(); }
+          this.marquee = { a: w, b: w, startPx: [e.clientX, e.clientY], base: { fps: new Set(this.fpSel), copper: new Set(this.trackSel), zones: new Set(this.zoneSel), drawings: new Set(this.drawSel), outline: new Set(this.selection) } };
+          try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+        }
         this.refresh();
         return;
       }
@@ -1001,6 +1027,26 @@ export class BoardEditor {
         this.route = strokeTo(this.route, this.cursor, 3 / ws.view.view.scale);
       } else if (this.tool !== 'select') this.cursor = this.snapAt(w);
       else this.cursor = this.snapPt(w);
+      if (this.marquee && (e.buttons & 1)) {
+        const m = this.marquee;
+        if (!m.moved && Math.hypot(e.clientX - m.startPx[0], e.clientY - m.startPx[1]) < 4) return;
+        m.moved = true; m.b = w;
+        const got = boardItemsInBox(this.project, this.board, this._marqueeBox(m), m.b[0] >= m.a[0] ? 'window' : 'crossing', this.hidden);
+        if (m.rip) this.ripHover = new Set(got.copper.filter((id) => !this._lockedCopper(id)));
+        else {
+          const u = (a, b) => new Set([...a, ...b]);
+          this.fpSel = u(m.base.fps, got.fps); this.trackSel = u(m.base.copper, got.copper); this.zoneSel = u(m.base.zones, got.zones);
+          this.drawSel = u(m.base.drawings, got.drawings); this.selection = u(m.base.outline, got.outline);
+        }
+        ws.view.invalidate();
+        return;
+      }
+      // the Rip up tool: what a click would take, lit under the pointer
+      if (this.tool === 'ripup' && !e.buttons) {
+        const hit = this._hitTrack(w, 5 / ws.view.view.scale);
+        const ids = hit ? (e.shiftKey ? new Set([hit.id]) : ripupRun(this.project, this.board, hit.id)) : null;
+        if ((ids ? [...ids].sort().join() : '') !== (this.ripHover ? [...this.ripHover].sort().join() : '')) { this.ripHover = ids; ws.view.invalidate(); }
+      }
       if (this.trackDrag && (e.buttons & 1)) {
         const d = this.trackDrag;
         // from the Select tool: only once the pointer has moved a few pixels (a click just selects)
@@ -1077,6 +1123,13 @@ export class BoardEditor {
           moveDrawings(ds.filter((q) => this.drawSel.has(q.id)), d.delta);
           this.previewDrawings = ds;
         }
+        // selected tracks and vias go with the group
+        if (this.trackSel.size) {
+          d.copperSnapshot ||= { tracks: structuredClone(this.board.tracks || []), vias: structuredClone(this.board.vias || []) };
+          const cb = structuredClone(d.copperSnapshot);
+          moveCopper(cb, this.trackSel, d.delta);
+          this.previewTracks = cb.tracks; this.previewVias = cb.vias;
+        }
         ws.view.invalidate();
       } else if (this.tool !== 'select') {
         if (this.measure && !this.measure.done) this.measure.b = this.cursor;
@@ -1086,6 +1139,20 @@ export class BoardEditor {
     });
     const up = () => {
       this.snapMark = null;
+      if (this.marquee) {
+        const m = this.marquee; this.marquee = null;
+        if (m.rip) {
+          // a box rips up every track and via in it; a click, the run under the pointer
+          let ids = null;
+          if (m.moved) ids = this.ripHover;
+          else { const hit = this._hitTrack(m.a, 5 / ws.view.view.scale); if (hit) ids = m.shift ? new Set([hit.id]) : ripupRun(this.project, this.board, hit.id); }
+          this.ripHover = null;
+          this.ripUpCopper(ids);
+          return;
+        }
+        this._updateStrip?.(); this.refresh();
+        return;
+      }
       if (this.trackDrag) {
         const d = this.trackDrag; this.trackDrag = null; this.trackDragIndex = null; this.liveRats = null;
         const res = d.result;
@@ -1126,14 +1193,16 @@ export class BoardEditor {
         return;
       }
       if (!this.drag) return;
-      const d = this.drag; this.drag = null; this.preview = null; this.previewFps = null; this.previewZones = null; this.previewDrawings = null;
+      const d = this.drag; this.drag = null; this.preview = null; this.previewFps = null; this.previewZones = null; this.previewDrawings = null; this.previewTracks = null; this.previewVias = null;
       if (d.moved && (d.delta[0] || d.delta[1])) { this.nudge(...d.delta); this._lockedNote([...this.fpSel]); }
       else {
         // a click picks one item out of a group
-        if (!d.moved && d.onlyFp) { this.fpSel = new Set([d.onlyFp]); this.selection.clear(); this.zoneSel.clear(); this.drawSel.clear(); }
-        else if (!d.moved && d.onlyDrawing) { this.drawSel = new Set([d.onlyDrawing]); this.selection.clear(); this.fpSel.clear(); this.zoneSel.clear(); }
-        else if (!d.moved && d.onlyZone) { this.zoneSel = new Set([d.onlyZone]); this.selection.clear(); this.fpSel.clear(); }
-        else if (!d.moved && d.only !== undefined) { this.selection = new Set([d.only]); this.fpSel.clear(); }
+        const only = (sets) => { this.selection.clear(); this.fpSel.clear(); this.zoneSel.clear(); this.drawSel.clear(); this.trackSel.clear(); Object.assign(this, sets); };
+        if (!d.moved && d.onlyFp) only({ fpSel: new Set([d.onlyFp]) });
+        else if (!d.moved && d.onlyDrawing) only({ drawSel: new Set([d.onlyDrawing]) });
+        else if (!d.moved && d.onlyZone) only({ zoneSel: new Set([d.onlyZone]) });
+        else if (!d.moved && d.only !== undefined) only({ selection: new Set([d.only]) });
+        else if (!d.moved && d.onlyCopper) only({ trackSel: new Set([d.onlyCopper]) });
         this.refresh();
       }
     };
@@ -1235,6 +1304,13 @@ export class BoardEditor {
     const z = this._hitZone(w, tol);
     if (z) return { kind: 'zone', item: z };
     return null;
+  }
+
+  /** Is the item under `w` part of the selection? */
+  _onSelected(w) {
+    const h = this._hitAny(w);
+    if (!h) return false;
+    return h.kind === 'footprint' ? this.fpSel.has(h.item.id) : h.kind === 'drawing' ? this.drawSel.has(h.item.id) : h.kind === 'zone' ? this.zoneSel.has(h.item.id) : h.kind === 'outline' ? this.selection.has(h.index) : this.trackSel.has(h.item.id);
   }
 
   /** Select just that hit. */
@@ -1682,6 +1758,24 @@ export class BoardEditor {
   }
 
   /** U: select the whole connection the selected copper belongs to. */
+  /** The box a marquee spans. */
+  _marqueeBox(m) { return { x0: Math.min(m.a[0], m.b[0]), y0: Math.min(m.a[1], m.b[1]), x1: Math.max(m.a[0], m.b[0]), y1: Math.max(m.a[1], m.b[1]) }; }
+
+  _lockedCopper(id) { return !!((this.board.tracks || []).find((t) => t.id === id) || (this.board.vias || []).find((v) => v.id === id))?.locked; }
+
+  /** Rip up Tracks and Vias (ids): they go back to airwires, in one undo step; locked ones stay. */
+  ripUpCopper(ids) {
+    if (!ids?.size) { this.refresh(); return; }
+    const take = new Set([...ids].filter((id) => !this._lockedCopper(id)));
+    const kept = ids.size - take.size;
+    if (!take.size) { toast('Locked: unlock it in its Properties to rip it up.', 'info', 2000); this.refresh(); return; }
+    let n = { tracks: 0, vias: 0 };
+    this.app.edit('Rip up', (p) => { n = ripUp(p.board, take); });
+    for (const id of take) this.trackSel.delete(id);
+    toast(`Ripped up ${n.tracks} track${n.tracks === 1 ? '' : 's'}${n.vias ? ` and ${n.vias} via${n.vias === 1 ? '' : 's'}` : ''}${kept ? ` (${kept} locked, kept)` : ''}.`, 'info', 1800);
+    this.refresh();
+  }
+
   selectConnection() {
     if (!this.trackSel.size) return;
     this.trackSel = connection(this.board, [...this.trackSel]);
@@ -2136,7 +2230,7 @@ export class BoardEditor {
   }
 
   draw(ctx, view, C) {
-    const board = { ...this.board, tracks: this.routeView?.shoved || this.trackDrag?.result?.tracks || this.board.tracks, vias: this.routeView?.shovedVias || this.trackDrag?.result?.vias || this.board.vias, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints, zones: this.previewZones || this.board.zones, drawings: this.previewDrawings || this.board.drawings || [] };
+    const board = { ...this.board, tracks: this.routeView?.shoved || this.trackDrag?.result?.tracks || this.previewTracks || this.board.tracks, vias: this.routeView?.shovedVias || this.trackDrag?.result?.vias || this.previewVias || this.board.vias, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints, zones: this.previewZones || this.board.zones, drawings: this.previewDrawings || this.board.drawings || [] };
     const labels = [];
     drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: ((this.route || this.trackDrag) && this.liveRats || this._rats)?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure, labels, zones: { fills: this.zoneFiller.fills, outlineOnly: this._zonesAsOutlines(board) } });
     if (this.routeView) this._drawRoute(ctx, view, C);
@@ -2156,9 +2250,23 @@ export class BoardEditor {
       const copper = new Set([...t.copper].filter((id) => !this.trackSel.has(id)));
       if (fps.size || t.pads.size || copper.size) this._highlightBoard(ctx, view, C, board, new Set(), fps, t.pads, { ...C, selection: C.highlight || C.selection }, this.selection.size || this.fpSel.size, copper);
     }
+    // the Rip up tool: what a click or the box would take, in the error colour
+    if (this.tool === 'ripup' && this.ripHover?.size) this._highlightBoard(ctx, view, C, board, new Set(), new Set(), null, { ...C, selection: C.drcError || '#ff3b6b' }, false, this.ripHover);
     this._drawDrc(ctx, view, C); // over the highlights, so the focused problem shows
     drawHandles(ctx, view, C, this._handles(), this.handleDrag?.key);
     drawSnapMark(ctx, view, C, this.snapMark);
+    // a box being dragged: solid for a window (wholly inside), dashed for a crossing box (touching)
+    const m = this.marquee;
+    if (m?.moved) {
+      const [x0, y0] = view.toScreen(m.a), [x1, y1] = view.toScreen(m.b);
+      const col = m.rip ? (C.drcError || '#ff3b6b') : C.selection;
+      ctx.save();
+      ctx.fillStyle = col; ctx.globalAlpha = 0.1; ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+      ctx.globalAlpha = 1; ctx.strokeStyle = col; ctx.lineWidth = 1;
+      if (m.b[0] < m.a[0]) ctx.setLineDash([5, 4]);
+      ctx.strokeRect(Math.round(x0) + 0.5, Math.round(y0) + 0.5, x1 - x0, y1 - y0);
+      ctx.restore();
+    }
   }
 
   /** DRC markers while the DRC card is open: a badge at each shown violation, the focused one ringed. */
@@ -2304,7 +2412,7 @@ export class BoardEditor {
     }
     if ((e.key === 'Delete' || e.key === 'Backspace') && (this.selection.size || this.trackSel.size || this.fpSel.size || this.zoneSel.size || this.drawSel.size)) { this.deleteSelection(); return true; }
     const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
-    if (arrows[e.key] && (this.selection.size || this.fpSel.size || this.zoneSel.size || this.drawSel.size)) { const [dx, dy] = arrows[e.key]; this.nudge(dx * this.board.grid.main, dy * this.board.grid.main); return true; }
+    if (arrows[e.key] && (this.selection.size || this.fpSel.size || this.zoneSel.size || this.drawSel.size || this.trackSel.size)) { const [dx, dy] = arrows[e.key]; this.nudge(dx * this.board.grid.main, dy * this.board.grid.main); return true; }
     if (this.trackSel.size && this.tool === 'select' && e.key.toLowerCase() === 'u') { this.selectConnection(); return true; }
     if (this.drawSel.size && !this.fpSel.size && this.tool === 'select') {
       if (k === 'r') { this.rotateSel(e.shiftKey ? -this.rotStep : this.rotStep); return true; }
