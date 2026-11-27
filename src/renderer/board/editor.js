@@ -623,8 +623,9 @@ export class BoardEditor {
     this._liveDrc(); // re-check what the edit changed (#85)
     if (!copperLayerNames(this.board.stack.copper).includes(this.activeLayer) && /^In\d/.test(this.activeLayer)) this.activeLayer = 'F.Cu';
     if (this.btn) {
-      this.btn.undo.disabled = !this.app.history.canUndo;
-      this.btn.redo.disabled = !this.app.history.canRedo;
+      // while routing, undo takes back the route's last segment (undoStep) and redo waits
+      this.btn.undo.disabled = !this.app.history.canUndo && !this.route;
+      this.btn.redo.disabled = !this.app.history.canRedo || !!this.route;
 
     }
     if (this.toolBtn) for (const [id, b] of Object.entries(this.toolBtn)) b.classList.toggle('active', this.tool === id);
@@ -1570,6 +1571,28 @@ export class BoardEditor {
     this.routeReturn = true;
   }
 
+  /**
+   * Take back the route's last segment (or the last via, back to the layer before); with only its
+   * start left, drop the route, staying in the Route tool. Backspace and undo.
+   */
+  _routeStepBack() {
+    if (this.route.points.length > 1 || this.route.runs?.length) {
+      this.route = routeBack(this.route);
+      if (this.activeLayer !== this.route.layer) this.setActiveLayer(this.route.layer);
+      this._routeKey = null; this._routeMove(); this._hint();
+    } else this.cancelRoute();
+  }
+
+  /** Undo while routing (Ctrl+Z, the toolbar): the last segment, not the Board's last edit. */
+  undoStep() {
+    if (!this.route) return false;
+    this._routeStepBack();
+    return true;
+  }
+
+  /** Redo while routing does nothing (the Board's history waits until the route is done). */
+  redoStep() { return !!this.route; }
+
   /** The way Track `t` is heading at its end `at` (a unit vector), for a route carrying it on. */
   _leadAt(t, at) {
     const pts = trackPoints(t, 2_000), atB = t.b[0] === at[0] && t.b[1] === at[1];
@@ -2283,7 +2306,7 @@ export class BoardEditor {
         this._routeMove(); this.refresh();
         return true;
       }
-      if (e.key === 'Backspace') { if (this.route.points.length > 1) { this.route = routeBack(this.route); this._routeMove(); } else this.cancelRoute(); return true; }
+      if (e.key === 'Backspace') { this._routeStepBack(); return true; }
       if (e.key === 'Enter') { this.finishRoute(); return true; }
     }
     if (this.tool === 'gline' && this.pts?.line) {

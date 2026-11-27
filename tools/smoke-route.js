@@ -95,5 +95,15 @@ check('slash-forces', ed.bend === 0 && ed.routeView.tail[0][0] === 12 * MM && ed
 click(12, 12);
 move(14, 15);
 check('next-leg-auto', ed.route.forced === false && ed.routeView.tail[0][0] === 12 * MM && ed.routeView.tail[0][1] === 15 * MM, ed.routeView.tail);
+// undo while routing takes back the last segment and stays in the route; with only the start
+// left it drops the route but keeps the Route tool; the Board's history is untouched
+const h0 = app.history.undoStack.length, n0 = ed.route.points.length, tr0 = app.project.board.tracks.length;
+check('undo-enabled', !document.querySelector('[data-ws="board"] .toolbar button[title="Undo (Ctrl+Z)"]').disabled);
+key('z', { ctrlKey: true });
+check('undo-segment', !!ed.route && ed.route.points.length < n0 && ed.tool === 'route' && app.history.undoStack.length === h0 && app.project.board.tracks.length === tr0, ed.route?.points.length);
+key('z', { ctrlKey: true, shiftKey: true });
+check('redo-waits', !!ed.route && app.project.board.tracks.length === tr0);
+for (let i = 0; i < 10 && ed.route; i++) key('z', { ctrlKey: true });
+check('undo-to-start', !ed.route && ed.tool === 'route' && app.history.undoStack.length === h0 && app.project.board.tracks.length === tr0, [!!ed.route, ed.tool]);
 key('Escape');
 return { fails };

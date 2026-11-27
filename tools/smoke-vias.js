@@ -36,6 +36,12 @@ check('to-bcu', ed.route.layer === 'B.Cu' && ed.activeLayer === 'B.Cu' && ed.rou
 move(10, 14); click(10, 14);
 move(18, 14); key('v');
 check('to-fcu', ed.route.layer === 'F.Cu' && ed.route.vias.length === 2);
+// undo while routing takes the via back to the layer before, still routing; the Board is untouched
+const u0 = app.history.undoStack.length;
+key('z', { ctrlKey: true });
+check('undo-via', !!ed.route && ed.route.layer === 'B.Cu' && ed.activeLayer === 'B.Cu' && ed.route.vias.length === 1 && app.history.undoStack.length === u0, ed.route && [ed.route.layer, ed.activeLayer, ed.route.vias.length]);
+move(18, 14); key('v');
+check('via-again', ed.route.layer === 'F.Cu' && ed.route.vias.length === 2);
 click(21.0875, 14);
 check('routed', !ed.route && b().vias.length === 2 && b().tracks.some((t) => t.layer === 'B.Cu') && b().tracks.some((t) => t.layer === 'F.Cu'), [b().vias.length, b().tracks.map((t) => t.layer)]);
 const net = b().tracks[0].net;

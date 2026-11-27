@@ -179,8 +179,10 @@ export class App {
   /** Run one edit of the open Project as a single undo step. Returns fn's result. */
   edit(label, fn) { return this.history.transact(label, fn); }
   // a workspace with its own history (the Library tab's Part editor) undoes its own edits
-  undo() { const ed = this.active?.editor; if (ed?.ownHistory) ed.undo(); else this.history.undo(); }
-  redo() { const ed = this.active?.editor; if (ed?.ownHistory) ed.redo(); else this.history.redo(); }
+  // an editor in the middle of something (a route) may take undo and redo itself: `undoStep` /
+  // `redoStep` return true when they did
+  undo() { const ed = this.active?.editor; if (ed?.undoStep?.()) return; if (ed?.ownHistory) ed.undo(); else this.history.undo(); }
+  redo() { const ed = this.active?.editor; if (ed?.redoStep?.()) return; if (ed?.ownHistory) ed.redo(); else this.history.redo(); }
 
   // ---------------------------------------------------------------- user Libraries (#13)
 
