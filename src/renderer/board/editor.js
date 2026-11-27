@@ -25,6 +25,7 @@ import { copperIndex, pointSeg2 } from '../core/collision.js';
 import { trackArc, trackBox, trackLength, trackPoints, nearestOnTrack, trackShape } from '../core/trackGeom.js';
 import { boardItemsInBox, moveCopper } from '../core/boardSelect.js';
 import { followMoves, pushClear } from '../core/follow.js';
+import { optimiseTracks } from '../core/optimise.js';
 import { BENDS, bendOf, bendFromPref, cycleBend, withBend, strokeTo, ROUTE_MODES, startRoute, step as routeStep, click as routeClickAt, back as routeBack, commit as routeCommit, switchLayer, layerPairs } from '../core/router.js';
 import { connection, ripupRun, ripupAirwire, netCopper, ripUp, setTrackWidth, setTrackLayer, setViaSize, placeVia, placeViaPushing } from '../core/copper.js';
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
@@ -194,6 +195,9 @@ export class BoardEditor {
     this.widthIn.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') this.widthIn.blur(); });
     this.widthIn.addEventListener('change', () => { const v = parseFloat(this.widthIn.value); this.setRouteWidth(Number.isFinite(v) && v > 0 ? mm(v) : null); });
     const widthBox = h('label', { class: 'chamfer-box', title: 'Track width (mm). A route starts at its net class\'s width; change it mid-route and the leg in progress and later legs take it (legs already fixed keep theirs). With no route in progress it sets the next route\'s width; empty: the net class\'s' }, h('span', {}, 'Width'), this.widthIn, h('em', {}, 'mm'));
+    // T1, T8 (#104): the board's Optimise toggle, and optimising existing tracks now
+    this.optimiseBtn = h('button', { class: 'btn optimise-toggle', type: 'button', 'aria-pressed': 'true', title: 'Optimise (saved with the board): after each copper edit, straight runs of one net, layer and width are merged, arcs of one circle joined, and zero-length pieces and doubled-back spikes removed (never at a via, a pad or a junction; locked tracks are left alone)', onClick: () => this.setOptimise(this.board.optimise === false) }, 'Optimise');
+    this.optimiseNowBtn = h('button', { class: 'btn btn-ghost', type: 'button', title: 'Optimise tracks now: the selected tracks, or every track on the board (one undo step)', onClick: () => this.optimiseNow() }, 'Optimise tracks');
     const chamfer = h('label', { class: 'chamfer-box', title: 'Auto mitre (as Eagle\'s): Straight cuts bends of 90° or sharper back by this length and joins them at 45°; Round makes every bend an arc of this radius (#95). 0 for none' }, h('span', {}, 'Mitre'), this.chamferIn, h('em', {}, 'mm'));
     this.mitreSeg = h('div', { class: 'segmented corner-seg mitre-seg', role: 'radiogroup', 'aria-label': 'Mitre style' },
       ...[['straight', 'Straight', 'Bends are cut straight (a chamfer)'], ['round', 'Round', 'Bends are rounded: an arc of the mitre length\'s radius (#95)']].map(([id, label, tip]) => h('button', { class: 'btn' + (id === this.mitre ? ' active' : ''), type: 'button', role: 'radio', 'aria-checked': String(id === this.mitre), title: tip, dataset: { mitre: id }, onClick: () => this.setMitre(id) }, label)));
@@ -203,7 +207,7 @@ export class BoardEditor {
     this.pairSel.addEventListener('keydown', (e) => e.stopPropagation());
     this.pairBox = h('label', { class: 'chamfer-box pair-box' }, h('span', {}, 'V switches'), this.pairSel);
     this.routeStrip = h('div', { class: 'tool-strip route-strip', role: 'toolbar', 'aria-label': 'Routing options', hidden: true },
-      stripLabel('Route', 'route'), stripSep(), h('span', { class: 'tool-strip-label strip-sub' }, 'Bend'), this.cornerSeg, h('span', { class: 'sep' }), widthBox, h('span', { class: 'sep' }), chamfer, this.mitreSeg, h('span', { class: 'sep pair-sep' }), this.pairBox);
+      stripLabel('Route', 'route'), stripSep(), h('span', { class: 'tool-strip-label strip-sub' }, 'Bend'), this.cornerSeg, h('span', { class: 'sep' }), widthBox, h('span', { class: 'sep' }), chamfer, this.mitreSeg, h('span', { class: 'sep' }), this.optimiseBtn, this.optimiseNowBtn, h('span', { class: 'sep pair-sep' }), this.pairBox);
     // delete, rotate, flip and lock live on the context strip over the canvas, with what they act on
     return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), ...this.cards.buttons(), this.gridCard.button];
   }
@@ -393,11 +397,11 @@ export class BoardEditor {
       h('p', { class: 'side-note' }, `Net ${nets.map((n) => (n === '(no net)' ? n : `${n} (${netClassOf(this.board, n)} class)`)).join(', ')}${tracks.length ? ` · ${fmt(Math.round(len))} mm long` : ''}${arcs.length ? ` · ${arcs.length === tracks.length && arcs.length === 1 ? 'an arc' : `${arcs.length} arc${arcs.length === 1 ? '' : 's'}`}${arcs.length === 1 ? `, radius ${fmt(Math.round(arcs[0].r))} mm` : ''}` : ''}`)];
     if (tracks.length) {
       const ids = tracks.map((t) => t.id);
-      out.push(num('Width', one(tracks, 'width'), (w) => this.app.edit('Track width', (p) => setTrackWidth(p, ids, w))));
+      out.push(num('Width', one(tracks, 'width'), (w) => this.copperEdit('Track width', (p) => setTrackWidth(p, ids, w))));
       const layer = stop(h('select', { class: 'select', 'aria-label': 'Track layer' }, ...copperLayerNames(this.board.stack.copper).map((l) => h('option', { value: l }, l))));
       if (!one(tracks, 'layer')) layer.prepend(h('option', { value: '', disabled: true }, 'Mixed'));
       layer.value = one(tracks, 'layer') || '';
-      layer.addEventListener('change', () => this.app.edit(`Tracks to ${layer.value}`, (p) => setTrackLayer(p, ids, layer.value)));
+      layer.addEventListener('change', () => this.copperEdit(`Tracks to ${layer.value}`, (p) => setTrackLayer(p, ids, layer.value)));
       out.push(row('Layer', layer));
     }
     if (vias.length) {
@@ -510,7 +514,7 @@ export class BoardEditor {
     });
     const side = stop(h('select', { class: 'select', 'aria-label': 'Side', disabled: bf.locked }, h('option', { value: 'F' }, 'Front (top)'), h('option', { value: 'B' }, 'Back (bottom)')));
     side.value = bf.side;
-    side.addEventListener('change', () => { if (side.value !== bf.side) this.app.edit(`Flip ${comp.ref}`, (p) => flipFootprints(p, [bf.id])); });
+    side.addEventListener('change', () => { if (side.value !== bf.side) this.copperEdit(`Flip ${comp.ref}`, (p) => this._withFollow(p, () => flipFootprints(p, [bf.id]))); });
     const lock = h('input', { type: 'checkbox', checked: !!bf.locked, 'aria-label': 'Locked' });
     lock.addEventListener('change', () => this.app.edit(`${lock.checked ? 'Lock' : 'Unlock'} ${comp.ref}`, (p) => setLocked(p, [bf.id], lock.checked)));
     const o = this.board.origin;
@@ -522,9 +526,9 @@ export class BoardEditor {
       text('MPN', mpn.number || '', (v) => setComp(`${comp.ref} MPN`, { mpn: { manufacturer: mpn.manufacturer || '', number: v } })),
       row('Footprint', fpSel),
       err,
-      num('X', +((bf.at[0] - o[0]) / 1e6).toFixed(4), (v) => this.app.edit(`Move ${comp.ref}`, (p) => { const f = p.board.footprints.find((x) => x.id === bf.id); if (!f.locked) f.at = [Math.round(v * 1e6) + o[0], f.at[1]]; })),
-      num('Y', +((bf.at[1] - o[1]) / 1e6).toFixed(4), (v) => this.app.edit(`Move ${comp.ref}`, (p) => { const f = p.board.footprints.find((x) => x.id === bf.id); if (!f.locked) f.at = [f.at[0], Math.round(v * 1e6) + o[1]]; })),
-      num('Rotation', bf.rot, (v) => this.app.edit(`Rotate ${comp.ref}`, (p) => setFootprintRotation(p, bf.id, v)), '°', '0.01'),
+      num('X', +((bf.at[0] - o[0]) / 1e6).toFixed(4), (v) => this.copperEdit(`Move ${comp.ref}`, (p) => this._withFollow(p, () => { const f = p.board.footprints.find((x) => x.id === bf.id); if (!f.locked) f.at = [Math.round(v * 1e6) + o[0], f.at[1]]; }))),
+      num('Y', +((bf.at[1] - o[1]) / 1e6).toFixed(4), (v) => this.copperEdit(`Move ${comp.ref}`, (p) => this._withFollow(p, () => { const f = p.board.footprints.find((x) => x.id === bf.id); if (!f.locked) f.at = [f.at[0], Math.round(v * 1e6) + o[1]]; }))),
+      num('Rotation', bf.rot, (v) => this.copperEdit(`Rotate ${comp.ref}`, (p) => this._withFollow(p, () => setFootprintRotation(p, bf.id, v))), '°', '0.01'),
       row('Side', side),
       h('label', { class: 'check-row' }, lock, 'Locked (can\'t be moved, turned or flipped)'),
       ann && (ann.ref !== comp.ref || ann.value !== comp.value) ? h('p', { class: 'side-note' }, 'The Schematic has changes for this part: Update from Schematic (F8).') : null,
@@ -562,7 +566,7 @@ export class BoardEditor {
     };
     const side = stop(h('select', { class: 'select', 'aria-label': 'Side', disabled: bf.locked }, h('option', { value: 'F' }, 'Front (top)'), h('option', { value: 'B' }, 'Back (bottom)')));
     side.value = bf.side;
-    side.addEventListener('change', () => { if (side.value !== bf.side) this.app.edit(`Flip ${bf.ref}`, (p) => flipFootprints(p, [bf.id])); });
+    side.addEventListener('change', () => { if (side.value !== bf.side) this.copperEdit(`Flip ${bf.ref}`, (p) => this._withFollow(p, () => flipFootprints(p, [bf.id]))); });
     const lock = h('input', { type: 'checkbox', checked: !!bf.locked, 'aria-label': 'Locked' });
     lock.addEventListener('change', () => this.app.edit(`${lock.checked ? 'Lock' : 'Unlock'} ${bf.ref}`, (p) => setLocked(p, [bf.id], lock.checked)));
     const bom = h('input', { type: 'checkbox', checked: !!bf.bom, 'aria-label': 'In BOM' });
@@ -576,9 +580,9 @@ export class BoardEditor {
       err,
       ...(pads.length ? [h('div', { class: 'prop-title' }, 'Pad nets'), list, ...pads.map(padRow)] : []),
       h('label', { class: 'check-row' }, bom, 'In BOM (off for mounting holes, fiducials and logos)'),
-      num('X', +((bf.at[0] - o[0]) / 1e6).toFixed(4), (v) => this.app.edit(`Move ${bf.ref}`, (p) => { const f = p.board.footprints.find((x) => x.id === bf.id); if (!f.locked) f.at = [Math.round(v * 1e6) + o[0], f.at[1]]; })),
-      num('Y', +((bf.at[1] - o[1]) / 1e6).toFixed(4), (v) => this.app.edit(`Move ${bf.ref}`, (p) => { const f = p.board.footprints.find((x) => x.id === bf.id); if (!f.locked) f.at = [f.at[0], Math.round(v * 1e6) + o[1]]; })),
-      num('Rotation', bf.rot, (v) => this.app.edit(`Rotate ${bf.ref}`, (p) => setFootprintRotation(p, bf.id, v)), '°', '0.01'),
+      num('X', +((bf.at[0] - o[0]) / 1e6).toFixed(4), (v) => this.copperEdit(`Move ${bf.ref}`, (p) => this._withFollow(p, () => { const f = p.board.footprints.find((x) => x.id === bf.id); if (!f.locked) f.at = [Math.round(v * 1e6) + o[0], f.at[1]]; }))),
+      num('Y', +((bf.at[1] - o[1]) / 1e6).toFixed(4), (v) => this.copperEdit(`Move ${bf.ref}`, (p) => this._withFollow(p, () => { const f = p.board.footprints.find((x) => x.id === bf.id); if (!f.locked) f.at = [f.at[0], Math.round(v * 1e6) + o[1]]; }))),
+      num('Rotation', bf.rot, (v) => this.copperEdit(`Rotate ${bf.ref}`, (p) => this._withFollow(p, () => setFootprintRotation(p, bf.id, v))), '°', '0.01'),
       row('Side', side),
       h('label', { class: 'check-row' }, lock, 'Locked (can\'t be moved, turned or flipped)'),
       h('div', { class: 'layer-actions' }, button({ label: 'Delete', icon: 'trash', cls: 'btn-ghost', title: 'Delete it (Del)', onClick: () => this.deleteSelection() })),
@@ -630,6 +634,7 @@ export class BoardEditor {
   // ---------------------------------------------------------------- state
 
   refresh() {
+    this._showOptimise?.();
     const n = this.board.outline.length;
     for (const i of [...this.selection]) if (i >= n) this.selection.delete(i);
     const ids = new Set(this.board.footprints.map((f) => f.id));
@@ -812,7 +817,7 @@ export class BoardEditor {
     }
     if (this.trackSel.size) {
       const del = new Set(this.trackSel); this.trackSel.clear();
-      this.app.edit(del.size === 1 ? 'Delete track' : `Delete ${del.size} tracks and vias`, (p) => { p.board.tracks = p.board.tracks.filter((t) => !del.has(t.id)); p.board.vias = p.board.vias.filter((v) => !del.has(v.id)); pruneApprovals(p); });
+      this.copperEdit(del.size === 1 ? 'Delete track' : `Delete ${del.size} tracks and vias`, (p) => { p.board.tracks = p.board.tracks.filter((t) => !del.has(t.id)); p.board.vias = p.board.vias.filter((v) => !del.has(v.id)); pruneApprovals(p); });
       return;
     }
     // board-only Footprints (#74) are deleted here; the Schematic's come and go with it
@@ -834,7 +839,7 @@ export class BoardEditor {
     const kinds = [sel.length, fps.length, zs.size, ds.size, cu.size].filter(Boolean).length;
     const label = kinds > 1 || fps.length ? 'Move' : zs.size ? 'Move zone' : ds.size ? (ds.size === 1 ? 'Move drawing' : 'Move drawings') : cu.size ? 'Move tracks' : 'Move outline';
     let kept = 0;
-    this.app.edit(label, (p) => { kept = this._withFollow(p, () => { moveOutline(sel.map((i) => p.board.outline[i]), [dx, dy]); moveFootprints(p, fps, [dx, dy]); moveZones(p.board.zones, zs, [dx, dy]); moveDrawings((p.board.drawings || []).filter((d) => ds.has(d.id)), [dx, dy]); moveCopper(p.board, cu, [dx, dy]); }); });
+    this.copperEdit(label, (p) => { kept = this._withFollow(p, () => { moveOutline(sel.map((i) => p.board.outline[i]), [dx, dy]); moveFootprints(p, fps, [dx, dy]); moveZones(p.board.zones, zs, [dx, dy]); moveDrawings((p.board.drawings || []).filter((d) => ds.has(d.id)), [dx, dy]); moveCopper(p.board, cu, [dx, dy]); }); });
     this._keptNote(kept);
   }
 
@@ -850,6 +855,54 @@ export class BoardEditor {
     if (this.routeMode === 'shove') pushClear(p, changed);
     return kept;
   }
+
+  /**
+   * An edit to copper (#104, T2): made as one undo step, then, with the board's Optimise on,
+   * the tracks it touched (new, changed, or ending where removed copper ended) are optimised.
+   */
+  copperEdit(label, fn) {
+    let out;
+    this.app.edit(label, (p) => {
+      const bt = new Map((p.board.tracks || []).map((t) => [t.id, JSON.stringify(t)]));
+      const bv = (p.board.vias || []).map((v) => ({ id: v.id, at: v.at }));
+      out = fn(p);
+      this._optimiseTouched(p, bt, bv);
+    });
+    return out;
+  }
+
+  _optimiseTouched(p, bt, bv) {
+    if (p.board.optimise === false) return;
+    const now = new Set((p.board.tracks || []).map((t) => t.id)), vnow = new Set((p.board.vias || []).map((v) => v.id));
+    const scope = new Set((p.board.tracks || []).filter((t) => bt.get(t.id) !== JSON.stringify(t)).map((t) => t.id));
+    // where copper went (deleted, ripped up), what's left meeting there may now join up
+    const gone = new Set();
+    for (const [id, js] of bt) if (!now.has(id)) { const t = JSON.parse(js); gone.add(t.a.join()); gone.add(t.b.join()); }
+    for (const v of bv) if (!vnow.has(v.id)) gone.add(v.at.join());
+    if (gone.size) for (const t of p.board.tracks || []) if (gone.has(t.a.join()) || gone.has(t.b.join())) scope.add(t.id);
+    if (scope.size) optimiseTracks(p, p.board, scope);
+  }
+
+  /** T8: optimise the selected tracks, or every track, now (one undo step, whatever the toggle says). */
+  optimiseNow() {
+    const ids = [...this.trackSel].filter((id) => (this.board.tracks || []).some((t) => t.id === id));
+    const before = (this.board.tracks || []).length;
+    const scope = ids.length ? new Set(ids) : null;
+    // count on a copy first, so nothing becomes an undo step when there's nothing to do
+    const n = optimiseTracks(this.project, { ...this.board, tracks: structuredClone(this.board.tracks || []) }, scope);
+    if (!n) { toast('Nothing to optimise.', 'info', 1600); return; }
+    this.app.edit(ids.length ? 'Optimise selected tracks' : 'Optimise tracks', (p) => { optimiseTracks(p, p.board, scope); });
+    for (const id of [...this.trackSel]) if (!this.board.tracks.some((t) => t.id === id) && !this.board.vias.some((v) => v.id === id)) this.trackSel.delete(id);
+    toast(`Optimised: ${n} track${n === 1 ? '' : 's'} fewer (${before} to ${before - n}).`, 'info', 2000);
+  }
+
+  /** T1: the board's Optimise setting (saved with the board; on unless turned off). */
+  setOptimise(on) {
+    this.app.edit(on ? 'Optimise tracks: on' : 'Optimise tracks: off', (p) => { if (on) delete p.board.optimise; else p.board.optimise = false; });
+    this._showOptimise();
+  }
+
+  _showOptimise() { if (this.optimiseBtn) { const on = this.board.optimise !== false; this.optimiseBtn.classList.toggle('active', on); this.optimiseBtn.setAttribute('aria-pressed', String(on)); } }
 
   _keptNote(kept) {
     if (kept) toast(`${kept} locked track${kept === 1 ? '' : 's'} stayed put: ${kept === 1 ? 'its' : 'their'} connection${kept === 1 ? ' is' : 's are'} broken (see the airwires).`, 'info', 2600);
@@ -870,7 +923,7 @@ export class BoardEditor {
     }
     if (!ids.length) return;
     let kept = 0;
-    this.app.edit(`Rotate ${deg}°`, (p) => { kept = this._withFollow(p, () => rotateFootprints(p, ids, deg)); });
+    this.copperEdit(`Rotate ${deg}°`, (p) => { kept = this._withFollow(p, () => rotateFootprints(p, ids, deg)); });
     this._lockedNote(ids); this._keptNote(kept);
   }
 
@@ -895,7 +948,7 @@ export class BoardEditor {
     }
     if (!ids.length) return;
     let kept = 0;
-    this.app.edit('Flip to the other side', (p) => { kept = this._withFollow(p, () => flipFootprints(p, ids)); });
+    this.copperEdit('Flip to the other side', (p) => { kept = this._withFollow(p, () => flipFootprints(p, ids)); });
     this._lockedNote(ids); this._keptNote(kept);
   }
 
@@ -940,7 +993,7 @@ export class BoardEditor {
         const at = this.snapAt(w);
         let v = null;
         let n = 0;
-        this.app.edit('Place via', (p) => { ({ via: v, pushed: n } = placeViaPushing(p, at, 2 / ws.view.view.scale, { shove: this.routeMode === 'shove' })); });
+        this.copperEdit('Place via', (p) => { ({ via: v, pushed: n } = placeViaPushing(p, at, 2 / ws.view.view.scale, { shove: this.routeMode === 'shove' })); });
         const pushed = n > 0 ? ` Pushed ${n} aside.` : n < 0 ? ' Too crowded to push what it\'s near: check DRC.' : '';
         toast(`${v.net ? `Via on ${v.net}.` : 'Via with no net (it isn\'t on a track or pad).'}${pushed}`, n < 0 ? 'error' : 'info', 2000);
         return;
@@ -1215,7 +1268,7 @@ export class BoardEditor {
         const d = this.trackDrag; this.trackDrag = null; this.trackDragIndex = null; this.liveRats = null;
         const res = d.result;
         if (res && JSON.stringify(res.tracks) !== JSON.stringify(this.board.tracks)) {
-          this.app.edit(d.kind === 'corner' ? 'Drag corner' : d.kind === 'end' ? 'Drag track end' : 'Drag track', (p) => { p.board.tracks = res.tracks; p.board.vias = res.vias; });
+          this.copperEdit(d.kind === 'corner' ? 'Drag corner' : d.kind === 'end' ? 'Drag track end' : 'Drag track', (p) => { p.board.tracks = res.tracks; p.board.vias = res.vias; });
           if (res.moved?.size) toast(`Pushed ${res.moved.size} track${res.moved.size === 1 ? '' : 's'} aside.`, 'info', 1400);
         } else this.refresh();
         return;
@@ -1468,7 +1521,7 @@ export class BoardEditor {
       return;
     }
     if (this.trackSel.size) {
-      popupMenu([props, toSch, 'sep', { label: 'Select the whole connection', icon: 'route', shortcut: 'U', onClick: () => this.selectConnection() }, selectNet, 'sep', del], at);
+      popupMenu([props, toSch, 'sep', { label: 'Select the whole connection', icon: 'route', shortcut: 'U', onClick: () => this.selectConnection() }, selectNet, { label: 'Optimise tracks', icon: 'route', onClick: () => this.optimiseNow() }, 'sep', del], at);
       return;
     }
     popupMenu([props, toSch, 'sep', selectNet, selectNet ? 'sep' : null, del], at);
@@ -1849,7 +1902,7 @@ export class BoardEditor {
     if (st && st.points.length > 1) {
       let n = 0;
       const shoving = this.routeMode === 'shove', index = this.routeIndexAtEnd;
-      this.app.edit(`Route ${st.net}`, (p) => { n = routeCommit(p, st, { shove: shoving, index }).length; });
+      this.copperEdit(`Route ${st.net}`, (p) => { n = routeCommit(p, st, { shove: shoving, index }).length; });
       const v = st.vias?.length || 0;
       toast(`${n} track${n === 1 ? '' : 's'}${v ? ` and ${v} via${v === 1 ? '' : 's'}` : ` on ${st.layer}`} (${st.net}).`, 'info', 1600);
     } else this.refresh();
@@ -1893,7 +1946,7 @@ export class BoardEditor {
     const kept = ids.size - take.size;
     if (!take.size) { toast('Locked: unlock it in its Properties to rip it up.', 'info', 2000); this.refresh(); return; }
     let n = { tracks: 0, vias: 0 };
-    this.app.edit('Rip up', (p) => { n = ripUp(p.board, take); });
+    this.copperEdit('Rip up', (p) => { n = ripUp(p.board, take); });
     for (const id of take) this.trackSel.delete(id);
     toast(`Ripped up ${n.tracks} track${n.tracks === 1 ? '' : 's'}${n.vias ? ` and ${n.vias} via${n.vias === 1 ? '' : 's'}` : ''}${kept ? ` (${kept} locked, kept)` : ''}.`, 'info', 1800);
     this.refresh();
@@ -1981,7 +2034,7 @@ export class BoardEditor {
         stripButton({ icon: 'rotateLeft', title: locked ? 'Locked: unlock to rotate' : `Rotate ${this.rotStep}° anticlockwise (R)`, disabled: locked, onClick: () => this.rotateSel(this.rotStep) }),
         stripButton({ icon: 'rotateRight', title: locked ? 'Locked: unlock to rotate' : `Rotate ${this.rotStep}° clockwise (Shift+R)`, disabled: locked, onClick: () => this.rotateSel(-this.rotStep) }),
         stripSelect({ label: 'Rotation step', showLabel: false, value: this.rotStep, disabled: locked, options: [90, 45, 30, 15, 10, 5, 1].map((d) => [d, `${d}°`]), title: 'How far R and the rotate buttons turn', onSet: (v) => { this.rotStep = +v; pref.set('boardRotStep', this.rotStep); this.refresh(); } }),
-        one ? stripNumber({ label: 'Angle', value: +one.rot.toFixed(2), unit: '°', step: '1', min: '-360', max: '360', width: 62, disabled: locked, title: locked ? 'Locked: unlock to change the angle' : 'The exact rotation (anticlockwise)', onSet: (v) => this.app.edit(`Rotate ${ref(one)} to ${v}°`, (p) => setFootprintRotation(p, one.id, v)) }) : null,
+        one ? stripNumber({ label: 'Angle', value: +one.rot.toFixed(2), unit: '°', step: '1', min: '-360', max: '360', width: 62, disabled: locked, title: locked ? 'Locked: unlock to change the angle' : 'The exact rotation (anticlockwise)', onSet: (v) => this.copperEdit(`Rotate ${ref(one)} to ${v}°`, (p) => this._withFollow(p, () => setFootprintRotation(p, one.id, v))) }) : null,
         stripSep(),
         stripButton({ icon: 'flip', label: 'Flip', title: locked ? 'Locked: unlock to flip' : `Flip to the ${one?.side === 'B' ? 'front' : 'other side'} (F)`, disabled: locked, onClick: () => this.flipSel() }),
         stripButton({ icon: locked ? 'unlock' : 'lock', label: locked ? 'Unlock' : 'Lock', active: locked, title: `${locked ? 'Unlock' : 'Lock'}: a locked footprint doesn't move (L)`, onClick: () => this.lockSel() }),
@@ -1994,8 +2047,8 @@ export class BoardEditor {
       const w = one(tracks, 'width'), lay = one(tracks, 'layer');
       s.show(`copper|${pOpen}|${[...this.trackSel].join()}|${w}|${lay}|${one(vias, 'drill')}|${one(vias, 'diameter')}`, () => [
         stripLabel([tracks.length ? `${tracks.length} track${tracks.length === 1 ? '' : 's'}` : '', vias.length ? `${vias.length} via${vias.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(', '), tracks.length ? 'route' : 'via'), stripSep(),
-        tracks.length ? stripNumber({ label: 'Width', value: w == null ? null : fmt(w), placeholder: 'mixed', unit: 'mm', step: '0.01', min: '0.01', onSet: (v) => { try { this.app.edit('Track width', (p) => setTrackWidth(p, ids, mm(v))); } catch (e) { toast(e.message, 'error', 3000); } } }) : null,
-        tracks.length ? stripSelect({ label: 'Layer', value: lay || '', options: [...(lay ? [] : [['', 'Mixed']]), ...copper.map((l) => [l, l])], onSet: (v) => { if (v) this.app.edit(`Tracks to ${v}`, (p) => setTrackLayer(p, ids, v)); } }) : null,
+        tracks.length ? stripNumber({ label: 'Width', value: w == null ? null : fmt(w), placeholder: 'mixed', unit: 'mm', step: '0.01', min: '0.01', onSet: (v) => { try { this.copperEdit('Track width', (p) => setTrackWidth(p, ids, mm(v))); } catch (e) { toast(e.message, 'error', 3000); } } }) : null,
+        tracks.length ? stripSelect({ label: 'Layer', value: lay || '', options: [...(lay ? [] : [['', 'Mixed']]), ...copper.map((l) => [l, l])], onSet: (v) => { if (v) this.copperEdit(`Tracks to ${v}`, (p) => setTrackLayer(p, ids, v)); } }) : null,
         vias.length ? stripNumber({ label: 'Via', value: one(vias, 'drill') == null ? null : fmt(one(vias, 'drill')), placeholder: 'mixed', unit: '/', step: '0.05', min: '0.05', width: 56, title: 'Via drill (mm)', onSet: (v) => { try { this.app.edit('Via drill', (p) => setViaSize(p, vids, { drill: mm(v) })); } catch (e) { toast(e.message, 'error', 3000); } } }) : null,
         vias.length ? stripNumber({ label: '', value: one(vias, 'diameter') == null ? null : fmt(one(vias, 'diameter')), placeholder: 'mixed', unit: 'mm', step: '0.05', min: '0.1', width: 56, title: 'Via diameter (mm)', onSet: (v) => { try { this.app.edit('Via diameter', (p) => setViaSize(p, vids, { diameter: mm(v) })); } catch (e) { toast(e.message, 'error', 3000); } } }) : null,
         stripSep(),

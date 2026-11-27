@@ -67,22 +67,24 @@ check('back', ed.route.points.length === 1);
 click(17, 5);
 const undo0 = app.history.undoStack.length;
 click(21.0875, 14);
-check('done', !ed.route && app.project.board.tracks.length === 4, app.project.board.tracks.length); // two legs, the chamfer, and the drop to the pad
+// two legs in line (merged into one by Optimise, #104), the chamfer, and the drop to the pad
+check('done', !ed.route && app.project.board.tracks.length === 3, app.project.board.tracks.length);
+const nDone = app.project.board.tracks.length;
 check('chamfered', app.project.board.tracks.some((t) => t.a[0] !== t.b[0] && t.a[1] !== t.b[1]));
 check('one-undo', app.history.undoStack.length === undo0 + 1);
 check('rats-0', unrouted() === 0, ed._rats.unrouted);
 // Esc cancels a route in progress
 click(5.9125, 5); move(10, 10); key('Escape');
-check('cancel', !ed.route && app.project.board.tracks.length === 4);
+check('cancel', !ed.route && app.project.board.tracks.length === nDone);
 // select a track and delete it
 key('v');
 const t0 = app.project.board.tracks[0];
 click((t0.a[0] + t0.b[0]) / 2 / MM, (t0.a[1] + t0.b[1]) / 2 / MM);
 check('track-selected', ed.trackSel.has(t0.id), [...ed.trackSel]);
 key('Delete');
-check('deleted', app.project.board.tracks.length === 3 && unrouted() === 1);
+check('deleted', app.project.board.tracks.length === nDone - 1 && unrouted() === 1);
 key('z', { ctrlKey: true });
-check('undo-delete', app.project.board.tracks.length === 4);
+check('undo-delete', app.project.board.tracks.length === nDone);
 // after a corner the next leg carries on the way the track was going: bend 0 goes horizontal
 // first, but after a run down it carries on down; / keeps the style's order for this leg
 key('x');

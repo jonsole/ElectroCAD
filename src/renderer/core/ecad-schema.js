@@ -991,6 +991,10 @@ export const ECAD_SCHEMA = {
           "description": "Text and graphics on the Board's own layers: silk, fab, courtyard, mask, paste or copper (#66; core/boardDrawings.js). Absent: none.",
           "items": { "$ref": "#/$defs/boardDrawing" }
         },
+        "optimise": {
+          "type": "boolean",
+          "description": "Track optimisation after copper edits (#104, Eagle's optimizing): false turns it off; absent means on."
+        },
         "textFont": {
           "enum": ["stroke", "vector"],
           "description": "The metrics of board text, on screen and in the silk Gerbers (Board setup): ElectroCAD's stroke font, size = capital height (absent: the default), or the vector font, size = full height as Eagle's (#79; Eagle imports use it)."

@@ -65,7 +65,9 @@ check('corner', ed.trackDrag?.kind === 'corner', ed.trackDrag);
 ev('pointermove', 8, 11, 1); await wait(30);
 ev('pointerup', 8, 11, 0); await wait(50);
 const after = app.project.board.tracks.filter((t) => t.net === net);
-check('corner-moved', after.some((t) => (t.a[0] === 8 * MM && t.a[1] === 11 * MM) || (t.b[0] === 8 * MM && t.b[1] === 11 * MM)), after.map((t) => [t.a, t.b]));
+// the track goes through the new corner (a 45° leg either side of it may be merged into one by Optimise, #104)
+const through = (t, x, y) => { const p = [x * MM, y * MM], dx = t.b[0] - t.a[0], dy = t.b[1] - t.a[1], L2 = dx * dx + dy * dy, u = L2 ? Math.max(0, Math.min(1, ((p[0] - t.a[0]) * dx + (p[1] - t.a[1]) * dy) / L2)) : 0; return Math.hypot(t.a[0] + u * dx - p[0], t.a[1] + u * dy - p[1]) < 2; };
+check('corner-moved', after.some((t) => through(t, 8, 11)), after.map((t) => [t.a, t.b]));
 await ed.runDrc(); await wait(50);
 check('corner-still-routed', !ed.drc.list.some((v) => v.rule === 'unrouted'));
 ed.drcCard?.toggle?.(false);

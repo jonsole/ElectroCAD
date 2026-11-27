@@ -1496,6 +1496,10 @@
             "$ref": "#/$defs/boardDrawing"
           }
         },
+        "optimise": {
+          "type": "boolean",
+          "description": "Track optimisation after copper edits (#104, Eagle's optimizing): false turns it off; absent means on."
+        },
         "textFont": {
           "enum": [
             "stroke",
