@@ -124,4 +124,17 @@ ev('pointerup', 20, 13.1, 0); await wait(50);
 await ed.runDrc(); await wait(50);
 check('bundle-drc-clean', !ed.drc.list.some((v) => v.rule === 'clearance' || v.rule === 'unrouted'), ed.drc.list.map((v) => v.message));
 ed.drcCard?.toggle?.(false);
+// #107: two Z-shaped tracks (run, 45° diagonal, run); dragging the lower diagonal into the upper
+// one slides the upper diagonal over (too short to bump), its runs stretching to follow
+app.edit('zs', (pr) => {
+  const z = (id, net, pts) => pts.slice(1).map((q, i) => ({ id: `${id}${i}`, a: pts[i].map((v) => v * MM), b: q.map((v) => v * MM), width: 250000, layer: 'F.Cu', net }));
+  pr.board.tracks.push(...z('zu', 'ZU', [[2, 21], [10, 21], [14, 17], [38, 17]]), ...z('zl', 'ZL', [[2, 22], [11, 22], [15, 18], [38, 18]]));
+});
+ws.view.view.fit({ x0: 4 * MM, y0: 14 * MM, x1: 24 * MM, y1: 24 * MM }, ws.view.w, ws.view.h, 20);
+ev('pointermove', 13, 20, 0); ev('pointerdown', 13, 20, 1); ev('pointermove', 12.5, 20, 1); ev('pointermove', 11.5, 20, 1); await wait(30);
+check('z-slides', ed.trackDrag?.result?.moved?.has('zu1'), ed.trackDrag?.result ? [...ed.trackDrag.result.moved] : ed.trackDrag?.stuck);
+ev('pointerup', 11.5, 20, 0); await wait(50);
+await ed.runDrc(); await wait(50);
+check('z-drc-clean', !ed.drc.list.some((v) => v.rule === 'clearance'), ed.drc.list.filter((v) => v.rule === 'clearance').map((v) => v.message));
+ed.drcCard?.toggle?.(false);
 return { fails };

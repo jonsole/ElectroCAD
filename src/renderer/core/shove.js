@@ -36,6 +36,21 @@ function crosses(p1, p2, q1, q2) {
  * reach past the Track's ends). A pusher crossing the Track pushes it ahead of its tip (`b`).
  */
 export function bumpOf(t, ps) {
+  const o = pushOffset(t, ps);
+  if (!o) return null;
+  const { A, B, L, tx, ty, nx, ny, h, uLo, uHi } = o;
+  const s0 = uLo - h, s1 = uHi + h;
+  if (s0 < 0 || s1 > L) return null; // the bump doesn't fit in this Track
+  const at = (u, v) => [Math.round(A[0] + tx * u + nx * v), Math.round(A[1] + ty * u + ny * v)];
+  return [A, at(s0, 0), at(uLo, h), at(uHi, h), at(s1, 0), B].filter((q, i, all) => !i || q[0] !== all[i - 1][0] || q[1] !== all[i - 1][1]);
+}
+
+/**
+ * Which way and how far Track `t` must go to clear its pushers `ps`: { nx, ny (the unit normal away
+ * from them), h (how far), uLo, uHi (the stretch along it they cover) }, or null when they're on
+ * both sides of it.
+ */
+export function pushOffset(t, ps) {
   if (!Array.isArray(ps)) ps = [ps];
   const A = t.a, B = t.b;
   const L = Math.hypot(B[0] - A[0], B[1] - A[1]);
@@ -59,10 +74,15 @@ export function bumpOf(t, ps) {
     uLo = Math.min(uLo, Math.min(...us) - R); uHi = Math.max(uHi, Math.max(...us) + R);
   }
   if (!(h > 0)) return null;
-  const s0 = uLo - h, s1 = uHi + h;
-  if (s0 < 0 || s1 > L) return null; // the bump doesn't fit in this Track
-  const at = (u, v) => [Math.round(A[0] + tx * u + nx * v), Math.round(A[1] + ty * u + ny * v)];
-  return [A, at(s0, 0), at(uLo, h), at(uHi, h), at(s1, 0), B].filter((q, i, all) => !i || q[0] !== all[i - 1][0] || q[1] !== all[i - 1][1]);
+  return { A, B, L, tx, ty, nx, ny, h, uLo, uHi };
+}
+
+/** Where line p + s·d meets line q + t·e (null when parallel). */
+function intersect(p, d, q, e) {
+  const den = d[0] * e[1] - d[1] * e[0];
+  if (Math.abs(den) < 1e-9) return null;
+  const s = ((q[0] - p[0]) * e[1] - (q[1] - p[1]) * e[0]) / den;
+  return [Math.round(p[0] + d[0] * s), Math.round(p[1] + d[1] * s)];
 }
 
 /** The point of segment a-b nearest to p. */
@@ -112,6 +132,46 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
   const segsOf = new Map(); // Track id -> its current segments
   const moved = new Set();
   const heads = pushers.map((p) => ({ ...p, layers: new Set(p.layers) }));
+  const sameAt = (q, P) => q[0] === P[0] && q[1] === P[1];
+  // a pad or via at P on `layer`: what a sliding segment's end can't drag along
+  const fixedAt = (P, layer) => vias.some((v) => sameAt(v.at, P)) || fixed.some((it) => it.kind === 'pad' && it.layers.has(layer) && shapeDistance({ type: 'capsule', a: P, b: P, r: 0 }, it.shape) <= 0);
+  /** Slide Track `id` (its working segment `t`) clear of pushers `ps`; false when it can't. */
+  const slide = (id, t, ps) => {
+    if ((segsOf.get(id) || [t]).length !== 1) return false; // already bumped: leave it
+    const o = orig.get(id), off = pushOffset(o, ps);
+    if (!off) return false;
+    const d = [Math.round(off.nx * off.h), Math.round(off.ny * off.h)], dir = [o.b[0] - o.a[0], o.b[1] - o.a[1]];
+    const A2 = [o.a[0] + d[0], o.a[1] + d[1]], B2 = [o.b[0] + d[0], o.b[1] + d[1]];
+    const ends = { a: A2, b: B2 }, changed = [];
+    for (const end of ['a', 'b']) {
+      const P = o[end], P2 = ends[end];
+      const nbs = tracks.filter((u) => u !== t && u.layer === t.layer && low(u.net) === low(t.net) && (sameAt(u.a, P) || sameAt(u.b, P)));
+      const nb = nbs.length === 1 && !fixedAt(P, t.layer) && !nbs[0].locked && !nbs[0].mid && (segsOf.get(origin.get(nbs[0])) || [nbs[0]]).length === 1 && !locked.has(origin.get(nbs[0])) ? nbs[0] : null;
+      let done = false;
+      if (nb) {
+        const far = sameAt(nb.a, P) ? nb.b : nb.a, e = [P[0] - far[0], P[1] - far[1]];
+        const X = intersect(A2, dir, far, e);
+        if (X && (X[0] - far[0]) * e[0] + (X[1] - far[1]) * e[1] > 0) {
+          if (sameAt(nb.a, P)) nb.a = X; else nb.b = X;
+          ends[end] = X;
+          const nid = origin.get(nb);
+          orig.set(nid, { ...nb }); moved.add(nid); changed.push(nb);
+          done = true;
+        }
+      }
+      if (!done) { // a short jog from where it was joined
+        const j = { ...o, id: uid('t'), a: end === 'a' ? P : P2, b: end === 'a' ? P2 : P };
+        tracks.push(j); origin.set(j, id); changed.push(j);
+      }
+    }
+    t.a = ends.a; t.b = ends.b;
+    orig.set(id, { ...o, a: ends.a, b: ends.b });
+    segsOf.set(id, [t]); moved.add(id); changed.push(t);
+    for (const q of queue) if (q.owner === id) q.dead = true;
+    const away = [(o.a[0] + o.b[0]) / 2, (o.a[1] + o.b[1]) / 2];
+    for (const sg of changed) queue.push({ a: sg.a, b: sg.b, r: sg.width / 2, layers: new Set([sg.layer]), net: sg.net, kind: 'track', owner: origin.get(sg), from: away });
+    return true;
+  };
   const queue = [...heads];
   let pushes = 0;
   for (let qi = 0; qi < queue.length; qi++) {
@@ -133,7 +193,13 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
       if (list.length > MAX_PER_TRACK * 4) return { ok: false, reason: 'loop' };
       pushedBy.set(id, list);
       const pts = bumpOf(orig.get(id), list);
-      if (!pts) return { ok: false, reason: 'no room' };
+      if (!pts) {
+        // too short for a bump (a short diagonal between two runs): slide the whole segment over,
+        // its neighbours following along their own lines, as dragging a segment does (#107)
+        if (!slide(id, t, list)) return { ok: false, reason: 'no room' };
+        i = -1;
+        continue;
+      }
       // the Track's old segments make way for the new ones
       const old = segsOf.get(id) || [t];
       for (const q of queue) if (q.owner === id) q.dead = true;

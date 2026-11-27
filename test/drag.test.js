@@ -174,3 +174,20 @@ test('a dragged segment pushes a whole bundle ahead of it, even past the first t
     for (const x of caps) for (const y of caps) if (x.t.net !== y.t.net) assert.ok(shapeDistance(x.s, y.s) >= mm(0.2) - 2, `${dy}: ${x.t.id}/${y.t.id}`);
   }
 });
+
+test('a short diagonal too short to bump is slid over, its runs following (#107, the user\'s Z tracks)', () => {
+  const p = project([tr('u1', [2, 12], [10, 12], 'U'), tr('u2', [10, 12], [14, 8], 'U'), tr('u3', [14, 8], [38, 8], 'U'),
+    tr('l1', [2, 13], [11, 13], 'L'), tr('l2', [11, 13], [15, 9], 'L'), tr('l3', [15, 9], [38, 9], 'L')]);
+  const index = copperIndex(p);
+  for (const dx of [1.5, 2, 3]) {
+    const r = dragSegment(p, p.board, 'l2', [-mm(dx), 0], { corner: '45', posture: 'a' });
+    const res = dragResult(p, r, { mode: 'shove', index, from: [mm(13), mm(11)] });
+    assert.ok(res.ok, `${dx}: ${res.reason}`);
+    assert.ok(res.moved.has('u2'), `${dx}: the diagonal moved`);
+    const u = res.tracks.filter((t) => t.net === 'U');
+    assert.ok(u.every(angle), `${dx}: still 45° and square`);
+    runs(u, 'U', [2, 12], [38, 8]);
+    const caps = res.tracks.map((t) => ({ t, s: { type: 'capsule', a: t.a, b: t.b, r: W / 2 } }));
+    for (const x of caps) for (const y of caps) if (x.t.net !== y.t.net) assert.ok(shapeDistance(x.s, y.s) >= mm(0.2) - 2, `${dx}: ${x.t.id}/${y.t.id}`);
+  }
+});
