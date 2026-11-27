@@ -26,9 +26,15 @@ import { trackShape, trackPoints } from './trackGeom.js';
  * A corner point reached by an arc (#94): the point, carrying the arc's middle as `mid`. The
  * segment from the point before to it is that arc. Plain [x, y] everywhere else.
  */
-const arcTo = (p, mid) => Object.assign([p[0], p[1]], { mid });
-/** A route's points as segments { a, b, mid? } (arcs where a point carries `mid`). */
-const segOf = (a, b) => (b.mid ? { a: [a[0], a[1]], b: [b[0], b[1]], mid: b.mid } : { a: [a[0], a[1]], b: [b[0], b[1]] });
+const arcTo = (p, mid, w = p.w) => Object.assign([p[0], p[1]], { mid }, w ? { w } : {});
+/** A corner point carrying the width `w` of the leg that ends at it (R4); plain where it has none. */
+const withW = (p, w) => (w ? Object.assign([p[0], p[1]], p.mid ? { mid: p.mid } : {}, { w }) : p);
+/**
+ * A route's points as segments { a, b, mid?, width }: an arc where the point reached carries
+ * `mid`, the width that point carries (else `width`, the route's current one, for the leg to
+ * the pointer).
+ */
+const segOf = (a, b, width) => ({ a: [a[0], a[1]], b: [b[0], b[1]], ...(b.mid ? { mid: b.mid } : {}), width: b.w || width });
 
 export const ROUTE_MODES = [['shove', 'Shove'], ['walkaround', 'Walkaround'], ['free', 'Free']];
 
@@ -220,7 +226,7 @@ export const nextLayer = (pair, layer) => (layer === pair[0] ? pair[1] : layer =
 export function switchLayer(project, state, at, to = null, tail = null) {
   const s1 = click(project, state, at, tail);
   const end = s1.points[s1.points.length - 1];
-  return { ...s1, runs: [...s1.runs, { layer: s1.layer, points: s1.points }], vias: [...s1.vias, { at: end }], layer: to || nextLayer(s1.pair, s1.layer), points: [end], stroke: [], stops: [], lead: null, forced: false };
+  return { ...s1, runs: [...s1.runs, { layer: s1.layer, points: s1.points }], vias: [...s1.vias, { at: [end[0], end[1]] }], layer: to || nextLayer(s1.pair, s1.layer), points: [[end[0], end[1]]], stroke: [], stops: [], lead: null, forced: false };
 }
 
 /**
@@ -240,7 +246,7 @@ export function chamferPath(pts, length) {
     const cos = (u[0] * v[0] + u[1] * v[1]) / (lu * lv); // the inside angle: 90° corner -> 0, sharper -> > 0
     if (cos < -1e-9) { out.push(p); continue; } // gentler than 90° (a 45° bend): left as it is
     const c = Math.min(length, lu / 2, lv / 2);
-    out.push([Math.round(p[0] + (u[0] / lu) * c), Math.round(p[1] + (u[1] / lu) * c)], [Math.round(p[0] + (v[0] / lv) * c), Math.round(p[1] + (v[1] / lv) * c)]);
+    out.push(withW([Math.round(p[0] + (u[0] / lu) * c), Math.round(p[1] + (u[1] / lu) * c)], p.w), withW([Math.round(p[0] + (v[0] / lv) * c), Math.round(p[1] + (v[1] / lv) * c)], b.w));
   }
   out.push(pts[pts.length - 1]);
   return out;
@@ -275,7 +281,7 @@ export function roundPath(pts, radius) {
     const w = [uu[0] + vv[0], uu[1] + vv[1]], lw = Math.hypot(...w);
     const k = r / Math.sin(phi / 2) - r;
     const mid = [Math.round(p[0] + (w[0] / lw) * k), Math.round(p[1] + (w[1] / lw) * k)];
-    out.push(p1, arcTo(p2, mid));
+    out.push(withW(p1, p.w), arcTo(p2, mid, b.w));
   }
   out.push(pts[pts.length - 1]);
   return out;
@@ -388,7 +394,7 @@ export function step(project, state, cursor, mode = 'free', index = null, to = n
     const r = shoveFor(project, state, v.segments, index);
     if (r.ok) {
       // the shove moved (and checked) every Track and Via in the way: only copper that can't move can block
-      const clear = (s) => !index.collisions(project.board, trackShape({ ...s, width: state.width }), s.layer, state.net).some((it) => it.kind !== 'track' && it.kind !== 'via');
+      const clear = (s) => !index.collisions(project.board, trackShape(s), s.layer, state.net).some((it) => it.kind !== 'track' && it.kind !== 'via');
       if (v.segments.every(clear)) {
         for (const s of v.segments) s.collides = false;
         return { ...v, collisions: [], shoved: r.moved.size || r.movedVias.size ? r.tracks : null, shovedVias: r.movedVias.size ? r.vias : null, shovedIds: r.moved, shovedViaIds: r.movedVias };
@@ -407,7 +413,7 @@ export function shoveFor(project, state, segments, index) {
   const all = copperLayerNames(project.board.stack.copper);
   const pushers = [
     // an arc pushes as the pieces of its centre line
-    ...segments.flatMap((s) => { const p = s.mid ? trackPoints(s, 20_000) : [s.a, s.b]; return p.slice(1).map((b, i) => ({ a: p[i], b, r: state.width / 2, layers: [s.layer], net: state.net, kind: 'track' })); }),
+    ...segments.flatMap((s) => { const p = s.mid ? trackPoints(s, 20_000) : [s.a, s.b]; return p.slice(1).map((b, i) => ({ a: p[i], b, r: (s.width || state.width) / 2, layers: [s.layer], net: state.net, kind: 'track' })); }),
     ...(state.vias || []).map((v) => ({ a: v.at, b: v.at, r: (state.via?.diameter || 0) / 2, layers: all, net: state.net, kind: 'via' })),
   ];
   index._fixed ||= fixedItems(index);
@@ -422,14 +428,14 @@ function stepWith(project, state, cursor, mode, index, to) {
   // runs finished on other layers, then this layer's
   for (const run of state.runs || []) {
     const rp = mitrePath(run.points, state);
-    for (let i = 1; i < rp.length; i++) if (rp[i][0] !== rp[i - 1][0] || rp[i][1] !== rp[i - 1][1]) segments.push({ ...segOf(rp[i - 1], rp[i]), fixed: true, layer: run.layer });
+    for (let i = 1; i < rp.length; i++) if (rp[i][0] !== rp[i - 1][0] || rp[i][1] !== rp[i - 1][1]) segments.push({ ...segOf(rp[i - 1], rp[i], state.width), fixed: true, layer: run.layer });
   }
-  for (let i = 1; i < pts.length; i++) if (pts[i][0] !== pts[i - 1][0] || pts[i][1] !== pts[i - 1][1]) segments.push({ ...segOf(pts[i - 1], pts[i]), fixed: i < nFixed - 1, layer: state.layer });
+  for (let i = 1; i < pts.length; i++) if (pts[i][0] !== pts[i - 1][0] || pts[i][1] !== pts[i - 1][1]) segments.push({ ...segOf(pts[i - 1], pts[i], state.width), fixed: i < nFixed - 1, layer: state.layer });
   let collisions = [];
   if (index) {
     const seen = new Map();
     for (const s of segments) {
-      const hits = index.collisions(project.board, trackShape({ ...s, width: state.width }), s.layer, state.net);
+      const hits = index.collisions(project.board, trackShape({ ...s, width: s.width || state.width }), s.layer, state.net);
       s.collides = hits.length > 0;
       for (const h of hits) seen.set(h.id, h);
     }
@@ -449,7 +455,8 @@ export function click(project, state, point, tail = null) {
   if (!add.length) return state.stroke?.length ? { ...state, stroke: [] } : state;
   // freehand: a click fixes the stroke so far, and Backspace takes back all of it (`stops`)
   const free = state.corner === 'free' ? { stroke: [], stops: [...(state.stops || []), state.points.length] } : {};
-  return { ...state, ...free, forced: false, points: [...state.points, ...add] };
+  // each fixed corner carries the width of the leg that ends at it (R4: the width can change mid-route)
+  return { ...state, ...free, forced: false, points: [...state.points, ...add.map((p) => withW(p, p.w || state.width))] };
 }
 
 /** Take back the last fixed segment (the start stays); at a via, take the via back and return to the layer before. */
@@ -474,7 +481,7 @@ export function commit(project, state, { shove: pushing = false, index = null } 
     const segs = [];
     for (const run of [...(state.runs || []), { layer: state.layer, points: state.points }]) {
       const pts = mitrePath(run.points, state);
-      for (let i = 1; i < pts.length; i++) if (pts[i][0] !== pts[i - 1][0] || pts[i][1] !== pts[i - 1][1]) segs.push({ ...segOf(pts[i - 1], pts[i]), layer: run.layer });
+      for (let i = 1; i < pts.length; i++) if (pts[i][0] !== pts[i - 1][0] || pts[i][1] !== pts[i - 1][1]) segs.push({ ...segOf(pts[i - 1], pts[i], state.width), layer: run.layer });
     }
     const r = shoveFor(project, state, segs, index);
     if (r.ok && (r.moved.size || r.movedVias.size)) { project.board.tracks = r.tracks; project.board.vias = r.vias; }
@@ -486,7 +493,7 @@ export function commit(project, state, { shove: pushing = false, index = null } 
     for (let i = 1; i < pts.length; i++) {
       const a = pts[i - 1], b = pts[i];
       if (a[0] === b[0] && a[1] === b[1]) continue;
-      tracks.push({ id: uid('t'), ...segOf(a, b), width: state.width, layer: run.layer, net: state.net });
+      tracks.push({ id: uid('t'), ...segOf(a, b, state.width), layer: run.layer, net: state.net });
     }
   }
   project.board.tracks.push(...tracks);

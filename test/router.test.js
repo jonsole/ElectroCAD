@@ -158,6 +158,21 @@ test('after a corner, the next leg carries on the way the track was going where 
   assert.deepEqual(leg(st, [mm(5), mm(20)]), [[mm(5), mm(20)]]);
 });
 
+test('the width can change mid-route: fixed legs keep theirs, later legs take the new one (R4, #98)', () => {
+  const { p, from, to } = board();
+  let st = startRoute(p, from.at, 'F.Cu', from.net, { bend: 0 });
+  st = click(p, st, [from.at[0] + mm(3), from.at[1]]);
+  st = { ...st, width: mm(0.5) };
+  const v = step(p, st, to.at, 'free');
+  assert.equal(v.segments[0].width, mm(0.25));
+  assert.ok(v.segments.slice(1).every((sg) => sg.width === mm(0.5)));
+  st = click(p, st, to.at);
+  const ts = commit(p, st);
+  assert.equal(ts[0].width, mm(0.25));
+  assert.ok(ts.length >= 2 && ts.slice(1).every((t) => t.width === mm(0.5)), JSON.stringify(ts.map((t) => t.width)));
+  assert.ok(ts.every((t) => !('w' in t.a) && !('w' in t.b)), 'plain points on the Board');
+});
+
 test('freehand (#92): a stroke simplifies to few points, keeps a curve, and backs up', () => {
   const line = Array.from({ length: 101 }, (_, i) => [i * mm(0.1), (i % 2) * 1000]);   // 10 mm, 1 µm wobble
   assert.equal(simplifyPath(line, mm(0.05)).length, 2);

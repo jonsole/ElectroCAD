@@ -91,7 +91,7 @@ test('clicking fixes the detour, and commit lays down legal Tracks', () => {
   const v = step(p, st, [mm(10), 0], 'walkaround', index);
   assertLegal(p, index, v, 'SIG');
   st = click(p, st, [mm(10), 0], v.tail);
-  assert.deepEqual(st.points[st.points.length - 1], [mm(10), 0]);
+  assert.deepEqual([...st.points[st.points.length - 1]], [mm(10), 0]);
   const tracks = commit(p, st);
   for (const t of tracks) assert.equal(index.collisions(p.board, { type: 'capsule', a: t.a, b: t.b, r: t.width / 2 }, 'F.Cu', 'SIG').length, 0);
 });

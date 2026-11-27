@@ -181,6 +181,11 @@ export class BoardEditor {
     this.chamferIn = h('input', { class: 'input', type: 'number', min: '0', max: '10', step: '0.05', value: fmt(this.chamfer), 'aria-label': 'Mitre (mm)' });
     this.chamferIn.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') this.chamferIn.blur(); });
     this.chamferIn.addEventListener('change', () => { const v = parseFloat(this.chamferIn.value); if (Number.isFinite(v) && v >= 0) this.setChamfer(mm(v)); });
+    // R4: the route's width: the net class's when a route starts; change it to route on wider or narrower
+    this.widthIn = h('input', { class: 'input', type: 'number', min: '0.01', max: '20', step: '0.05', value: '', placeholder: 'class', 'aria-label': 'Track width (mm)' });
+    this.widthIn.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') this.widthIn.blur(); });
+    this.widthIn.addEventListener('change', () => { const v = parseFloat(this.widthIn.value); this.setRouteWidth(Number.isFinite(v) && v > 0 ? mm(v) : null); });
+    const widthBox = h('label', { class: 'chamfer-box', title: 'Track width (mm). A route starts at its net class\'s width; change it mid-route and the leg in progress and later legs take it (legs already fixed keep theirs). With no route in progress it sets the next route\'s width; empty: the net class\'s' }, h('span', {}, 'Width'), this.widthIn, h('em', {}, 'mm'));
     const chamfer = h('label', { class: 'chamfer-box', title: 'Auto mitre (as Eagle\'s): Straight cuts bends of 90° or sharper back by this length and joins them at 45°; Round makes every bend an arc of this radius (#95). 0 for none' }, h('span', {}, 'Mitre'), this.chamferIn, h('em', {}, 'mm'));
     this.mitreSeg = h('div', { class: 'segmented corner-seg mitre-seg', role: 'radiogroup', 'aria-label': 'Mitre style' },
       ...[['straight', 'Straight', 'Bends are cut straight (a chamfer)'], ['round', 'Round', 'Bends are rounded: an arc of the mitre length\'s radius (#95)']].map(([id, label, tip]) => h('button', { class: 'btn' + (id === this.mitre ? ' active' : ''), type: 'button', role: 'radio', 'aria-checked': String(id === this.mitre), title: tip, dataset: { mitre: id }, onClick: () => this.setMitre(id) }, label)));
@@ -190,7 +195,7 @@ export class BoardEditor {
     this.pairSel.addEventListener('keydown', (e) => e.stopPropagation());
     this.pairBox = h('label', { class: 'chamfer-box pair-box' }, h('span', {}, 'V switches'), this.pairSel);
     this.routeStrip = h('div', { class: 'tool-strip route-strip', role: 'toolbar', 'aria-label': 'Routing options', hidden: true },
-      stripLabel('Route', 'route'), stripSep(), h('span', { class: 'tool-strip-label strip-sub' }, 'Bend'), this.cornerSeg, h('span', { class: 'sep' }), chamfer, this.mitreSeg, h('span', { class: 'sep pair-sep' }), this.pairBox);
+      stripLabel('Route', 'route'), stripSep(), h('span', { class: 'tool-strip-label strip-sub' }, 'Bend'), this.cornerSeg, h('span', { class: 'sep' }), widthBox, h('span', { class: 'sep' }), chamfer, this.mitreSeg, h('span', { class: 'sep pair-sep' }), this.pairBox);
     // delete, rotate, flip and lock live on the context strip over the canvas, with what they act on
     return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), ...this.cards.buttons(), this.gridCard.button];
   }
@@ -1556,6 +1561,23 @@ export class BoardEditor {
     if (this.ws) this._hint();
   }
 
+  /**
+   * The routing width (R4): mid-route, the leg in progress and later ones take it; with no route,
+   * the next route starts at it (null: its net class's width).
+   */
+  setRouteWidth(nm) {
+    if (this.route) { if (nm) { this.route = { ...this.route, width: nm }; this._routeKey = null; this._routeMove(); this._hint(); } }
+    else this.nextWidth = nm;
+    this._showRouteWidth();
+  }
+
+  /** The Width box shows the route's width, or the next route's (empty: the net class's). */
+  _showRouteWidth() {
+    if (!this.widthIn || document.activeElement === this.widthIn) return;
+    const w = this.route ? this.route.width : this.nextWidth;
+    this.widthIn.value = w ? fmt(w) : '';
+  }
+
   /** Straight (chamfered) or round (#95) mitres: remembered, and applied to the route in progress. */
   setMitre(id) {
     this.mitre = id === 'round' ? 'round' : 'straight'; pref.set('boardMitre', this.mitre);
@@ -1598,6 +1620,9 @@ export class BoardEditor {
       const pair = this.pair && pairs.some((q) => q.join('|') === this.pair.join('|')) ? this.pair : null;
       const opts = { bend: this.bend, chamfer: this.chamfer, mitre: this.mitre, pair, pad: hit ? hit.pad : null };
       this.route = hit ? startRoute(this.project, hit.pad.at, this.activeLayer, hit.pad.net, opts) : startRoute(this.project, cu.at, this.activeLayer, cu.net, opts);
+      // R4: a width set before the route started (else the net class's)
+      if (this.nextWidth) { this.route.width = this.nextWidth; this.nextWidth = null; }
+      this._showRouteWidth();
       if (cu && cu.kind === 'along') this.route.joins = [{ id: cu.id, at: cu.at }];
       // from a Track's end: carry on the way it was going
       if (cu && cu.kind === 'end') { const t = this.board.tracks.find((x) => x.id === cu.id); if (t) this.route.lead = this._leadAt(t, cu.at); }
@@ -1646,7 +1671,7 @@ export class BoardEditor {
       this.route = routeBack(this.route);
       if (this.activeLayer !== this.route.layer) this.setActiveLayer(this.route.layer);
       this._routeKey = null; this._routeMove(); this._hint();
-    } else toast('Back at the start of the route: Esc stops routing.', 'info', 1600);
+    } else if (!this.route.atStartNoted) { this.route = { ...this.route, atStartNoted: true }; toast('Back at the start of the route: Esc ends it.', 'info', 1600); } // once per route
   }
 
   /** Undo while routing (Ctrl+Z, the toolbar): the last segment, not the Board's last edit. */
@@ -1734,7 +1759,7 @@ export class BoardEditor {
     this.routeView.target = cu && cu.net.toLowerCase() === this.route.net.toLowerCase() && !this._atStart(cu.at) ? cu : null;
     // the airwires as they'd be with this route (and what it pushes) on the Board, live
     const st = this.route, rv = this.routeView;
-    const added = rv.segments.map((sg, i) => ({ id: `route-${i}`, a: sg.a, b: sg.b, ...(sg.mid ? { mid: sg.mid } : {}), width: st.width, layer: sg.layer || st.layer, net: st.net }));
+    const added = rv.segments.map((sg, i) => ({ id: `route-${i}`, a: sg.a, b: sg.b, ...(sg.mid ? { mid: sg.mid } : {}), width: sg.width || st.width, layer: sg.layer || st.layer, net: st.net }));
     const vias = (st.vias || []).map((v, i) => ({ id: `route-v${i}`, at: v.at, diameter: st.via.diameter, drill: st.via.drill, net: st.net }));
     this.liveRats = ratsnest(this.project, { ...this.board, tracks: [...(rv.shoved || this.board.tracks), ...added], vias: [...(rv.shovedVias || this.board.vias), ...vias] }, this.zoneFiller.fills);
     if (this.ws && had !== `${!!this.routeView.collisions.length}${!!this.routeView.blocked}`) this._hint();
@@ -1745,6 +1770,7 @@ export class BoardEditor {
     const st = this.route;
     this.routeIndexAtEnd = this.routeIndex;
     this.route = null; this.routeView = null; this.routeIndex = null; this.liveRats = null;
+    this._showRouteWidth();
     if (st && st.points.length > 1) {
       let n = 0;
       const shoving = this.routeMode === 'shove', index = this.routeIndexAtEnd;
@@ -1754,7 +1780,7 @@ export class BoardEditor {
     } else this.refresh();
   }
 
-  cancelRoute() { this.route = null; this.routeView = null; this.routeIndex = null; this.liveRats = null; this.refresh(); }
+  cancelRoute() { this.route = null; this.routeView = null; this.routeIndex = null; this.liveRats = null; this._showRouteWidth(); this.refresh(); }
 
 
   /** The Track under `w` on a shown layer, front layers first. */
@@ -2310,7 +2336,7 @@ export class BoardEditor {
   _zonesAsOutlines(board) {
     if (!board.zones?.length) return new Set();
     if (this.drag?.moved || this.handleDrag?.moved || this.routeView) {
-      const extra = (this.routeView?.segments || []).map((sg, i) => ({ id: `route${i}`, a: sg.a, b: sg.b, width: this.route.width, layer: sg.layer || this.route.layer, net: this.route.net }));
+      const extra = (this.routeView?.segments || []).map((sg, i) => ({ id: `route${i}`, a: sg.a, b: sg.b, ...(sg.mid ? { mid: sg.mid } : {}), width: sg.width || this.route.width, layer: sg.layer || this.route.layer, net: this.route.net }));
       return this.zoneFiller.staleIds(zoneInput(this.project, board, extra));
     }
     return new Set(this.zoneFiller.pending.keys());
@@ -2325,8 +2351,8 @@ export class BoardEditor {
     for (const pass of ['band', 'copper']) {
       for (const sg of segments) {
         const [x0, y0] = view.toScreen(sg.a);
-        if (pass === 'band') { ctx.globalAlpha = sg.collides ? 0.4 : 0.18; ctx.strokeStyle = sg.collides ? bad : C.selection; ctx.lineWidth = Math.max(2, (st.width + 2 * this.board.rules.clearance) * view.scale); }
-        else { ctx.globalAlpha = sg.fixed ? 0.95 : 0.8; ctx.strokeStyle = sg.collides ? bad : C[sg.layer || st.layer] || '#c33'; ctx.lineWidth = Math.max(1, st.width * view.scale); }
+        if (pass === 'band') { ctx.globalAlpha = sg.collides ? 0.4 : 0.18; ctx.strokeStyle = sg.collides ? bad : C.selection; ctx.lineWidth = Math.max(2, ((sg.width || st.width) + 2 * this.board.rules.clearance) * view.scale); }
+        else { ctx.globalAlpha = sg.fixed ? 0.95 : 0.8; ctx.strokeStyle = sg.collides ? bad : C[sg.layer || st.layer] || '#c33'; ctx.lineWidth = Math.max(1, (sg.width || st.width) * view.scale); }
         ctx.beginPath(); ctx.moveTo(x0, y0);
         if (sg.mid) trackPoints(sg, 0.2 / view.scale).slice(1).forEach((q) => ctx.lineTo(...view.toScreen(q))); // an arc (#94)
         else ctx.lineTo(...view.toScreen(sg.b));
