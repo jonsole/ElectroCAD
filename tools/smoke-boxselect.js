@@ -2,7 +2,8 @@
 // right takes what's wholly inside it, right to left what it touches; pressing on a selected
 // footprint drags the group, its tracks with it, in one undo step. The Rip up tool lights the run
 // under the pointer, a click takes it (pad to pad) back to an airwire, Shift+click just one
-// segment, and a box everything in it; each is one undo step.
+// segment, and a box everything in it; each is one undo step. Moving a footprint brings along
+// the tracks on its pads (#100): redrawn in Shove mode, stretched in Free; a locked one stays.
 const app = window.electrocad;
 const fails = [];
 const check = (name, cond, info) => { if (!cond) fails.push(name + (info !== undefined ? ' -> ' + JSON.stringify(info) : '')); };
@@ -91,4 +92,26 @@ check('rip-box', !tr('o') && !!tr('u2'), app.project.board.tracks.map((t) => t.i
 app.undo(); await wait(30);
 check('rip-box-undo', !!tr('o'));
 ed.setTool('select');
+// #100: moving a footprint brings along the tracks on its pads (E6)
+const ntr = () => app.project.board.tracks.filter((t) => t.net === net);
+const onPt = (x, y) => ntr().some((t) => [t.a, t.b].some((q) => q[0] === Math.round(x * MM) && q[1] === Math.round(y * MM)));
+const dragR1 = async () => { ev('pointermove', 20, 20, 0); ev('pointerdown', 20, 20, 1); ev('pointerup', 20, 20, 0); await wait(20); ev('pointermove', 6, 8, 0); ev('pointerdown', 6, 8, 1); ev('pointermove', 6, 7.5, 1); ev('pointermove', 6, 7, 1); await wait(30); ev('pointerup', 6, 7, 0); await wait(50); };
+ed.setBend(1);
+const n3 = ntr().length;
+await dragR1();
+check('follow-shove', r1().at[1] === 7 * MM && onPt(6.9125, 7) && !onPt(6.9125, 8) && unrouted() === 0, [ntr().map((t) => [t.a, t.b]), unrouted()]);
+check('follow-angles', ntr().every((t) => { const dx = t.b[0] - t.a[0], dy = t.b[1] - t.a[1]; return !dx || !dy || Math.abs(dx) === Math.abs(dy); }));
+app.undo(); await wait(30);
+check('follow-undo', r1().at[1] === 8 * MM && ntr().length === n3 && onPt(6.9125, 8));
+// Free: the track on the pad just stretches
+document.querySelector('[data-ws="board"] .mode-group [data-mode="free"]').click();
+await dragR1();
+check('follow-free', onPt(6.9125, 7) && ntr().length === n3 && unrouted() === 0, ntr().map((t) => [t.a, t.b]));
+app.undo(); await wait(30);
+// O1: a locked track stays put; the connection breaks
+app.edit('lock', (pr) => { pr.board.tracks.find((t) => t.id === 'u1').locked = true; });
+await dragR1();
+check('follow-locked', tr('u1').a[1] === 8 * MM && unrouted() === 1, [tr('u1'), unrouted()]);
+app.undo(); app.undo(); await wait(30);
+document.querySelector('[data-ws="board"] .mode-group [data-mode="shove"]').click();
 return { fails };

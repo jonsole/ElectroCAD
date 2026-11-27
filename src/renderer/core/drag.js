@@ -27,7 +27,7 @@ const DEFAULT_STYLE = { corner: '45', posture: 'a' };
  * Tracks like `proto` from `from` along corner path `pts` (points carrying `mid` are arcs): the
  * first keeps proto's id when `keepId`.
  */
-function pathTracks(proto, from, pts, keepId) {
+export function pathTracks(proto, from, pts, keepId) {
   const out = [];
   let prev = from;
   pts.forEach((p) => {
@@ -41,7 +41,7 @@ function pathTracks(proto, from, pts, keepId) {
 }
 
 /** The corner path from `far` to `to` in `style` (redrawn), or straight (stretch). */
-const pathFor = (far, to, style) => (style.free ? [to] : cornerPath(far, to, style.corner === 'free' ? 'any' : style.corner, style.posture));
+export const pathFor = (far, to, style) => (style.free ? [to] : cornerPath(far, to, style.corner === 'free' ? 'any' : style.corner, style.posture));
 const key = (p) => `${p[0]},${p[1]}`;
 
 /** What meets point `p` on `layer`: the other segments of `net` ending there, and whether a pad or Via is there. */
