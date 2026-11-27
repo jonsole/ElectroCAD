@@ -31,7 +31,7 @@ import { connection, ripupRun, ripupAirwire, netCopper, ripUp, setTrackWidth, se
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
 import { allFootprints } from '../library/footprints.js';
 import { addBoardOnly, setBoardOnly, deleteBoardOnly } from '../core/boardOnly.js';
-import { dragSegment, dragCorner, dragEnd, cornerAt, dragResult, freeEndAt, STRETCH } from '../core/drag.js';
+import { dragSegment, dragCorner, dragEnd, dragVia, cornerAt, dragResult, freeEndAt, STRETCH } from '../core/drag.js';
 import { copperTarget, trackOnOtherLayer } from '../core/routeEnds.js';
 import { STARTER_LIBRARY } from '../library/starter.js';
 import { shapeHandles, hitHandle, dragHandle, dragOutlineHandle, snapPoint, handlePoints } from '../core/handles.js';
@@ -407,6 +407,17 @@ export class BoardEditor {
       const ids = vias.map((v) => v.id);
       out.push(num('Via drill', one(vias, 'drill'), (d) => this.app.edit('Via drill', (p) => setViaSize(p, ids, { drill: d }))),
         num('Via diameter', one(vias, 'diameter'), (d) => this.app.edit('Via diameter', (p) => setViaSize(p, ids, { diameter: d }))));
+      // V5 (#106): a single via's position, from the origin; its tracks follow by the mode rule
+      if (vias.length === 1 && !vias[0].locked) {
+        const v = vias[0], o = this.board.origin || [0, 0];
+        const moveTo = (axis, nm) => this.copperEdit('Move via', (p) => this._withFollow(p, () => { const q = p.board.vias.find((x) => x.id === v.id); const at = [...q.at]; at[axis] = nm + o[axis]; moveCopper(p.board, new Set([v.id]), [at[0] - q.at[0], at[1] - q.at[1]]); }));
+        const pos = (label, value, onSet) => {
+          const i = stop(h('input', { class: 'input', type: 'number', step: '0.05', value: fmt(value), 'aria-label': label }));
+          i.addEventListener('change', () => { const x = parseFloat(i.value); if (Number.isFinite(x)) onSet(mm(x)); });
+          return row(label, i, 'mm');
+        };
+        out.push(pos('Via X', v.at[0] - o[0], (x) => moveTo(0, x)), pos('Via Y', v.at[1] - o[1], (y) => moveTo(1, y)));
+      }
       const open = vias.filter((v) => v.tented === false).length;
       const tent = stop(h('input', { type: 'checkbox', 'aria-label': 'Tented', title: 'Covered by solder mask. Untick to open the mask round the via (a test point)' }));
       tent.checked = !open; tent.indeterminate = open > 0 && open < vias.length;
@@ -1029,6 +1040,15 @@ export class BoardEditor {
           try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
           return;
         }
+        // a via (#106): a click selects it, a drag moves it, its tracks following by the mode rule
+        const via = !e.shiftKey && grouped && (this.board.vias || []).find((v) => v.id === grouped.id);
+        if (via) {
+          this.trackSel = new Set([via.id]); this.fpSel.clear(); this.selection.clear(); this.netSel.clear(); this.zoneSel.clear(); this.drawSel.clear();
+          this.trackDrag = { kind: 'via', id: via.id, at: via.at, net: via.net, start: via.at, result: null, pending: true, startPx: [e.clientX, e.clientY], locked: !!via.locked };
+          try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+          this.refresh();
+          return;
+        }
         const free = !e.shiftKey && freeEndAt(this.project, this.board, w, 6 / ws.view.view.scale, this.hidden);
         if (free) {
           this.trackSel = new Set([free.track.id]); this.fpSel.clear(); this.selection.clear(); this.netSel.clear(); this.zoneSel.clear(); this.drawSel.clear();
@@ -1155,15 +1175,16 @@ export class BoardEditor {
         // from the Select tool: only once the pointer has moved a few pixels (a click just selects)
         if (d.pending) {
           if (Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 4) return;
-          if (d.locked) { this.trackDrag = null; toast('That track is locked (its Properties).', 'info', 1800); return; }
+          if (d.locked) { this.trackDrag = null; toast(`That ${d.kind === 'via' ? 'via' : 'track'} is locked (its Properties).`, 'info', 1800); return; }
           d.pending = false;
           this.trackDragIndex = copperIndex(this.project);
         }
-        this.cursor = this.snapAt(w);
+        // V3: a via snaps onto its net's track ends too (not the ones on it now)
+        this.cursor = d.kind === 'via' ? this.snapAt(w, new Set(), d.at, (this.board.tracks || []).filter((t) => t.net && t.net === d.net).flatMap((t) => [t.a, t.b]).filter((q) => q[0] !== d.at[0] || q[1] !== d.at[1])) : this.snapAt(w);
         const to = this.cursor;
         // #96's mode rule: Free stretches at any angle; Shove / Walkaround redraw with the bend style
         const style = this._editStyle();
-        const r = d.kind === 'segment' ? dragSegment(this.project, this.board, d.id, [to[0] - d.start[0], to[1] - d.start[1]], style) : d.kind === 'end' ? dragEnd(this.board, d.id, d.at, to, style) : dragCorner(this.project, this.board, d.at, to, d.layer, style);
+        const r = d.kind === 'via' ? dragVia(this.board, d.id, to, style) : d.kind === 'segment' ? dragSegment(this.project, this.board, d.id, [to[0] - d.start[0], to[1] - d.start[1]], style) : d.kind === 'end' ? dragEnd(this.board, d.id, d.at, to, style) : dragCorner(this.project, this.board, d.at, to, d.layer, style);
         const res = dragResult(this.project, r, { mode: this.routeMode, index: this.trackDragIndex });
         // a drag that can't be pushed clear stays where it last could be
         if (res.ok) d.result = res; else d.stuck = res.reason || true;
@@ -1274,8 +1295,8 @@ export class BoardEditor {
       if (this.trackDrag) {
         const d = this.trackDrag; this.trackDrag = null; this.trackDragIndex = null; this.liveRats = null;
         const res = d.result;
-        if (res && JSON.stringify(res.tracks) !== JSON.stringify(this.board.tracks)) {
-          this.copperEdit(d.kind === 'corner' ? 'Drag corner' : d.kind === 'end' ? 'Drag track end' : 'Drag track', (p) => { p.board.tracks = res.tracks; p.board.vias = res.vias; });
+        if (res && (JSON.stringify(res.tracks) !== JSON.stringify(this.board.tracks) || JSON.stringify(res.vias) !== JSON.stringify(this.board.vias))) {
+          this.copperEdit(d.kind === 'corner' ? 'Drag corner' : d.kind === 'end' ? 'Drag track end' : d.kind === 'via' ? 'Move via' : 'Drag track', (p) => { p.board.tracks = res.tracks; p.board.vias = res.vias; });
           if (res.moved?.size) toast(`Pushed ${res.moved.size} track${res.moved.size === 1 ? '' : 's'} aside.`, 'info', 1400);
         } else this.refresh();
         return;

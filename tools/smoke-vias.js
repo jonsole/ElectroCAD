@@ -74,6 +74,28 @@ click((bt.a[0] + bt.b[0]) / 2 / MM, (bt.a[1] + bt.b[1]) / 2 / MM); key('u'); key
 check('deleted', !b().tracks.length && !b().vias.length);
 key('z', { ctrlKey: true });
 check('undo', b().tracks.length > 0 && b().vias.length === 2);
+// #106: drag a via with Select: its tracks on both layers follow, the net stays routed, one undo step
+key('Escape');
+const v0 = structuredClone(b().vias[0]), vx = v0.at[0] / MM, vy = v0.at[1] / MM;
+const ptr = (type, x, y, buttons) => ws.view.canvas.dispatchEvent(new PointerEvent(type, { ...pt(x, y), button: 0, buttons, bubbles: true, cancelable: true, pointerId: 81 }));
+const hv = app.history.undoStack.length;
+ptr('pointermove', vx, vy, 0); ptr('pointerdown', vx, vy, 1); ptr('pointermove', vx + 0.5, vy + 1, 1); ptr('pointermove', vx + 1, vy + 2, 1);
+check('via-drag-preview', ed.trackDrag?.kind === 'via' && !!ed.trackDrag.result, ed.trackDrag?.kind);
+ptr('pointerup', vx + 1, vy + 2, 0);
+const v1 = b().vias.find((v) => v.id === v0.id);
+const rats = () => Object.values(ed._rats.unrouted).reduce((a, c) => a + c, 0);
+check('via-moved', v1.at[0] === v0.at[0] + MM && v1.at[1] === v0.at[1] + 2 * MM && app.history.undoStack.length === hv + 1, v1.at);
+check('via-tracks-follow', b().tracks.filter((t) => [t.a, t.b].some((q) => q[0] === v1.at[0] && q[1] === v1.at[1])).length >= 2 && rats() === 0, rats());
+key('z', { ctrlKey: true });
+check('via-undo', b().vias.find((v) => v.id === v0.id).at[0] === v0.at[0]);
+// V5: its X in Properties
+key('Escape'); ptr('pointermove', vx, vy, 0); ptr('pointerdown', vx, vy, 1); ptr('pointerup', vx, vy, 0);
+ed.openProperties();
+const vX = ed.propsEl.querySelector('input[aria-label="Via X"]');
+check('via-x-field', !!vX);
+vX.value = String((v0.at[0] - (b().origin?.[0] || 0)) / MM + 1); vX.dispatchEvent(new Event('change'));
+check('via-x', b().vias.find((v) => v.id === v0.id).at[0] === v0.at[0] + MM && rats() === 0, [b().vias.find((v) => v.id === v0.id).at, rats()]);
+key('z', { ctrlKey: true });
 // 4 layers: the routing strip offers layer pairs
 document.querySelector('[data-ws="board"] .stack-row button:nth-child(2)').click();
 key('x');

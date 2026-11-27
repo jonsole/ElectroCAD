@@ -197,6 +197,30 @@ export function dragEnd(board, id, at, to, style = STRETCH) {
   return { tracks: out, changed: [moved] };
 }
 
+/**
+ * The Board with Via `id` moved to `to` (#106, V1): the Tracks on every layer that end on it
+ * follow, stretched (Free) or redrawn from their far ends with the bend style; arcs keep their
+ * shape; locked Tracks stay. Returns { tracks, vias, changed (Tracks and the Via) } or null.
+ */
+export function dragVia(board, id, to, style = DEFAULT_STYLE) {
+  const v = (board.vias || []).find((x) => x.id === id);
+  if (!v || v.locked) return null;
+  const at = v.at;
+  const moved = { ...v, at: to };
+  const vias = (board.vias || []).map((x) => (x.id === id ? moved : x));
+  const out = [], changed = [moved];
+  for (const t of board.tracks || []) {
+    const ea = eq(t.a, at), eb = eq(t.b, at);
+    if ((!ea && !eb) || t.locked) { out.push(t); continue; }
+    if (style.free || t.mid || (ea && eb)) { const m = withEnds(t, ea ? to : t.a, eb ? to : t.b); out.push(m); changed.push(m); continue; }
+    const far = ea ? t.b : t.a;
+    if (eq(far, to)) continue; // folded onto its far end: nothing left of it
+    const pieces = pathTracks(t, far, pathFor(far, to, style), true);
+    out.push(...pieces); changed.push(...pieces);
+  }
+  return { tracks: out, vias, changed };
+}
+
 /** The corner under `p` (within `tol`): { at, layer } where two or more segments of one Net meet with no pad or Via there. */
 export function cornerAt(project, board, p, tol, hidden = new Set()) {
   const ends = new Map();
@@ -235,21 +259,29 @@ export function freeEndAt(project, board, p, tol, hidden = new Set()) {
 export function dragResult(project, r, { shove: pushing = false, index = null, mode = null } = {}) {
   const board = project.board;
   if (!r) return { ok: false };
+  const vias = r.vias || board.vias;
   const md = mode || (pushing ? 'shove' : 'free');
-  // the edited copper that comes too close to other nets' (what Free shows red, Walkaround refuses)
-  const clashes = () => (index ? r.changed.filter((s) => index.collisions(board, trackShape(s), s.layer, s.net).length).map((s) => s.id) : []);
-  if (md === 'free') return { ok: true, tracks: r.tracks, vias: board.vias, moved: new Set(), collisions: clashes() };
-  if (md === 'walkaround') { const c = clashes(); return c.length ? { ok: false, reason: 'clearance' } : { ok: true, tracks: r.tracks, vias: board.vias, moved: new Set(), collisions: [] }; }
   const all = copperLayerNames(board.stack.copper);
-  // an arc pushes as the pieces of its centre line
-  const pushers = r.changed.flatMap((s) => { const pts = trackPoints(s, 20_000); return pts.slice(1).map((b, i) => ({ a: pts[i], b, r: s.width / 2, layers: [s.layer], net: s.net, kind: 'track' })); });
-  const res = shove({ ...board, tracks: r.tracks }, pushers, { fixed: index ? (index._fixed ||= fixedItems(index)) : [], copper: all });
+  // a moved Via is copper on every layer (#106)
+  const shapeOf = (s) => (s.at ? { type: 'capsule', a: s.at, b: s.at, r: s.diameter / 2 } : trackShape(s));
+  const layersOf = (s) => (s.at ? all : [s.layer]);
+  const hitsOf = (s) => layersOf(s).flatMap((l) => index.collisions(board, shapeOf(s), l, s.net, new Set([s.id]), s.at ? 'via' : 'track'));
+  // the edited copper that comes too close to other nets' (what Free shows red, Walkaround refuses)
+  const clashes = () => (index ? r.changed.filter((s) => hitsOf(s).length).map((s) => s.id) : []);
+  if (md === 'free') return { ok: true, tracks: r.tracks, vias, moved: new Set(), collisions: clashes() };
+  if (md === 'walkaround') { const c = clashes(); return c.length ? { ok: false, reason: 'clearance' } : { ok: true, tracks: r.tracks, vias, moved: new Set(), collisions: [] }; }
+  // an arc pushes as the pieces of its centre line; a Via as a disc on every layer
+  const pushers = r.changed.flatMap((s) => {
+    if (s.at) return [{ a: s.at, b: s.at, r: s.diameter / 2, layers: all, net: s.net, kind: 'via', via: s }];
+    const pts = trackPoints(s, 20_000);
+    return pts.slice(1).map((b, i) => ({ a: pts[i], b, r: s.width / 2, layers: [s.layer], net: s.net, kind: 'track' }));
+  });
+  const res = shove({ ...board, tracks: r.tracks, vias }, pushers, { fixed: index ? (index._fixed ||= fixedItems(index)) : [], copper: all });
   if (!res.ok) return { ok: false, reason: res.reason };
   // what was dragged must be clear of what can't move too
   if (index) {
     for (const s of r.changed) {
-      const hits = index.collisions(board, trackShape(s), s.layer, s.net).filter((it) => it.kind !== 'track' && it.kind !== 'via');
-      if (hits.length) return { ok: false, reason: 'fixed' };
+      if (hitsOf(s).some((it) => it.kind !== 'track' && it.kind !== 'via')) return { ok: false, reason: 'fixed' };
     }
   }
   return { ok: true, tracks: res.tracks, vias: res.vias, moved: res.moved, collisions: [] };

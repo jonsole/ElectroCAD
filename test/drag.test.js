@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newProject } from '../src/renderer/core/project.js';
 import { copperIndex, shapeDistance } from '../src/renderer/core/collision.js';
-import { dragSegment, dragCorner, dragEnd, cornerAt, dragResult, STRETCH } from '../src/renderer/core/drag.js';
+import { dragSegment, dragCorner, dragEnd, dragVia, cornerAt, dragResult, STRETCH } from '../src/renderer/core/drag.js';
 import { rectOutline } from '../src/renderer/core/board.js';
 import { mm } from '../src/renderer/core/units.js';
 
@@ -135,4 +135,28 @@ test("Walkaround refuses an edit into another net's clearance; Free allows it an
   const free = dragResult(p, r, { mode: 'free', index });
   assert.ok(free.ok && free.collisions.includes('b'));
   assert.ok(dragResult(p, dragSegment(p, p.board, 'b', [mm(0.5), 0], STRETCH), { mode: 'walkaround', index }).ok);
+});
+
+test('dragging a via (#106): its tracks on both layers follow; Shove pushes, Walkaround refuses, Free reports', () => {
+  const via = { id: 'v', at: [mm(10), 0], drill: mm(0.3), diameter: mm(0.6), from: 'F.Cu', to: 'B.Cu', net: 'N' };
+  const p = project([tr('f', [0, 0], [10, 0]), tr('b', [10, 0], [20, 0], 'N', 'B.Cu')], { vias: [via] });
+  // Free: both stretch to the via's new place
+  let r = dragVia(p.board, 'v', [mm(11), mm(2)], STRETCH);
+  assert.deepEqual(r.vias[0].at, [mm(11), mm(2)]);
+  assert.ok(r.tracks.every((t) => [t.a, t.b].some((q) => q[0] === mm(11) && q[1] === mm(2))));
+  assert.equal(r.tracks.length, 2);
+  // the bend style: each redrawn from its far end, at 45° or square
+  r = dragVia(p.board, 'v', [mm(13), mm(4)], { corner: '45', posture: 'a' });
+  assert.ok(r.tracks.length > 2 && r.tracks.every(angle));
+  // a locked via doesn't move
+  assert.equal(dragVia({ ...p.board, vias: [{ ...via, locked: true }] }, 'v', [mm(11), 0]), null);
+  // another net's track near the new spot: Shove pushes it, Walkaround refuses, Free reports it
+  const q = project([tr('f', [0, 0], [10, 0]), tr('o', [5, 1.2], [25, 1.2], 'O')], { vias: [via] });
+  const index = copperIndex(q);
+  const near = dragVia(q.board, 'v', [mm(14), mm(0.7)], STRETCH);
+  assert.equal(dragResult(q, near, { mode: 'walkaround', index }).ok, false);
+  const fr = dragResult(q, near, { mode: 'free', index });
+  assert.ok(fr.ok && fr.collisions.includes('v'));
+  const sh = dragResult(q, dragVia(q.board, 'v', [mm(14), mm(0.7)], { corner: '45', posture: 'a' }), { mode: 'shove', index });
+  assert.ok(sh.ok && sh.moved.has('o'), sh.reason);
 });
