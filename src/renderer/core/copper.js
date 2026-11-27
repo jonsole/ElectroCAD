@@ -8,6 +8,7 @@ import { placedPads, padNets } from './footprint.js';
 import { newVia } from './router.js';
 
 const same = (a, b) => a[0] === b[0] && a[1] === b[1];
+const low = (s) => String(s || '').toLowerCase();
 
 /**
  * The connection the copper `ids` belong to: every Track and Via joined to them end to end (on
@@ -30,9 +31,9 @@ export function connection(board, ids) {
 }
 
 /**
- * What a rip-up of copper `id` takes: the run of Tracks and Vias joined to it end to end (on its
- * layer, or through a Via), stopping at pads, so the connection it was part of goes back to an
- * airwire while the copper beyond the pads stays. Returns a Set of ids.
+ * A run (#96): the Tracks and Vias joined to copper `id` end to end (on its layer, or through a
+ * Via), stopping at pads and at junctions where three or more tracks meet, so the connection it
+ * was part of goes back to an airwire while the copper beyond stays. Returns a Set of ids.
  */
 export function ripupRun(project, board, id) {
   const nets = padNets(board), view = { ...project, board };
@@ -46,12 +47,30 @@ export function ripupRun(project, board, id) {
     const ends = t ? [t.a, t.b] : v ? [v.at] : [];
     for (const e of ends) {
       if (padAt.has(e.join(','))) continue; // a pad ends the run
+      // so does a junction: three or more tracks meeting (on this track's layer)
+      if (t && tracks.filter((u) => u.layer === t.layer && (same(u.a, e) || same(u.b, e))).length >= 3) continue;
       for (const u of tracks) if (!out.has(u.id) && (same(u.a, e) || same(u.b, e)) && (!t || u.layer === t.layer || vias.some((w) => same(w.at, e)))) { out.add(u.id); queue.push(u.id); }
       for (const w of vias) if (!out.has(w.id) && same(w.at, e)) { out.add(w.id); queue.push(w.id); }
     }
   }
   return out;
 }
+
+/**
+ * What a Rip up click on airwire { a, b } takes (X2): the runs of copper at each of its ends
+ * (none where an end is a bare pad), so the connection goes back to one airwire pad to pad.
+ */
+export function ripupAirwire(project, board, wire) {
+  const out = new Set();
+  for (const p of [wire.a, wire.b]) {
+    const at = (board.vias || []).find((v) => same(v.at, p) && low(v.net) === low(wire.net)) || (board.tracks || []).find((t) => low(t.net) === low(wire.net) && (same(t.a, p) || same(t.b, p) || nearestOnTrack(t, p).d <= t.width / 2));
+    if (at) for (const id of ripupRun(project, board, at.id)) out.add(id);
+  }
+  return out;
+}
+
+/** Every Track and Via of `net` (X3: Shift+click rips the whole net). */
+export const netCopper = (board, net) => new Set([...(board.tracks || []), ...(board.vias || [])].filter((x) => low(x.net) === low(net) && net).map((x) => x.id));
 
 /** Remove the Tracks and Vias (ids) from the Board: they go back to airwires. Returns how many of each. */
 export function ripUp(board, ids) {

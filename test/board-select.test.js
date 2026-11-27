@@ -8,7 +8,7 @@ import { changeList, applyChanges } from '../src/renderer/core/annotate.js';
 import { placedPads } from '../src/renderer/core/footprint.js';
 import { ratsnest } from '../src/renderer/core/ratsnest.js';
 import { boardItemsInBox, moveCopper } from '../src/renderer/core/boardSelect.js';
-import { ripupRun, ripUp } from '../src/renderer/core/copper.js';
+import { ripupRun, ripupAirwire, netCopper, ripUp } from '../src/renderer/core/copper.js';
 import { STARTER_LIBRARY } from '../src/renderer/library/starter.js';
 import { mm, SCH_GRID as G } from '../src/renderer/core/units.js';
 
@@ -70,4 +70,29 @@ test('rip-up takes the run from pad to pad back to an airwire', () => {
   assert.deepEqual(ripUp(p.board, run), { tracks: 4, vias: 1 });
   assert.deepEqual(p.board.tracks.map((t) => t.id), ['stub']);
   assert.equal(ratsnest(p).wires.length, 1);
+});
+
+test('rip-up to the spec (#101): a run stops at junctions; an airwire takes both sides; Shift: the net', () => {
+  const { p } = board();
+  const net = p.board.tracks[0].net;
+  // a branch off the corner of t1/t2 makes a junction: t1's run stops there
+  const c1 = p.board.tracks[0].b;
+  p.board.tracks.push({ id: 'br', a: c1, b: [c1[0], c1[1] - mm(4)], width: W, layer: 'F.Cu', net });
+  assert.deepEqual([...ripupRun(p, p.board, 't1')], ['t1']);
+  assert.deepEqual([...ripupRun(p, p.board, 'br')], ['br']);
+  // a via goes with its runs on each side (to the junction one way, the pad the other)
+  assert.deepEqual([...ripupRun(p, p.board, 'v1')].sort(), ['t2', 't3', 't4', 'v1']);
+  // rip one segment: an airwire appears; ripping from it takes the runs at both its ends
+  p.board.tracks = p.board.tracks.filter((t) => t.id !== 'br');
+  ripUp(p.board, new Set(['t3']));
+  const wires = ratsnest(p).wires;
+  assert.equal(wires.length, 1);
+  const both = ripupAirwire(p, p.board, wires[0]);
+  assert.deepEqual([...both].sort(), ['t1', 't2', 't4', 'v1']);
+  ripUp(p.board, both);
+  assert.equal(p.board.tracks.length, 0);
+  assert.equal(ratsnest(p).wires.length, 1, 'one airwire pad to pad');
+  // Shift: every track and via of the net
+  const q = board().p;
+  assert.deepEqual([...netCopper(q.board, net)].sort(), ['t1', 't2', 't3', 't4', 'v1']);
 });

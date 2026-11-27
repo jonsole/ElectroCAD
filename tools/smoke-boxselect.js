@@ -1,8 +1,8 @@
 // Box selection and rip-up on the Board: with the Select tool, a box dragged on empty space left to
 // right takes what's wholly inside it, right to left what it touches; pressing on a selected
-// footprint drags the group, its tracks with it, in one undo step. The Rip up tool lights the run
-// under the pointer, a click takes it (pad to pad) back to an airwire, Shift+click just one
-// segment, and a box everything in it; each is one undo step. Moving a footprint brings along
+// footprint drags the group, its tracks with it, in one undo step. The Rip up tool (#101) lights
+// what a click takes: a click rips one segment, a click on the airwire left the rest of that
+// connection, Shift+click the whole net, and a box everything in it; each is one undo step. Moving a footprint brings along
 // the tracks on its pads (#100): redrawn in Shove mode, stretched in Free; a locked one stays.
 const app = window.electrocad;
 const fails = [];
@@ -75,16 +75,26 @@ check('rip-tool', !!ripBtn);
 ripBtn.click();
 check('rip-active', ed.tool === 'ripup');
 const n0 = unrouted();
+// X1: hovering a track lights just that segment; a click rips it and leaves an airwire across the gap
 ev('pointermove', 20, 12, 0); await wait(20);
-check('rip-hover', ed.ripHover && ['u1', 'u2', 'u3'].every((id) => ed.ripHover.has(id)) && !ed.ripHover.has('o'), ed.ripHover && [...ed.ripHover]);
+check('rip-hover', ed.ripHover && ed.ripHover.size === 1 && ed.ripHover.has('u2'), ed.ripHover && [...ed.ripHover]);
 const h1 = app.history.undoStack.length;
 ev('pointerdown', 20, 12, 1); ev('pointerup', 20, 12, 0); await wait(40);
-check('rip-run', !tr('u1') && !tr('u2') && !tr('u3') && !!tr('o') && unrouted() === n0 + 1 && app.history.undoStack.length === h1 + 1, [app.project.board.tracks.map((t) => t.id), unrouted()]);
-app.undo(); await wait(30);
+check('rip-segment', !tr('u2') && !!tr('u1') && !!tr('u3') && unrouted() === n0 + 1 && app.history.undoStack.length === h1 + 1, [app.project.board.tracks.map((t) => t.id), unrouted()]);
+// X2: clicking that airwire rips the rest of the connection, back to the pads
+const aw = ed._rats.wires.find((w) => w.net === net);
+const mx = (aw.a[0] + aw.b[0]) / 2 / MM, my = (aw.a[1] + aw.b[1]) / 2 / MM;
+ev('pointermove', mx, my, 0); await wait(20);
+check('rip-airwire-hover', ed.ripHover?.has('u1') && ed.ripHover?.has('u3'), ed.ripHover && [...ed.ripHover]);
+ev('pointerdown', mx, my, 1); ev('pointerup', mx, my, 0); await wait(40);
+check('rip-airwire', !tr('u1') && !tr('u3') && !!tr('o') && unrouted() === n0 + 1, [app.project.board.tracks.map((t) => t.id), unrouted()]);
+app.undo(); app.undo(); await wait(30);
 check('rip-undo', !!tr('u1') && !!tr('u2') && !!tr('u3') && unrouted() === n0);
-// Shift+click: just that segment
-ev('pointermove', 20, 12, 0); ev('pointerdown', 20, 12, 1, true); ev('pointerup', 20, 12, 0); await wait(40);
-check('rip-segment', !tr('u2') && !!tr('u1') && !!tr('u3'), app.project.board.tracks.map((t) => t.id));
+// X3: Shift+click rips the whole net
+ev('pointermove', 20, 12, 0, true); await wait(20);
+check('rip-net-hover', ['u1', 'u2', 'u3'].every((id) => ed.ripHover?.has(id)) && !ed.ripHover.has('o'));
+ev('pointerdown', 20, 12, 1, true); ev('pointerup', 20, 12, 0); await wait(40);
+check('rip-net', !tr('u1') && !tr('u2') && !tr('u3') && !!tr('o'), app.project.board.tracks.map((t) => t.id));
 app.undo(); await wait(30);
 // a box: everything in it (the other net's track, wholly inside)
 await box(1, 12.6, 39, 13.3);

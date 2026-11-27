@@ -26,7 +26,7 @@ import { trackArc, trackBox, trackLength, trackPoints, nearestOnTrack, trackShap
 import { boardItemsInBox, moveCopper } from '../core/boardSelect.js';
 import { followMoves, pushClear } from '../core/follow.js';
 import { BENDS, bendOf, bendFromPref, cycleBend, withBend, strokeTo, ROUTE_MODES, startRoute, step as routeStep, click as routeClickAt, back as routeBack, commit as routeCommit, switchLayer, layerPairs } from '../core/router.js';
-import { connection, ripupRun, ripUp, setTrackWidth, setTrackLayer, setViaSize, placeVia, placeViaPushing } from '../core/copper.js';
+import { connection, ripupRun, ripupAirwire, netCopper, ripUp, setTrackWidth, setTrackLayer, setViaSize, placeVia, placeViaPushing } from '../core/copper.js';
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
 import { allFootprints } from '../library/footprints.js';
 import { addBoardOnly, setBoardOnly, deleteBoardOnly } from '../core/boardOnly.js';
@@ -54,7 +54,7 @@ export const BOARD_TOOLS = {
   select: { icon: 'select', title: 'Select (V): click to select, or drag a box on empty space (left to right: what is wholly inside; right to left: what it touches; Shift adds); drag a track segment sideways (its neighbours follow), a track corner to reshape it, or a free track end to move it, pushing other nets\' copper in Shove mode', key: 'v' },
   route: { icon: 'route', title: 'Route (X): click a pad to start a track on the active copper layer, click to place corners, click a pad of the same net to finish · V drops a via and changes layer · right-click cycles Eagle\'s bend styles (Shift+right-click goes back), / swaps to the mirrored one · Backspace or Ctrl+Z undoes a segment · Esc ends the route here (Esc again: Select)', key: 'x' },
   via: { icon: 'via', title: 'Via: click to place a through via; it takes the net of the track or pad it lands on' },
-  ripup: { icon: 'ripup', title: 'Rip up: click a track or via to take its run (pad to pad) back to an airwire; Shift+click takes just that segment; drag a box to rip up every track and via in it' },
+  ripup: { icon: 'ripup', title: 'Rip up: click a track to rip that segment back to an airwire, then click the airwire to rip the rest of that connection; Shift+click rips the whole net; a via goes with its runs; drag a box to rip up every track and via in it' },
   footprint: { icon: 'pad', title: 'Place footprint: a footprint with no part on the Schematic, such as a mounting hole, fiducial or logo. Pick it, then click where it goes; Reference, pad nets and In BOM in Properties' },
   zone: { icon: 'zone', title: 'Zone (Z): click the corners of a copper pour on the active copper layer; click the first corner, double-click or Enter to close. Net, priority, clearance and thermal reliefs in Properties', key: 'z' },
   outline: { icon: 'outline', title: 'Outline rectangle (B): click two corners. Round the corners with Corner radius in Properties', key: 'b' },
@@ -697,7 +697,7 @@ export class BoardEditor {
       case 'route': t = this.route
         ? `Routing ${this.route.net} on ${this.route.layer} (${fmt(this.route.width)} mm, ${netClassOf(this.board, this.route.net)} class): click to place a corner · click a ${this.route.net} pad to finish · V drops a via and goes to ${this.route.layer === this.route.pair[0] ? this.route.pair[1] : this.route.pair[0]} · double-click or Enter ends here · right-click or / changes the bend (${this.bend}: ${bendOf(this.bend).name}) · Backspace or Ctrl+Z undoes a segment · Esc ends the route here${this.routeView?.collisions.length ? ' · red: too close to another net' : ''}${this.routeView?.blocked ? ' · no clear way to the pointer: the track stops at the obstacle' : ''}`
         : `Route (${this.routeMode === 'shove' ? 'Shove: tracks push other nets\' tracks aside' : this.routeMode === 'walkaround' ? 'Walkaround: tracks go round other nets' : 'Free: tracks go where you draw'}): click a pad on ${this.activeLayer} to start a track (bend ${this.bend}: ${bendOf(this.bend).name}${this.chamfer ? `, ${this.mitre === 'round' ? 'rounded' : 'chamfered'} ${fmt(this.chamfer)} mm` : ''})`; break;
-      case 'ripup': t = 'Rip up: click a track or via to take its run (pad to pad) back to an airwire · Shift+click: just that segment · drag a box: every track and via in it (left to right: wholly inside; right to left: touching)'; break;
+      case 'ripup': t = 'Rip up: click a track: that segment · click the airwire left behind: the rest of that connection, pad to pad · Shift+click: the whole net · a via: with its runs · drag a box: every track and via in it (left to right: wholly inside; right to left: touching)'; break;
       case 'zone': t = !p ? `Zone on ${this.activeLayer}: click its first corner (the net comes from the pad or track there, else GND; change it in Properties)`
         : `Zone on ${this.activeLayer}: click the next corner · click the first corner, double-click or Enter to close · Backspace undo corner · Esc cancel`; break;
       case 'via': t = 'Via: click to place a through via (F.Cu to B.Cu); it takes the net of the track or pad it lands on · Esc back to Select'; break;
@@ -1085,8 +1085,7 @@ export class BoardEditor {
       }
       // the Rip up tool: what a click would take, lit under the pointer
       if (this.tool === 'ripup' && !e.buttons) {
-        const hit = this._hitTrack(w, 5 / ws.view.view.scale);
-        const ids = hit ? (e.shiftKey ? new Set([hit.id]) : ripupRun(this.project, this.board, hit.id)) : null;
+        const ids = this._ripTargets(w, e.shiftKey);
         if ((ids ? [...ids].sort().join() : '') !== (this.ripHover ? [...this.ripHover].sort().join() : '')) { this.ripHover = ids; ws.view.invalidate(); }
       }
       if (this.trackDrag && (e.buttons & 1)) {
@@ -1191,7 +1190,7 @@ export class BoardEditor {
           // a box rips up every track and via in it; a click, the run under the pointer
           let ids = null;
           if (m.moved) ids = this.ripHover;
-          else { const hit = this._hitTrack(m.a, 5 / ws.view.view.scale); if (hit) ids = m.shift ? new Set([hit.id]) : ripupRun(this.project, this.board, hit.id); }
+          else ids = this._ripTargets(m.a, m.shift);
           this.ripHover = null;
           this.ripUpCopper(ids);
           return;
@@ -1825,6 +1824,20 @@ export class BoardEditor {
   }
 
   /** U: select the whole connection the selected copper belongs to. */
+  /**
+   * What a Rip up click at `w` takes (#96 X1-X5): a track's one segment (Shift: every track and via
+   * of its net); a via with its runs; an airwire, the runs at both its ends. Null: nothing there.
+   */
+  _ripTargets(w, shift) {
+    const hit = this._hitTrack(w, 5 / (this.ws?.view.view.scale || 1));
+    if (hit) {
+      if (shift) return netCopper(this.board, hit.net);
+      return (this.board.vias || []).some((v) => v.id === hit.id) ? ripupRun(this.project, this.board, hit.id) : new Set([hit.id]);
+    }
+    const aw = this._airwireAt(w);
+    return aw ? ripupAirwire(this.project, this.board, aw) : null;
+  }
+
   /** The box a marquee spans. */
   _marqueeBox(m) { return { x0: Math.min(m.a[0], m.b[0]), y0: Math.min(m.a[1], m.b[1]), x1: Math.max(m.a[0], m.b[0]), y1: Math.max(m.a[1], m.b[1]) }; }
 
