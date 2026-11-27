@@ -158,6 +158,7 @@ export class BoardEditor {
       key: 'board-grid', choices: GRID_CHOICES,
       state: () => ({ grid: this.board.grid, origin: this.board.origin, scope: 'Board', originNote: 'The origin is measured from the page origin.' }),
       onGrid: (which, nm) => this.app.edit(`${which === 'alt' ? 'Alt grid' : 'Grid'}: ${gridLabel(nm)}`, (p) => setGrid(p, which, nm)),
+      onSwap: () => this.app.edit('Swap grids', (p) => { const { main, alt } = p.board.grid; setGrid(p, 'main', alt); setGrid(p, 'alt', main); }),
       onOrigin: (at) => this.app.edit('Grid origin', (p) => { p.board.origin = at; }),
       onPick: () => this.setTool('origin'),
     });

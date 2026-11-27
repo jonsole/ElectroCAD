@@ -162,6 +162,7 @@ const P = {
   print: 'M6 9V3h12v6M6 18H4v-8h16v8h-2M6 14h12v7H6z',
   sheets: 'M8 3h11v14H8zM5 6v15h11',
   undo2: 'M9 7 4 12l5 5M4 12h10a5 5 0 0 1 0 10h-2',
+  swapVert: 'M8 20V4M4 8l4-4 4 4M16 4v16M12 16l4 4 4-4',
   zip: 'M6 3h9l4 4v14H6zM11 3v2M11 7v2M11 11v2M10 15h2v3h-2z',
   twoD: 'M4 5h16v14H4zM8 9h3v2H8v4h3M14 9h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-2z',
 };

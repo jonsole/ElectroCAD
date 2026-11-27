@@ -14,6 +14,7 @@ export class GridCard {
    * @param {[number, string][]} o.choices     grid steps offered: [nm, label]
    * @param {() => {grid: {main:number, alt:number}, origin: number[], scope: string, originNote: string, originEditable?: boolean}} o.state
    * @param {(which: 'main'|'alt', nm: number) => void} o.onGrid
+   * @param {() => void} [o.onSwap]                 swap the grid and the Alt grid (one undo step); else two onGrid calls
    * @param {(at: number[]) => void} [o.onOrigin]   set the origin to a point (mm inputs, Reset)
    * @param {() => void} [o.onPick]                 pick the origin on the canvas (the Origin tool)
    */
@@ -45,6 +46,15 @@ export class GridCard {
   toggle(open = !this.open) {
     this.open = open;
     this.button.classList.toggle('active', open);
+    this.render();
+  }
+
+  /** Swap the main and Alt grid steps. */
+  swap() {
+    const { grid } = this.o.state();
+    if (grid.main === grid.alt) return;
+    if (this.o.onSwap) this.o.onSwap();
+    else { const { main, alt } = grid; this.o.onGrid('main', alt); this.o.onGrid('alt', main); }
     this.render();
   }
 
@@ -81,8 +91,11 @@ export class GridCard {
     el.replaceChildren(
       cardHead({ icon: 'grid', title: 'Grid', sub: st.scope, onClose: () => this.toggle(false), closeTitle: 'Close (the Grid button on the toolbar opens it again)' }),
       h('div', { class: 'fp-body' },
-        sel('main', 'Grid', 'The snap grid'),
-        sel('alt', 'Alt grid', 'Hold Alt while drawing, moving or resizing to snap to this grid'),
+        h('div', { class: 'grid-card-steps' },
+          h('div', { class: 'grid-card-sels' },
+            sel('main', 'Grid', 'The snap grid'),
+            sel('alt', 'Alt grid', 'Hold Alt while drawing, moving or resizing to snap to this grid')),
+          button({ icon: 'swapVert', title: 'Swap the grid and the Alt grid', cls: 'btn-ghost btn-xs grid-card-swap', onClick: () => this.swap() })),
         h('div', { class: 'grid-card-origin' },
           h('span', { class: 'grid-card-label' }, 'Origin'),
           editable ? h('span', { class: 'grid-card-xy' }, h('span', {}, 'X'), num('Origin X', st.origin[0], 0), h('span', {}, 'Y'), num('Origin Y', st.origin[1], 1)) : h('span', { class: 'grid-card-note' }, st.originNote),

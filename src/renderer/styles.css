@@ -584,6 +584,9 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 /* Grid card (toolbar Grid button, every editor) */
 .grid-card .fp-body { padding-top: 6px; }
 .grid-card .le-row { grid-template-columns: 70px 1fr 0; }
+.grid-card-steps { display: flex; align-items: center; gap: 4px; }
+.grid-card-sels { flex: 1; min-width: 0; }
+.grid-card-swap { flex-shrink: 0; }
 .grid-card-origin { display: grid; grid-template-columns: 70px 1fr auto; align-items: center; gap: 6px; margin: 6px 0 2px; }
 .grid-card-label { font-size: 12px; color: var(--muted); }
 .grid-card-xy { display: grid; grid-template-columns: auto 1fr auto 1fr; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }

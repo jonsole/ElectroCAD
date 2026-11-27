@@ -97,6 +97,12 @@ document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Alt', altKey: true, 
 check('alt-grid', ed.gridStep === board().grid.alt && ws.view.grid === board().grid.alt && /\(Alt\)/.test(ws.statusText.textContent), ws.statusText.textContent);
 document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Alt', bubbles: true }));
 check('alt-off', ed.gridStep === 1e6);
+// the swap button exchanges the grid and the Alt grid in one undo step, and the selects follow
+const g0 = { ...board().grid };
+document.querySelector('[data-ws="board"] .grid-card .grid-card-swap').click();
+check('grid-swap', board().grid.main === g0.alt && board().grid.alt === g0.main && ws.view.grid === g0.alt && document.querySelector('[data-ws="board"] .grid-card select[aria-label="Grid"]').value === String(g0.alt), [board().grid, ws.view.grid]);
+app.undo();
+check('grid-swap-undo', board().grid.main === g0.main && board().grid.alt === g0.alt && document.querySelector('[data-ws="board"] .grid-card select[aria-label="Alt grid"]').value === String(g0.alt), board().grid);
 // Alt while drawing: a circle with a 0.3 mm radius on the 0.1 mm Alt grid
 key('c');
 const altClick = (x, y) => {

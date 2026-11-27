@@ -519,6 +519,7 @@ export class SchematicEditor {
       key: 'schematic-grid', choices: SCHEMATIC_GRIDS,
       state: () => ({ grid: this.sheet.grid, origin: this.sheet.origin, scope: this.sheet.name, originNote: "The origin is measured from the paper's top-left corner." }),
       onGrid: (which, nm) => this.app.edit(`${this.sheet.name}: ${which === 'alt' ? 'Alt grid' : 'grid'} ${gridLabel(nm)}`, (p) => { const g = this._S(p).grid; setGridStep(g, which, nm); }),
+      onSwap: () => this.app.edit(`${this.sheet.name}: swap grids`, (p) => { const g = this._S(p).grid; const { main, alt } = g; setGridStep(g, 'main', alt); setGridStep(g, 'alt', main); }),
       onOrigin: (at) => this.app.edit(`${this.sheet.name}: grid origin`, (p) => { this._S(p).origin = at; }),
       onPick: () => this.setTool('origin'),
     });
