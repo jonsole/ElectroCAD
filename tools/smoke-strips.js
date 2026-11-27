@@ -46,7 +46,8 @@ check('zone-strip', /Zone/.test(strip('board').textContent) && !!strip('board').
 ed.setTool('route');
 check('route-own-strip', strip('board').hidden && !document.querySelector('[data-ws="board"] .route-strip').hidden);
 ed.setTool('select');
-check('select-none', strip('board').hidden);
+// nothing selected: the Select tool's own strip, with the Optimise toggle (#104)
+check('select-none', !strip('board').hidden && !!strip('board').querySelector('.optimise-toggle') && !strip('board').querySelector('.strip-props'));
 const fp = app.project.board.footprints[0];
 ed.fpSel = new Set([fp.id]); ed.refresh();
 check('fp-strip', !strip('board').hidden && !!btn('board', 'Rotate 90° anticlockwise'), strip('board').textContent);
@@ -78,7 +79,7 @@ check('track-props-open', ed.cards.card('props').isOpen && /1 track/.test(ed.pro
 const w = strip('board').querySelector('input[aria-label="Width"]'); w.value = '0.4'; w.dispatchEvent(new Event('change'));
 check('track-width', app.project.board.tracks[0].width === 400000);
 btn('board', 'Delete').click();
-check('track-deleted', app.project.board.tracks.length === 0 && strip('board').hidden);
+check('track-deleted', app.project.board.tracks.length === 0 && !strip('board').querySelector('.strip-props') && !!strip('board').querySelector('.optimise-toggle'));
 // right-click a footprint → Properties… opens its Properties; selecting something else closes it
 check('props-closed', !ed.cards.card('props').isOpen);
 {

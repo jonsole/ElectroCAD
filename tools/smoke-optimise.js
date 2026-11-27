@@ -30,7 +30,8 @@ const unrouted = () => Object.values(ed._rats.unrouted).reduce((a, b) => a + b, 
 document.querySelector('[data-ws="board"] .mode-group [data-mode="free"]').click();
 key('x');
 ed.setBend(0);
-const toggle = document.querySelector('[data-ws="board"] .optimise-toggle');
+const toggle = document.querySelector('[data-ws="board"] .route-strip .optimise-toggle');
+check('icon-only', toggle && !toggle.textContent.trim() && !!toggle.querySelector('svg'));
 check('on-by-default', toggle && toggle.classList.contains('active') && app.project.board.optimise !== false);
 const straight = () => { click(5.9125, 5); click(9, 5); click(12, 5); click(15, 5); key('Enter'); };
 const net0 = () => app.project.board.tracks.length;
@@ -44,12 +45,19 @@ straight();
 check('unmerged', net0() === 3, net0());
 // Optimise tracks: one undo step
 const h0 = app.history.undoStack.length;
-document.querySelector('[data-ws="board"] .route-strip button[title^="Optimise tracks now"]').click(); // an icon button
+ed.setTool('select');
+// the Select strip has the toggle too (nothing selected), off like the routing strip's
+const selToggle = () => [...document.querySelectorAll('[data-ws="board"] .context-strip .optimise-toggle')].find((b) => b.offsetParent);
+check('select-strip-toggle', !!selToggle() && !selToggle().classList.contains('active'));
+// right-click on empty canvas → Optimise tracks
+const r = ws.view.canvas.getBoundingClientRect(), [ex, ey] = ws.view.view.toScreen([25 * MM, 3 * MM]);
+ed.contextMenu({ clientX: r.left + ex, clientY: r.top + ey });
+[...document.querySelectorAll('.menu .menu-item')].find((b) => b.textContent.trim() === 'Optimise tracks').click();
 check('optimised-now', net0() === 1 && app.history.undoStack.length === h0 + 1, net0());
 app.undo();
 check('undo-now', net0() === 3);
 app.undo(); // the route
 app.undo(); // the toggle
-check('toggle-undo', app.project.board.optimise !== false && toggle.classList.contains('active'));
+check('toggle-undo', app.project.board.optimise !== false && toggle.classList.contains('active') && selToggle()?.classList.contains('active'));
 key('Escape');
 return { fails };

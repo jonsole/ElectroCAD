@@ -196,8 +196,7 @@ export class BoardEditor {
     this.widthIn.addEventListener('change', () => { const v = parseFloat(this.widthIn.value); this.setRouteWidth(Number.isFinite(v) && v > 0 ? mm(v) : null); });
     const widthBox = h('label', { class: 'chamfer-box', title: 'Track width (mm). A route starts at its net class\'s width; change it mid-route and the leg in progress and later legs take it (legs already fixed keep theirs). With no route in progress it sets the next route\'s width; empty: the net class\'s' }, h('span', {}, 'Width'), this.widthIn, h('em', {}, 'mm'));
     // T1, T8 (#104): the board's Optimise toggle, and optimising existing tracks now
-    this.optimiseBtn = h('button', { class: 'btn optimise-toggle', type: 'button', 'aria-pressed': 'true', title: 'Optimise (saved with the board): after each copper edit, straight runs of one net, layer and width are merged, arcs of one circle joined, and zero-length pieces and doubled-back spikes removed (never at a via, a pad or a junction; locked tracks are left alone)', onClick: () => this.setOptimise(this.board.optimise === false) }, 'Optimise');
-    this.optimiseNowBtn = button({ icon: 'optimise', cls: 'btn-ghost', title: 'Optimise tracks now: the selected tracks, or every track on the board (one undo step)', onClick: () => this.optimiseNow() });
+    this.optimiseBtn = this._optimiseToggle();
     const chamfer = h('label', { class: 'chamfer-box', title: 'Auto mitre (as Eagle\'s): Straight cuts bends of 90° or sharper back by this length and joins them at 45°; Round makes every bend an arc of this radius (#95). 0 for none' }, h('span', {}, 'Mitre'), this.chamferIn, h('em', {}, 'mm'));
     this.mitreSeg = h('div', { class: 'segmented corner-seg mitre-seg', role: 'radiogroup', 'aria-label': 'Mitre style' },
       ...[['straight', 'Straight', 'Bends are cut straight (a chamfer)'], ['round', 'Round', 'Bends are rounded: an arc of the mitre length\'s radius (#95)']].map(([id, label, tip]) => h('button', { class: 'btn' + (id === this.mitre ? ' active' : ''), type: 'button', role: 'radio', 'aria-checked': String(id === this.mitre), title: tip, dataset: { mitre: id }, onClick: () => this.setMitre(id) }, label)));
@@ -207,7 +206,7 @@ export class BoardEditor {
     this.pairSel.addEventListener('keydown', (e) => e.stopPropagation());
     this.pairBox = h('label', { class: 'chamfer-box pair-box' }, h('span', {}, 'V switches'), this.pairSel);
     this.routeStrip = h('div', { class: 'tool-strip route-strip', role: 'toolbar', 'aria-label': 'Routing options', hidden: true },
-      stripLabel('Route', 'route'), stripSep(), h('span', { class: 'tool-strip-label strip-sub' }, 'Bend'), this.cornerSeg, h('span', { class: 'sep' }), widthBox, h('span', { class: 'sep' }), chamfer, this.mitreSeg, h('span', { class: 'sep' }), this.optimiseBtn, this.optimiseNowBtn, h('span', { class: 'sep pair-sep' }), this.pairBox);
+      stripLabel('Route', 'route'), stripSep(), h('span', { class: 'tool-strip-label strip-sub' }, 'Bend'), this.cornerSeg, h('span', { class: 'sep' }), widthBox, h('span', { class: 'sep' }), chamfer, this.mitreSeg, h('span', { class: 'sep' }), this.optimiseBtn, h('span', { class: 'sep pair-sep' }), this.pairBox);
     // delete, rotate, flip and lock live on the context strip over the canvas, with what they act on
     return [this.btn.undo, this.btn.redo, h('span', { class: 'sep' }), ...this.cards.buttons(), this.gridCard.button];
   }
@@ -902,7 +901,15 @@ export class BoardEditor {
     this._showOptimise();
   }
 
-  _showOptimise() { if (this.optimiseBtn) { const on = this.board.optimise !== false; this.optimiseBtn.classList.toggle('active', on); this.optimiseBtn.setAttribute('aria-pressed', String(on)); } }
+  _showOptimise() { if (this.optimiseBtn) { const fresh = this._optimiseToggle(); this.optimiseBtn.className = fresh.className; this.optimiseBtn.title = fresh.title; this.optimiseBtn.setAttribute('aria-pressed', fresh.getAttribute('aria-pressed')); } }
+
+  /** T1: the Optimise toggle, an icon lit while it's on (in the routing strip and the Select strips). */
+  _optimiseToggle() {
+    const on = this.board?.optimise !== false;
+    const b = button({ icon: 'optimise', cls: 'btn-ghost strip-btn optimise-toggle' + (on ? ' active' : ''), title: `Optimise tracks: ${on ? 'on' : 'off'} (saved with the board). After each copper edit, straight runs of one net, layer and width are merged, arcs of one circle joined, and zero-length pieces and doubled-back spikes removed; never at a via, a pad or a junction, and locked tracks are left alone. Click to turn it ${on ? 'off' : 'on'}. To tidy existing tracks now: right-click → Optimise tracks`, onClick: () => this.setOptimise(this.board.optimise === false) });
+    b.setAttribute('aria-pressed', String(on));
+    return b;
+  }
 
   _keptNote(kept) {
     if (kept) toast(`${kept} locked track${kept === 1 ? '' : 's'} stayed put: ${kept === 1 ? 'its' : 'their'} connection${kept === 1 ? ' is' : 's are'} broken (see the airwires).`, 'info', 2600);
@@ -1497,6 +1504,7 @@ export class BoardEditor {
         { label: 'Fit the board in view', icon: 'fit', shortcut: 'Home', onClick: () => v.fitHome() },
         { label: 'Update from Schematic…', icon: 'annotate', shortcut: 'F8', onClick: () => this.annotate() },
         { label: 'Board setup…', icon: 'settings', onClick: () => this.setup() },
+        { label: 'Optimise tracks', icon: 'optimise', onClick: () => this.optimiseNow() },
         { label: 'Run DRC', icon: 'erc', onClick: () => this.runDrc() }], at);
       return;
     }
@@ -1521,7 +1529,7 @@ export class BoardEditor {
       return;
     }
     if (this.trackSel.size) {
-      popupMenu([props, toSch, 'sep', { label: 'Select the whole connection', icon: 'route', shortcut: 'U', onClick: () => this.selectConnection() }, selectNet, { label: 'Optimise tracks', icon: 'route', onClick: () => this.optimiseNow() }, 'sep', del], at);
+      popupMenu([props, toSch, 'sep', { label: 'Select the whole connection', icon: 'route', shortcut: 'U', onClick: () => this.selectConnection() }, selectNet, { label: 'Optimise these tracks', icon: 'optimise', onClick: () => this.optimiseNow() }, 'sep', del], at);
       return;
     }
     popupMenu([props, toSch, 'sep', selectNet, selectNet ? 'sep' : null, del], at);
@@ -2013,7 +2021,7 @@ export class BoardEditor {
       const layers = drawingLayers(this.board.stack.copper);
       const ids = new Set(drawings.map((d) => d.id));
       const allLayer = drawings.every((d) => d.layer === drawings[0].layer) ? drawings[0].layer : '';
-      s.show(`draw-sel|${pOpen}|${JSON.stringify(drawings)}|${this.rotStep}`, () => [
+      s.show(`draw-sel|${this.board.optimise !== false}|${pOpen}|${JSON.stringify(drawings)}|${this.rotStep}`, () => [
         stripLabel(one ? `${DRAW_KIND[one.type] || 'Drawing'} on ${one.layer}` : `${drawings.length} drawings`, one?.type === 'text' ? 'ltext' : 'lline'), stripSep(),
         stripSelect({ label: 'Layer', value: allLayer, options: [...(allLayer ? [] : [['', 'Mixed']]), ...layers.map((l) => [l, l])], onSet: (v) => { if (v) this.app.edit(`Drawings to ${v}`, (p) => { for (const d of p.board.drawings) if (ids.has(d.id)) d.layer = v; }); } }),
         one?.type === 'text' ? stripText({ label: 'Text', value: one.text, onSet: (v) => { if (v.trim()) this.editDrawing(one.id, 'Edit text', (d) => { d.text = v.trim(); }); } }) : null,
@@ -2021,7 +2029,7 @@ export class BoardEditor {
         stripButton({ icon: 'rotateLeft', title: `Rotate ${this.rotStep}° anticlockwise (R)`, onClick: () => this.rotateSel(this.rotStep) }),
         stripButton({ icon: 'rotateRight', title: `Rotate ${this.rotStep}° clockwise (Shift+R)`, onClick: () => this.rotateSel(-this.rotStep) }),
         stripButton({ icon: 'flip', label: 'Flip', title: 'Flip to the other side (F)', onClick: () => this.flipSel() }),
-        stripSep(), del(drawings.length === 1 ? 'Delete' : 'Delete them'), stripSep(), propsBtn()]);
+        stripSep(), del(drawings.length === 1 ? 'Delete' : 'Delete them'), stripSep(), this._optimiseToggle(), propsBtn()]);
       return;
     }
     if (fps.length) {
@@ -2029,7 +2037,7 @@ export class BoardEditor {
       const ref = (f) => bfRef(this.project, f) || '?';
       const locked = fps.every((f) => f.locked);
       const props = this.cards?.card('props');
-      s.show(`fp|${fps.map((f) => `${f.id}:${f.rot}:${f.side}:${!!f.locked}`).join(';')}|${this.rotStep}|${shapes.length}|${!!props?.isOpen}`, () => [
+      s.show(`fp|${this.board.optimise !== false}|${fps.map((f) => `${f.id}:${f.rot}:${f.side}:${!!f.locked}`).join(';')}|${this.rotStep}|${shapes.length}|${!!props?.isOpen}`, () => [
         stripLabel(one ? `${ref(one)}${one.side === 'B' ? ' (back)' : ''}` : `${fps.length} footprints`, 'pad'), stripSep(),
         stripButton({ icon: 'rotateLeft', title: locked ? 'Locked: unlock to rotate' : `Rotate ${this.rotStep}° anticlockwise (R)`, disabled: locked, onClick: () => this.rotateSel(this.rotStep) }),
         stripButton({ icon: 'rotateRight', title: locked ? 'Locked: unlock to rotate' : `Rotate ${this.rotStep}° clockwise (Shift+R)`, disabled: locked, onClick: () => this.rotateSel(-this.rotStep) }),
@@ -2038,14 +2046,14 @@ export class BoardEditor {
         stripSep(),
         stripButton({ icon: 'flip', label: 'Flip', title: locked ? 'Locked: unlock to flip' : `Flip to the ${one?.side === 'B' ? 'front' : 'other side'} (F)`, disabled: locked, onClick: () => this.flipSel() }),
         stripButton({ icon: locked ? 'unlock' : 'lock', label: locked ? 'Unlock' : 'Lock', active: locked, title: `${locked ? 'Unlock' : 'Lock'}: a locked footprint doesn't move (L)`, onClick: () => this.lockSel() }),
-        stripSep(), propsBtn()]);
+        stripSep(), this._optimiseToggle(), propsBtn()]);
       return;
     }
     if (tracks.length || vias.length) {
       const one = (xs, k) => (xs.length && xs.every((x) => x[k] === xs[0][k]) ? xs[0][k] : null);
       const ids = tracks.map((x) => x.id), vids = vias.map((x) => x.id);
       const w = one(tracks, 'width'), lay = one(tracks, 'layer');
-      s.show(`copper|${pOpen}|${[...this.trackSel].join()}|${w}|${lay}|${one(vias, 'drill')}|${one(vias, 'diameter')}`, () => [
+      s.show(`copper|${this.board.optimise !== false}|${pOpen}|${[...this.trackSel].join()}|${w}|${lay}|${one(vias, 'drill')}|${one(vias, 'diameter')}`, () => [
         stripLabel([tracks.length ? `${tracks.length} track${tracks.length === 1 ? '' : 's'}` : '', vias.length ? `${vias.length} via${vias.length === 1 ? '' : 's'}` : ''].filter(Boolean).join(', '), tracks.length ? 'route' : 'via'), stripSep(),
         tracks.length ? stripNumber({ label: 'Width', value: w == null ? null : fmt(w), placeholder: 'mixed', unit: 'mm', step: '0.01', min: '0.01', onSet: (v) => { try { this.copperEdit('Track width', (p) => setTrackWidth(p, ids, mm(v))); } catch (e) { toast(e.message, 'error', 3000); } } }) : null,
         tracks.length ? stripSelect({ label: 'Layer', value: lay || '', options: [...(lay ? [] : [['', 'Mixed']]), ...copper.map((l) => [l, l])], onSet: (v) => { if (v) this.copperEdit(`Tracks to ${v}`, (p) => setTrackLayer(p, ids, v)); } }) : null,
@@ -2053,7 +2061,7 @@ export class BoardEditor {
         vias.length ? stripNumber({ label: '', value: one(vias, 'diameter') == null ? null : fmt(one(vias, 'diameter')), placeholder: 'mixed', unit: 'mm', step: '0.05', min: '0.1', width: 56, title: 'Via diameter (mm)', onSet: (v) => { try { this.app.edit('Via diameter', (p) => setViaSize(p, vids, { diameter: mm(v) })); } catch (e) { toast(e.message, 'error', 3000); } } }) : null,
         stripSep(),
         stripButton({ icon: 'wire', label: 'Connection', title: 'Select the whole connection: every track and via joined to these (U)', onClick: () => this.selectConnection() }),
-        del('Delete'), stripSep(), propsBtn()]);
+        del('Delete'), stripSep(), this._optimiseToggle(), propsBtn()]);
       return;
     }
     if (zones.length) {
@@ -2061,21 +2069,22 @@ export class BoardEditor {
       const nets = [...new Set([...padNets(this.board).values()].filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
       if (z?.net && !nets.some((n) => n.toLowerCase() === z.net.toLowerCase())) nets.unshift(z.net);
       const set = (label, fn) => this.app.edit(label, (p) => fn(p.board.zones.find((q) => q.id === z.id)));
-      s.show(`zone-sel|${pOpen}|${zones.map((q) => `${q.id}:${q.net}:${q.layer}:${q.priority}:${q.connect}`).join(';')}`, () => [
+      s.show(`zone-sel|${this.board.optimise !== false}|${pOpen}|${zones.map((q) => `${q.id}:${q.net}:${q.layer}:${q.priority}:${q.connect}`).join(';')}`, () => [
         stripLabel(z ? `Zone on ${z.layer}` : `${zones.length} zones`, 'zone'), stripSep(),
         z ? stripSelect({ label: 'Net', value: nets.find((n) => n.toLowerCase() === (z.net || '').toLowerCase()) || '', options: [['', '(no net)'], ...nets.map((n) => [n, n])], onSet: (v) => set(`Zone net ${v || '(none)'}`, (q) => { q.net = v; }) }) : null,
         z ? stripSelect({ label: 'Layer', value: z.layer, options: copper.map((l) => [l, l]), onSet: (v) => set(`Zone to ${v}`, (q) => { q.layer = v; }) }) : null,
         z ? stripNumber({ label: 'Priority', value: z.priority, step: '1', min: '0', width: 48, onSet: (v) => set('Zone priority', (q) => { q.priority = Math.max(0, Math.round(v)); }) }) : null,
         z ? stripSegmented({ label: 'Pads', value: z.connect === 'solid' ? 'solid' : 'thermal', items: [['thermal', 'Thermal', 'Same-net pads join through thermal reliefs'], ['solid', 'Solid', 'Same-net pads are joined solid']], onPick: (id) => set(`Pads ${id}`, (q) => { q.connect = id; }) }) : null,
-        stripSep(), del(zones.length === 1 ? 'Delete the zone' : 'Delete the zones'), stripSep(), propsBtn()]);
+        stripSep(), del(zones.length === 1 ? 'Delete the zone' : 'Delete the zones'), stripSep(), this._optimiseToggle(), propsBtn()]);
       return;
     }
     if (shapes.length) {
       const kind = { rect: 'Rectangle', circle: 'Circle', line: 'Line', arc: 'Arc' };
-      s.show(`outline-sel|${pOpen}|${[...this.selection].join()}`, () => [stripLabel(shapes.length === 1 ? `${kind[shapes[0].type] || 'Shape'} on Edge.Cuts` : `${shapes.length} outline shapes`, 'outline'), stripSep(), del('Delete'), stripSep(), propsBtn()]);
+      s.show(`outline-sel|${this.board.optimise !== false}|${pOpen}|${[...this.selection].join()}`, () => [stripLabel(shapes.length === 1 ? `${kind[shapes[0].type] || 'Shape'} on Edge.Cuts` : `${shapes.length} outline shapes`, 'outline'), stripSep(), del('Delete'), stripSep(), this._optimiseToggle(), propsBtn()]);
       return;
     }
-    s.hide();
+    // nothing selected: the Select tool's own strip, with the Optimise toggle (#104)
+    s.show(`select|${this.board.optimise !== false}`, () => [stripLabel('Select', 'select'), stripSep(), this._optimiseToggle()]);
   }
 
   // ---------------------------------------------------------------- DRC (#25)
