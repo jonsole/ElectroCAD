@@ -500,69 +500,122 @@ The strip rebuilds only when its context changes, so a field being typed in keep
 
 **Moving a strip:** drag the grip at its left end (three vertical bars) to move the strip anywhere over the canvas. It stays there, kept inside the canvas, and is remembered per editor; on the Board the routing strip shares the place. Double-click the grip to put it back at the top left.
 
-## Routing tracks
+## Routing and editing tracks
 
-**Route (X)** draws Tracks (#20):
-- **Start:** click a pad on the active copper layer. A through-hole pad is on every layer; pick the layer in Layers or with the bottom chips. A track can also start on copper that already carries a net (#87, #89): a via (on every layer), the end of a track on the active layer, or a point part-way along one (a T-junction). The route takes that copper's net. Or click an airwire (#90): the route starts at its nearer end, switching the active layer to that end's if it's only on another layer (an SMD pad on the back, a track on another layer; a toast says so), and the airwire's other end is marked with a dashed ring as where to finish.
-- **Width and net:** the track takes the pad's Net and its Net class's width (or the default rule).
-- **Placing corners:** click to fix corners. Points snap to the grid (the Alt grid with Alt held), or within the snap distance onto pad centres, via centres and the route's net's track ends (R2, #97). Freehand isn't snapped.
-- **Square at pads:** with 45° corners a track never leaves or enters a pad at 45°. Its first run out of the start pad, and its last run into a pad of its Net under the pointer, go straight along the pad's axes. The bend sits a track width beyond the pad's edge.
-  - **/** chooses which axis it leaves along (the way's major axis, or its minor one).
-  - Walkaround keeps the rule.
-  - 90° corners are square anyway; Any angle is left free.
-- **Airwires while routing:** the airwires update as the track is drawn, counting the proposed track, its vias and anything it pushes as routed, so the remaining airwire runs from the route's tip to what's still unconnected. They follow a track drag the same way.
-- **Finishing:** click a pad of the same Net, or a via, a track end or a point along a track of the Net on the routing layer (#88, #89). Copper the click would finish on is ringed. A track started or finished part-way along another is split there when it's committed, in the same undo step. The ratsnest counts a track end lying on another track of its net (a T) as connected, split or not. Double-click or Enter ends the track where it is.
-- **Carrying on the same way:** after a click fixes a corner, the next leg sets off the way the track was already going (along its last segment, or an arc's tangent) where the bend style can, as schematic wires do: with bend 0 (horizontal first) after a run down, it carries on down and then turns. Where it can't, the style's own order applies. A route started from a track's end carries on that track's way. **/** keeps the style's order for the leg in progress, until the next click.
-- **Keys while routing:** **/** swaps to the mirrored bend style (which way the bend goes) and keeps it for this leg, **Backspace** or **undo** (Ctrl+Z, or the toolbar's Undo) takes back the last segment, or the last via and back to the layer before, and routing carries on, down to the route's start, where it stays routing from there (only Esc stops it). The Board's own undo history is untouched while routing, and redo waits until the route is done. **Esc** ends the route, keeping its fixed corners and dropping the leg to the pointer, and stays in the Route tool (R8, #97); Esc again goes to Select. **Right-click** (with the Route tool, routing or not) goes to the next bend style and **Shift+right-click** to the previous one, as in Eagle (#91).
-- **Routing options** pop up in a strip at the top of the canvas while the Route tool is active, and hide with any other tool (remembered per browser):
-  - **Bend** (#91): Eagle's wire-bend styles as a row of icons: **0** horizontal then vertical, **1** horizontal then 45°, **2** straight at any angle, **3** 45° then horizontal, **4** vertical then horizontal ("horizontal" for 1 and 3 is the way's longer axis). / swaps 0 ↔ 4 and 1 ↔ 3. An old 90° / 45° / Any setting carries over as 0 / 1 / 2.
-    - **5 arc then horizontal** and **6 horizontal then arc** (#94): a quarter circle of radius min(|dx|, |dy|) tangent to a straight run along the longer axis, so the track turns 90° smoothly; in line it's one straight segment. / swaps 5 ↔ 6. The arc commits as an arc Track (#93). Walkaround detours with straight 45° runs and keeps the arc where it fits; Shove pushes round the arc's copper; Chamfer leaves an arc's ends as they are.
-    - **7 freehand** (#92): once the route starts, the track follows the pointer's path, off the grid and at any angle. The stroke is simplified as you go (points within a quarter of the track width of the line are dropped), and moving back along it takes it back. A click fixes the stroke so far and Backspace takes that whole stretch back. In Shove mode it pushes as any route does; in Walkaround mode it stops at the first obstacle.
-  - **Width** (mm, R4, #98): a route starts at its net class's track width, shown here. Change it mid-route and the leg in progress and later legs take it; legs already fixed keep theirs, so one route can mix widths. With no route in progress it sets the next route's width (empty: the net class's). DRC's width rule still checks it.
-  - **Mitre** (mm) and **Straight | Round**, as Eagle's mitre (#95). Straight (Eagle's negative mitre) cuts every bend of 90° or sharper back by that length on both sides and joins them at 45°. Round (Eagle's positive mitre) makes every bend, of any angle, an arc of that radius tangent to both segments, committed as an arc Track (#93). Bends you click get it too; it shrinks where a segment is too short (it takes at most half of one). 0 for none. Freehand strokes are only chamfered.
-- **Routing mode** (the `.mode-group` at the right of the Board toolbar; the choice is remembered):
-  - **Shove** (the default, #29, `core/shove.js`): the track goes where you draw it and pushes other nets' tracks aside to keep their clearance. A pushed track keeps both of its ends (what it connects stays connected): the stretch beside the new copper is lifted clear in a **bump**, joined back by two 45° ramps, and a bump can push the next track in turn (a chain of parallel tracks moves together). It is worked out afresh from the board as it was for every pointer position, so pushed tracks **spring back** as you pull away; nothing moves until the route is finished, and one undo takes the route and the pushes back. **Pads, vias, copper drawings and locked tracks never move** (Locked, in a track's or via's Properties): where a push would need them to, or a bump wouldn't fit inside its track (near its end), or it would crowd the board edge, the track **walks round** instead, as in Walkaround.
-  - **Vias in Shove mode** (#30): a via in the way moves clear, in the nearest of the eight 45° directions away from the new copper, as little as it takes; the ends of its own net's tracks that meet it go with it (still connected), and the moved via pushes what it then crowds, on every layer. A via dropped mid-route (V), or placed with the **Via** tool while the routing mode is Shove, pushes other nets' tracks and vias aside on every layer too (the toast says how many). Locked vias never move.
-  - **Overlapping items on the Board** (#102, E1): a click picks copper first (vias, then the front-most track), then drawings, footprints, the outline and zones. **Click again on the same spot** (nothing moved in between) to step to the next item under the pointer, wrapping round; a click elsewhere starts again from the top.
-  - **Box select on the Board**, with the **Select** tool, as on the Schematic: drag on empty space. **Left to right** takes what lies wholly inside the box (solid outline); **right to left** takes anything the box touches (dashed outline; a track only where its copper is touched). It takes footprints, tracks and vias, zones, drawings and outline shapes on shown layers; Shift adds to the selection. Pressing on anything selected and dragging moves the whole group, its tracks and vias with it (locked ones stay), in one undo step; the arrow keys nudge it. A click on one item of the group selects just that.
-  - **Rip up** (the tool below Route, #101): takes copper back to airwires. Hovering lights what a click would take. A **click** on a track rips that one segment, and an airwire appears across the gap; a **click on that airwire** rips the rest of the connection, the runs at both its ends, back to the pads. **Shift+click** rips every track and via of the net. A **click on a via** rips it with its runs on each side. **Drag a box** to rip up every track and via in it (left to right: wholly inside; right to left: touching). A run is copper joined end to end, stopping at pads and at junctions of three or more tracks. Locked copper stays. Each is one undo step.
-  - **The routing mode governs edits** (#96, #99): in **Free** an edited track stretches and moves at any angle (as in Eagle) and anything goes, collisions showing red; in **Shove** and **Walkaround** a track that has to change shape is redrawn with the **current bend style**, Shove pushing other nets' copper aside and Walkaround stopping an edit at the last place it kept clearance.
-  - **Tracks follow what they're joined to** (#100, E6, E8): moving, rotating or flipping a footprint (dragging, the arrows, R, F) brings along the end of every track on its pads; moving a group brings along the ends of unselected tracks on its moved copper. In Free the track stretches; in Shove and Walkaround it's redrawn from its far end with the bend style, and Shove pushes other nets' copper clear when the move is done. A **locked** track stays put and its connection breaks (an airwire and a toast say so, O1). In Walkaround a move goes ahead even where a dragged-along track can't keep clearance; it shows red and DRC reports it (O2). One undo step takes the move and the tracks back.
-  - **A free track end**, with the **Select** tool (no other track, pad or via there): a click selects the track, and dragging the end moves just that end (Free: the segment stretches and swings to it; Shove / Walkaround: it's redrawn from its far end with the bend style; an arc keeps its shape), pushing other nets' copper in Shove mode, in one undo step. It doesn't start routing: to carry a track on, click its end with the Route tool.
-  - **Dragging tracks** (#31), with the **Select** tool: a click on a track selects it; press on a track segment and drag (a few pixels or more). In **Free** mode the segment moves whole with the pointer and its neighbours stretch to stay joined. In Shove and Walkaround it slides sideways and stays parallel. Each neighbour keeps its own direction, lengthening or shortening to meet it, so 45° and 90° corners stay 45° and 90°. Where a neighbour can't follow (the end is on a pad, a via or a junction, or the neighbour runs the same way), a short jog joins the old end to the moved segment. Press on a corner where two or more segments of one net meet (a bend, or a junction such as a T), with no pad or via there, and drag it: it moves to the pointer and every segment meeting there follows: in Free each stays one straight segment; in Shove and Walkaround each is redrawn from its far end with the bend style (an arc keeps its shape). In Shove mode other nets' tracks and vias are pushed aside as you drag and spring back as you return. A drag that would hit something that can't move (a pad, a locked track, the board edge) stays at the last place it fitted. Release commits it as one undo step.
-  - **Arc tracks** (#93): a track can be a curve, an arc through a middle point (`mid`, as Edge.Cuts arcs have). An Eagle board's curved wires import as arcs. An arc is drawn, hit-tested, cleared by the router, DRC and Zone fills along its true curve (flattened to within 1 µm), and written to the Gerber as a G02/G03 arc. Properties says "an arc, radius …". Dragging an arc by its middle changes its bulge (its ends stay; pulled flat, it becomes straight); dragging a corner at its end moves that end and keeps its shape. Shove doesn't bend arcs: it walks round them, as for a locked track. A T-junction on an arc splits it into two arcs of the same circle.
-  - **Walkaround** (#22): the tentative track goes round other Nets' copper (pads, tracks, vias) and keeps the Outline's edge clearance. It follows their clearance contour at 45° or 90°, takes the shorter way round, and never makes a clearance violation. Nothing existing moves.
-    - With no way round, or with the pointer on another Net's copper, the track stops at the first obstacle on the straight way. A red ✕ marks where it stopped and a dashed line runs on to the pointer. A click fixes the track up to the ✕.
-    - Clicking a pad of the same Net finishes only if there's a clear way to it.
-    - With a chamfer set, the track gives obstacles a wider berth so the cut corners stay legal.
-    - The search is A* over a 45°/90° lattice anchored on the last corner (`core/walkaround.js`), every segment checked exactly with the collision engine.
-  - **Free:** tracks go where you draw them.
-- **Collisions show live** (in Free mode; Walkaround avoids them):
-  - a faint band shows the clearance the track must keep;
-  - segments too close to another Net's copper (pads, tracks, vias) turn red, and the copper they hit is outlined in red.
-  - Clearance is the larger of the two Nets' classes. The collision engine (`core/collision.js`) is shared with DRC (#25).
-- **Committing:** a finished track is one undo step. Its Ratsnest line goes once the pads are joined.
-- **Track selection:**
-  - Select (V) picks a track (Shift adds); Del deletes; Esc deselects.
-  - A selected track's Net highlights its Wires on the Schematic (cross-probing).
-  - Moving and editing tracks comes with #21.
+How copper is created and edited on the Board, as agreed in **#96** (modelled on Eagle, borrowing from KiCad where Eagle is weak). Rule numbers (R, E, X) refer to that spec, and the smoke tests check them.
 
-## Vias, layer changes and editing tracks
+### The mode rule
 
-#21 adds vias and track editing:
-- **V while routing** fixes the track up to the pointer and drops a **through via** there (F.Cu to B.Cu, ADR-0015). Routing carries on from the via on the other layer of the **layer pair**, and the active layer follows.
-  - On a 4-layer board, the routing strip adds **V switches: A ↔ B** to choose the pair (any two copper layers, remembered).
-  - Backspace steps back through a via. Vias take their size from the Net class.
-- **Via tool** (palette): click to place a standalone through via. It takes the Net of the track, via or pad it lands on, or none.
-- **Selecting copper:** Select picks tracks and vias (vias first).
-  - **U** extends the selection to the whole connection: every track and via joined end to end, stopping at pads.
-  - **Del** deletes the selection (a segment, or the whole connection after U).
-- **PROPERTIES for selected copper:**
-  - the count, the Net and the length;
-  - **Width** and **Layer** for the tracks;
-  - **Via drill** and **Via diameter** for the vias;
-  - a "Whole connection (U)" button and Delete.
-  - Mixed values show blank or "Mixed". Every edit is one undo step.
+The **routing mode** (the Shove / Walkaround / Free group at the right of the Board toolbar; remembered) governs editing as well as routing:
+- **Free:** geometry stretches and moves at any angle, as in Eagle. Other nets' copper is ignored; collisions show red.
+- **Shove / Walkaround:** geometry that has to change shape is redrawn with the **current bend style** (the routing strip's Bend). Shove pushes other nets' tracks and vias aside; Walkaround stops an edit at the last position that keeps clearance.
+- Pads, copper drawings and **locked** copper (Locked, in a track's or via's Properties) never move.
+
+### Route tool (X)
+
+- **R1 Start:** click a pad on the active copper layer (a through-hole pad is on every layer; pick the layer in Layers or with the bottom chips). Or start on copper that already carries a net (#87, #89): a via (on every layer), a track end on the active layer, or a point along a track (a T-junction; the track is split there on commit). Or click an **airwire** (#90): the route starts at its nearer end, switching the active layer to that end's if it's only on another layer (a toast says so), and the far end is ringed as the target. The route takes the copper's net. A route started from a track end sets off the way that track was going.
+- **R2 Corners:** a click fixes the leg to the pointer. Points snap to the grid (the Alt grid while Alt is held), or within the snap distance onto pad centres, via centres and the route's net's track ends. Freehand isn't snapped.
+- **R3 Bend styles:** see Routing options. **Right-click** (always, with the Route tool) goes to the next style, **Shift+right-click** to the previous. **/** swaps to the mirrored style and holds it for the leg in progress. After a click, the next leg sets off the way the track was going (along its last segment, or an arc's tangent) where the style allows, as schematic wires do; otherwise the style's own order applies.
+- **R4 Width:** the routing strip's Width box. A route starts at its net class's width; changing it mid-route applies to the leg in progress and later legs (fixed legs keep theirs, so a route can mix widths). With no route in progress it sets the next route's width (empty: the net class's). DRC's width rule still checks it.
+- **R5 Square at pads:** with 45° styles a track never leaves or enters a pad at 45°: its first run out of the start pad, and its last run into a pad of its net under the pointer, go straight along the pad's axes, bending a track width beyond the pad's edge (**/** chooses which axis it leaves along). Walkaround keeps the rule.
+- **R6 Layers:** **V** fixes the leg to the pointer, drops a **through via** there (ADR-0015) and carries on from it on the other layer of the **layer pair**; the active layer follows. On a 4-layer board the routing strip adds **V switches: A ↔ B** to choose the pair. Vias take their size from the net class. The middle button pans.
+- **R7 Finish:** a click on copper of the net (a pad, a via, a track end or a point along a track; what a click would finish on is ringed) commits the route, and the tool waits for the next start. **Double-click** or **Enter** ends the route at its last fixed corner, also staying in the tool.
+- **R8 Esc:** while routing, ends the route (its fixed corners kept, the leg to the pointer dropped) and stays in Route. With no route in progress, Esc goes to Select.
+- **R9 Undo:** while routing, **Ctrl+Z**, **Backspace** and the toolbar's Undo take back the last leg (a freehand stretch whole), or the last via and back to the layer before, down to the route's start, and routing carries on; redo waits until the route is done. A committed route, with anything it shoved, is one undo step.
+- **R10 Live feedback:** the airwires update as you route, counting the proposed track, its vias and anything it pushes; a faint band shows the clearance the track must keep; in Free mode segments too close to another net turn red and the copper they hit is outlined red. Clearance is the larger of the two nets' classes (`core/collision.js`, shared with DRC).
+
+### Routing options
+
+A strip at the top of the canvas while the Route tool is active (remembered per browser):
+- **Bend** (#91): Eagle's wire-bend styles as icons:
+  - **0** horizontal then vertical, **1** horizontal then 45°, **2** straight at any angle, **3** 45° then horizontal, **4** vertical then horizontal ("horizontal" for 1 and 3 is the way's longer axis); / swaps 0 ↔ 4 and 1 ↔ 3.
+  - **5** arc then horizontal, **6** horizontal then arc (#94): a quarter circle of radius min(|dx|, |dy|) tangent to a straight run, committed as an arc track; / swaps 5 ↔ 6.
+  - **7** freehand (#92): the track follows the pointer's path, off the grid and at any angle, simplified as you go (points within a quarter of the track width of the line are dropped); moving back along it takes it back; a click fixes the stroke so far. In Walkaround it stops at the first obstacle.
+- **Width** (mm): R4.
+- **Mitre** (mm) and **Straight | Round** (#95): Straight (Eagle's negative mitre) cuts every bend of 90° or sharper back by that length and joins it at 45°; Round (Eagle's positive mitre) makes every bend an arc of that radius tangent to both segments. It shrinks where a segment is too short (at most half of one); 0 for none. Freehand strokes are only chamfered; arc ends are left as they are.
+- **V switches** (4-layer boards): R6.
+
+### Routing modes in detail
+
+- **Shove** (the default, #29, `core/shove.js`): the track goes where you draw it and pushes other nets' tracks aside to keep their clearance. A pushed track keeps both of its ends: the stretch beside the new copper is lifted clear in a **bump**, joined back by two 45° ramps, and a bump can push the next track in turn. It's worked out afresh from the board for every pointer position, so pushed tracks spring back as you pull away; nothing moves until the edit is done. Pads, copper drawings, locked copper and arc tracks never move: where a push would need them to, or a bump won't fit, or it would crowd the board edge, the track walks round instead.
+  - **Vias** (#30): a via in the way moves clear in the nearest of the eight 45° directions, as little as it takes, its own net's track ends going with it. A via dropped mid-route (V), or placed with the Via tool in Shove mode, pushes other nets' copper aside on every layer.
+- **Walkaround** (#22, `core/walkaround.js`): the tentative track goes round other nets' copper and keeps the outline's edge clearance, following their clearance contour at 45° or 90° and taking the shorter way round. With no way round, or with the pointer on another net's copper, it stops at the first obstacle: a red ✕ marks where, and a click fixes the track up to it. A finish on a pad needs a clear way to it. With a mitre set it gives obstacles a wider berth. The search is A* over a 45°/90° lattice anchored on the last corner.
+- **Free:** tracks go where you draw them; collisions show red.
+
+### Editing with Select (V)
+
+- **E1 Picking:** a click picks copper first (vias, then the front-most track), then drawings, footprint text, footprints, the outline and zones. **Click again on the same spot** (nothing moved in between) to step to the next item under the pointer, wrapping round (#102). **Shift+click** adds or removes. **U** extends a track selection to the whole connection (stopping at pads). A selected track's net highlights on the Schematic (cross-probing).
+- **E2 Drag a segment:** in **Free** it moves whole with the pointer and every segment of its net ending at either end stretches to follow (a straight piece joins it to a pad or via). In **Shove / Walkaround** it slides sideways, staying parallel; its neighbours keep their angles, lengthening or shortening to meet it, with a short jog where they can't (the end is on a pad, a via or a junction, or the neighbour runs the same way).
+- **E3 Drag a corner** (two or more ends of one net meeting, a bend or a junction, with no pad or via there): it moves to the pointer and every segment meeting there follows: in **Free** each stays one straight segment; in **Shove / Walkaround** each is redrawn from its far end with the bend style.
+- **E4 Drag a free end** (no other track, pad or via there): **Free** stretches it; **Shove / Walkaround** redraws it from its far end with the bend style. A click only selects; it never starts routing (to carry a track on, click its end with the Route tool).
+- **E5 Arcs** (#93): dragging an arc by its middle changes its bulge (pulled flat, it becomes straight); arcs keep their shape when their ends move. An arc is drawn, hit-tested and cleared (router, DRC, zone fills) along its true curve and written to the Gerber as a G02/G03 arc; Properties says "an arc, radius …". Eagle's curved wires import as arcs.
+- **E6 Tracks follow what they're joined to** (#100): moving, rotating or flipping a footprint (dragging, arrows, R, F) brings along the end of every track on its pads: in **Free** the track stretches, in **Shove / Walkaround** it's redrawn from its far end with the bend style, and Shove then pushes other nets' copper clear. A **locked** track stays put and its connection breaks (an airwire and a toast say so). In Walkaround a footprint move goes ahead even where a dragged-along track can't keep clearance: it shows red and DRC reports it.
+- **E7 Box select:** drag on empty space. **Left to right** takes what lies wholly inside the box (solid outline); **right to left** takes anything it touches (dashed outline; a track only where its copper is touched). It takes footprints, tracks and vias, zones, drawings and outline shapes on shown layers; Shift adds.
+- **E8 Moving a group:** press on anything selected and drag (or use the arrows) to move the whole selection, its tracks and vias with it; unselected track ends on moved copper or pads follow by E6. A plain click on one item of the group selects just that.
+- **E9 Undo:** every edit, with whatever it pushes or drags along, is one undo step. Drags that would hit something that can't move stay at the last place they fitted.
+
+### Rip up and delete
+
+The **Rip up** tool (below Route) takes copper back to airwires; hovering lights what a click would take:
+- **X1** click a **track**: that segment, and an airwire appears across the gap;
+- **X2** click an **airwire**: the rest of that connection, the runs at both its ends, back to the pads;
+- **X3** **Shift+click** a track: every track and via of its net;
+- **X4** **drag a box**: every track and via in it (left to right: wholly inside; right to left: touching);
+- **X5** click a **via**: the via with its runs on each side.
+- **X6** Locked copper stays (a toast says so); each rip-up is one undo step.
+- **X7** **Del** on a selection removes exactly the selection, the same result.
+
+A **run** is copper joined end to end, stopping at pads and at junctions of three or more tracks.
+
+### Vias and copper properties
+
+- **Via tool** (palette): click to place a standalone through via; it takes the net of the track, via or pad it lands on, or none. In Shove mode it pushes other nets' copper aside.
+- **Properties for selected copper:** the count, the net and its class, the length (along arcs too, with the radius for an arc); **Width** and **Layer** for tracks; **Via drill** and **Via diameter** for vias; **Locked**; a "Whole connection (U)" button and Delete.
+
+### Keys and mouse
+
+**Route tool**
+
+| Input | Not routing | Routing |
+|---|---|---|
+| Click | Start a route (R1) | Fix a corner; on net copper, finish (R2, R7) |
+| Double-click / Enter | — | End at the last corner (R7) |
+| Right-click / Shift+right-click | Next / previous bend style | Next / previous bend style |
+| / | — | Mirror the bend for this leg |
+| V | — | Via and change layer (R6) |
+| Backspace, Ctrl+Z | Board undo | Back one leg or via (R9) |
+| Ctrl+Shift+Z | Board redo | Waits until the route is done |
+| Esc | To Select | End the route, keep the fixed corners, stay in Route (R8) |
+| Alt (held) | Alt grid | Alt grid |
+| Middle-drag / wheel | Pan / zoom | Pan / zoom |
+
+**Select tool**
+
+| Input | Action |
+|---|---|
+| Click / click again | Select / step through overlapping items (E1) |
+| Shift+click | Add or remove |
+| Drag on an item | Move it by the mode rule (E2–E6, E8) |
+| Drag on empty space | Box select (E7); Shift adds |
+| Double-click | Properties |
+| Right-click | Context menu for what's under the pointer |
+| Del / Backspace | Delete the selection (X7) |
+| Arrows | Nudge by the grid (E8) |
+| U | Whole connection |
+| R / Shift+R, F | Rotate, flip (footprints, drawings) |
+| L | Lock or unlock footprints |
+| Esc | Clear the selection |
+
+**Rip up tool**
+
+| Input | Action |
+|---|---|
+| Click a track | One segment (X1) |
+| Click an airwire | The rest of that connection (X2) |
+| Shift+click a track | The whole net (X3) |
+| Click a via | The via and its runs (X5) |
+| Drag | Box rip-up (X4) |
+| Esc / right-click | To Select |
 
 ## Gerber tab: fab output
 
