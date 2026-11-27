@@ -160,13 +160,18 @@ export function drawZones(ctx, view, C, board, hidden, z = {}, layer = null) {
   for (const zn of zones) {
     const col = C[zn.layer] || '#c33';
     const fill = !z.outlineOnly?.has(zn.id) && z.fills?.get(zn.id);
-    if (fill) {
-      ctx.globalAlpha = typeof C.zoneOpacity === 'number' ? C.zoneOpacity : 0.4;
-      ctx.fillStyle = col;
+    const base = typeof C.zoneOpacity === 'number' ? C.zoneOpacity : 0.4;
+    const paint = (f, alpha) => {
+      if (!f || alpha <= 0) return;
+      ctx.globalAlpha = alpha; ctx.fillStyle = col;
       ctx.beginPath();
-      for (const poly of fill.polys) for (const ring of poly) ring.forEach((q, i) => { const [x, y] = view.toScreen(q); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+      for (const poly of f.polys) for (const ring of poly) ring.forEach((q, i) => { const [x, y] = view.toScreen(q); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
       ctx.fill('evenodd');
-    }
+    };
+    // a refill crossfades: the old fill out and the new one in (`z.fade`: id -> { old, t 0..1 })
+    const fd = fill && z.fade?.get(zn.id);
+    if (fd) { paint(fd.old, base * (1 - fd.t)); paint(fill, base * fd.t); }
+    else paint(fill, base);
     ctx.globalAlpha = fill ? 0.7 : 0.95;
     ctx.strokeStyle = col; ctx.lineWidth = fill ? 1 : 1.5; ctx.setLineDash([6, 4]);
     ctx.beginPath();

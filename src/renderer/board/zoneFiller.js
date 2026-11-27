@@ -8,6 +8,9 @@
 // and the layers fill in parallel (#73).
 import { zoneInput, zoneSignatures, fillZones } from '../core/zones.js';
 
+const FADE_MS = 150; // a refill fades in this quickly
+const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
 export class ZoneFiller {
   /**
    * @param {() => void} onFilled  called when new fills arrive
@@ -23,6 +26,7 @@ export class ZoneFiller {
     this.waiters = [];
     this.workers = new Map(); // layer -> Worker
     this.noWorkers = false;   // a worker couldn't be made or failed: fill on the main thread
+    this.fading = new Map();  // zone id -> { old fill (null: none), start }: refills fade in
   }
 
   _worker(layer) {
@@ -98,6 +102,7 @@ export class ZoneFiller {
     for (const [id, f] of fills || []) {
       const p = this.pending.get(id);
       if (!p || p.seq !== seq) continue; // superseded by a newer request
+      this.fading.set(id, { old: this.fills.get(id) || null, start: now() });
       this.fills.set(id, f); this.filledSig.set(id, p.sig); this.pending.delete(id);
       any = true;
     }
@@ -122,4 +127,17 @@ export class ZoneFiller {
   }
 
   get busy() { return this.pending.size > 0; }
+
+  /**
+   * The refills fading in (#105): id -> { old, t } with t from 0 to 1 over `ms`; finished ones are
+   * dropped. Empty when nothing is fading.
+   */
+  fade(ms = FADE_MS) {
+    const out = new Map(), t0 = now();
+    for (const [id, f] of [...this.fading]) {
+      const t = Math.min(1, (t0 - f.start) / ms);
+      if (t >= 1 || !this.fills.has(id)) this.fading.delete(id); else out.set(id, { old: f.old, t });
+    }
+    return out;
+  }
 }

@@ -80,8 +80,14 @@ const orig = ed.zoneFiller._send.bind(ed.zoneFiller);
 ed.zoneFiller._send = (msg) => { sent.push(...msg.ids); orig(msg); };
 app.edit('move track', (pr) => { pr.board.tracks[0].a = [6.9125 * MM, 7 * MM]; });
 check('only-touched', sent.length === 1 && sent[0] === z.id, sent);
-check('outline-while-pending', ed._zonesAsOutlines(b).has(z.id) || !ed.zoneFiller.busy);
+// #105: while it refills, the old fill stays on screen (no outline-only flicker); the new one fades in
+const oldFill = ed.zoneFiller.fills.get(z.id);
+check('old-fill-while-pending', !ed._zonesAsOutlines(b).has(z.id) && !!oldFill);
 await ed.whenZonesFilled();
+const fading = ed.zoneFiller.fade();
+check('fades-in', ed.zoneFiller.fills.get(z.id) !== oldFill && (fading.get(z.id)?.old === oldFill || !fading.size), [...fading.keys()]);
+await new Promise((r) => setTimeout(r, 220));
+check('fade-done', !ed.zoneFiller.fade().size);
 ed.zoneFiller._send = orig;
 // dragging a footprint inside the zone draws it as an outline until the drop
 ed.setActiveLayer('F.Cu');

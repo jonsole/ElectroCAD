@@ -2417,7 +2417,7 @@ export class BoardEditor {
   draw(ctx, view, C) {
     const board = { ...this.board, tracks: this.routeView?.shoved || this.trackDrag?.result?.tracks || this.previewTracks || this.board.tracks, vias: this.routeView?.shovedVias || this.trackDrag?.result?.vias || this.previewVias || this.board.vias, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints, zones: this.previewZones || this.board.zones, drawings: this.previewDrawings || this.board.drawings || [] };
     const labels = [];
-    drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: ((this.route || this.trackDrag) && this.liveRats || this._rats)?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure, labels, zones: { fills: this.zoneFiller.fills, outlineOnly: this._zonesAsOutlines(board) } });
+    drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: ((this.route || this.trackDrag) && this.liveRats || this._rats)?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure, labels, zones: { fills: this.zoneFiller.fills, outlineOnly: this._zonesAsOutlines(board), fade: this._zoneFade() } });
     if (this.routeView) this._drawRoute(ctx, view, C);
     drawLabels(labels);
     // the Text tool: the text it would place, at the cursor
@@ -2493,7 +2493,15 @@ export class BoardEditor {
       const extra = (this.routeView?.segments || []).map((sg, i) => ({ id: `route${i}`, a: sg.a, b: sg.b, ...(sg.mid ? { mid: sg.mid } : {}), width: sg.width || this.route.width, layer: sg.layer || this.route.layer, net: this.route.net }));
       return this.zoneFiller.staleIds(zoneInput(this.project, board, extra));
     }
-    return new Set(this.zoneFiller.pending.keys());
+    // a refill after an edit keeps showing the old fill until the new one is ready (#105)
+    return new Set();
+  }
+
+  /** Refills fading in (#105): keep drawing frames until they've finished. */
+  _zoneFade() {
+    const f = this.zoneFiller.fade();
+    if (f.size && !this._fadeFrame) this._fadeFrame = requestAnimationFrame(() => { this._fadeFrame = null; this.ws?.view.invalidate(); });
+    return f;
   }
 
   /** The track being routed: its segments in the layer's colour, those too close to other Nets in the DRC colour, and what they hit outlined. */
