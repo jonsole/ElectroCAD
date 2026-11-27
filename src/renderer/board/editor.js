@@ -1188,7 +1188,9 @@ export class BoardEditor {
         // everything the drag pushes goes away from where the dragged copper started (#107)
         const t0 = d.kind === 'segment' && (this.board.tracks || []).find((x) => x.id === d.id);
         const from = t0 ? [(t0.a[0] + t0.b[0]) / 2, (t0.a[1] + t0.b[1]) / 2] : d.at;
-        const res = dragResult(this.project, r, { mode: this.routeMode, index: this.trackDragIndex, from });
+        // and the whole push travels the way the pointer has moved, cascading through a bundle (#107)
+        const mv = [to[0] - (d.start || d.at)[0], to[1] - (d.start || d.at)[1]], ml = Math.hypot(...mv);
+        const res = dragResult(this.project, r, { mode: this.routeMode, index: this.trackDragIndex, from, dir: ml ? [mv[0] / ml, mv[1] / ml] : null });
         // a drag that can't be pushed clear stays where it last could be
         if (res.ok) d.result = res; else d.stuck = res.reason || true;
         if (res.ok) d.stuck = null;

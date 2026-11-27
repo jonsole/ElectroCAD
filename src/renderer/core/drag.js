@@ -256,7 +256,7 @@ export function freeEndAt(project, board, p, tol, hidden = new Set()) {
  * Tracks and Vias pushed out of the way of what changed. Returns { ok, tracks, vias, moved } or
  * { ok: false } when it can't be pushed clear (`index`: copperIndex of the Board as it was).
  */
-export function dragResult(project, r, { shove: pushing = false, index = null, mode = null, from = null } = {}) {
+export function dragResult(project, r, { shove: pushing = false, index = null, mode = null, from = null, dir = null } = {}) {
   const board = project.board;
   if (!r) return { ok: false };
   const vias = r.vias || board.vias;
@@ -273,9 +273,9 @@ export function dragResult(project, r, { shove: pushing = false, index = null, m
   // an arc pushes as the pieces of its centre line; a Via as a disc on every layer
   const pushers = r.changed.flatMap((s) => {
     // `from`: where the dragged copper started, so everything it pushes goes the one way (#107)
-    if (s.at) return [{ a: s.at, b: s.at, r: s.diameter / 2, layers: all, net: s.net, kind: 'via', via: s, ...(from ? { from } : {}) }];
+    if (s.at) return [{ a: s.at, b: s.at, r: s.diameter / 2, layers: all, net: s.net, kind: 'via', via: s, ...(from ? { from } : {}), ...(dir ? { dir } : {}) }];
     const pts = trackPoints(s, 20_000);
-    return pts.slice(1).map((b, i) => ({ a: pts[i], b, r: s.width / 2, layers: [s.layer], net: s.net, kind: 'track', ...(from ? { from } : {}) }));
+    return pts.slice(1).map((b, i) => ({ a: pts[i], b, r: s.width / 2, layers: [s.layer], net: s.net, kind: 'track', ...(from ? { from } : {}), ...(dir ? { dir } : {}) }));
   });
   const res = shove({ ...board, tracks: r.tracks, vias }, pushers, { fixed: index ? (index._fixed ||= fixedItems(index)) : [], copper: all });
   if (!res.ok) return { ok: false, reason: res.reason };

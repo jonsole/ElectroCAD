@@ -124,16 +124,19 @@ ev('pointerup', 20, 13.1, 0); await wait(50);
 await ed.runDrc(); await wait(50);
 check('bundle-drc-clean', !ed.drc.list.some((v) => v.rule === 'clearance' || v.rule === 'unrouted'), ed.drc.list.map((v) => v.message));
 ed.drcCard?.toggle?.(false);
-// #107: two Z-shaped tracks (run, 45° diagonal, run); dragging the lower diagonal into the upper
-// one slides the upper diagonal over (too short to bump), its runs stretching to follow
+// #107: a bundle of four Z-shaped tracks (run, 45° diagonal, run); dragging the bottom diagonal into
+// the others slides every diagonal over (too short to bump), the push cascading through all of them
 app.edit('zs', (pr) => {
   const z = (id, net, pts) => pts.slice(1).map((q, i) => ({ id: `${id}${i}`, a: pts[i].map((v) => v * MM), b: q.map((v) => v * MM), width: 250000, layer: 'F.Cu', net }));
-  pr.board.tracks.push(...z('zu', 'ZU', [[2, 21], [10, 21], [14, 17], [38, 17]]), ...z('zl', 'ZL', [[2, 22], [11, 22], [15, 18], [38, 18]]));
+  // four Z tracks 0.6 mm apart (a bundle, like the user's), the bottom one to be dragged
+  const t8 = Math.tan(Math.PI / 8);
+  for (const k of [0, 1, 2, 3]) pr.board.tracks.push(...z(`zb${k}_`, `ZB${k}`, [[2, 21.5 + k * 0.6], [10 + k * 0.6 * t8, 21.5 + k * 0.6], [14 + k * 0.6 * t8, 17.5 + k * 0.6], [38, 17.5 + k * 0.6]]));
 });
-ws.view.view.fit({ x0: 4 * MM, y0: 14 * MM, x1: 24 * MM, y1: 24 * MM }, ws.view.w, ws.view.h, 20);
-ev('pointermove', 13, 20, 0); ev('pointerdown', 13, 20, 1); ev('pointermove', 12.5, 20, 1); ev('pointermove', 11.5, 20, 1); await wait(30);
-check('z-slides', ed.trackDrag?.result?.moved?.has('zu1'), ed.trackDrag?.result ? [...ed.trackDrag.result.moved] : ed.trackDrag?.stuck);
-ev('pointerup', 11.5, 20, 0); await wait(50);
+ws.view.view.fit({ x0: 4 * MM, y0: 16 * MM, x1: 24 * MM, y1: 25 * MM }, ws.view.w, ws.view.h, 20);
+const zx = 12 + 3 * 0.6 * Math.tan(Math.PI / 8), zy = 21.3;
+ev('pointermove', zx, zy, 0); ev('pointerdown', zx, zy, 1); ev('pointermove', zx - 0.5, zy, 1); ev('pointermove', zx - 1.5, zy, 1); ev('pointermove', zx - 2.5, zy, 1); await wait(30);
+check('z-slides', ['zb0_1', 'zb1_1', 'zb2_1'].every((id) => ed.trackDrag?.result?.moved?.has(id)), ed.trackDrag?.result ? [...ed.trackDrag.result.moved] : ed.trackDrag?.stuck);
+ev('pointerup', zx - 2.5, zy, 0); await wait(50);
 await ed.runDrc(); await wait(50);
 check('z-drc-clean', !ed.drc.list.some((v) => v.rule === 'clearance'), ed.drc.list.filter((v) => v.rule === 'clearance').map((v) => v.message));
 ed.drcCard?.toggle?.(false);

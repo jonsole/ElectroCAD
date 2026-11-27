@@ -63,13 +63,29 @@ export function pushOffset(t, ps) {
   // `p.from`: where a chained push comes from (the line of the Track whose bump this is)
   const from = (p) => p.from || (crosses(A, B, p.a, p.b) ? p.a : [(p.a[0] + p.b[0]) / 2, (p.a[1] + p.b[1]) / 2]);
   const side = (p) => { const q = from(p); return (q[0] - A[0]) * nx + (q[1] - A[1]) * ny; };
-  if (side(ps[0]) > 0) { nx = -nx; ny = -ny; }
+  // `p.dir`: the way the whole push travels (a drag's or a route's direction): the Track goes that
+  // way, so a cascade through a bundle keeps one direction (#107)
+  const dir = ps.find((p) => p.dir)?.dir;
+  const byDir = dir && Math.abs(nx * dir[0] + ny * dir[1]) > 0.1;
+  if (byDir) { if (nx * dir[0] + ny * dir[1] < 0) { nx = -nx; ny = -ny; } }
+  else if (side(ps[0]) > 0) { nx = -nx; ny = -ny; }
   let h = -Infinity, uLo = Infinity, uHi = -Infinity;
   for (const p of ps) {
-    if (side(p) > t.width / 2) return null; // pushed from both sides
+    if (!byDir && side(p) > t.width / 2) return null; // pushed from both sides
     const R = p.r + p.need + t.width / 2 + SLACK;
-    const us = [p.a, p.b].map((q) => (q[0] - A[0]) * tx + (q[1] - A[1]) * ty);
-    const vs = [p.a, p.b].map((q) => (q[0] - A[0]) * nx + (q[1] - A[1]) * ny);
+    // only the part of the pusher alongside this Track counts (within R of its span): a long run
+    // that comes near it at one corner mustn't push it as far as the run's far end (#107)
+    const ua = (p.a[0] - A[0]) * tx + (p.a[1] - A[1]) * ty, ub = (p.b[0] - A[0]) * tx + (p.b[1] - A[1]) * ty;
+    let t0 = 0, t1 = 1;
+    if (ua !== ub) {
+      const ta = (-R - ua) / (ub - ua), tb = (L + R - ua) / (ub - ua);
+      t0 = Math.max(0, Math.min(ta, tb)); t1 = Math.min(1, Math.max(ta, tb));
+      if (t0 > t1) continue;
+    } else if (ua < -R || ua > L + R) continue;
+    const at = (k) => [p.a[0] + (p.b[0] - p.a[0]) * k, p.a[1] + (p.b[1] - p.a[1]) * k];
+    const pa = at(t0), pb = at(t1);
+    const us = [pa, pb].map((q) => (q[0] - A[0]) * tx + (q[1] - A[1]) * ty);
+    const vs = [pa, pb].map((q) => (q[0] - A[0]) * nx + (q[1] - A[1]) * ny);
     h = Math.max(h, Math.max(...vs) + R);
     uLo = Math.min(uLo, Math.min(...us) - R); uHi = Math.max(uHi, Math.max(...us) + R);
   }
@@ -132,6 +148,9 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
   const segsOf = new Map(); // Track id -> its current segments
   const moved = new Set();
   const heads = pushers.map((p) => ({ ...p, layers: new Set(p.layers) }));
+  const midOf = (q) => [(q.a[0] + q.b[0]) / 2, (q.a[1] + q.b[1]) / 2];
+  const start = new Map((board.tracks || []).map((t) => [t.id, midOf(t)])); // where each Track was
+  const behind = (p, id) => { const a = start.get(id), b = start.get(p.owner); return a && b && (a[0] - b[0]) * p.dir[0] + (a[1] - b[1]) * p.dir[1] < 0; };
   const sameAt = (q, P) => q[0] === P[0] && q[1] === P[1];
   // a pad or via at P on `layer`: what a sliding segment's end can't drag along
   const fixedAt = (P, layer) => vias.some((v) => sameAt(v.at, P)) || fixed.some((it) => it.kind === 'pad' && it.layers.has(layer) && shapeDistance({ type: 'capsule', a: P, b: P, r: 0 }, it.shape) <= 0);
@@ -169,7 +188,9 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
     segsOf.set(id, [t]); moved.add(id); changed.push(t);
     for (const q of queue) if (q.owner === id) q.dead = true;
     const away = [(o.a[0] + o.b[0]) / 2, (o.a[1] + o.b[1]) / 2];
-    for (const sg of changed) queue.push({ a: sg.a, b: sg.b, r: sg.width / 2, layers: new Set([sg.layer]), net: sg.net, kind: 'track', owner: origin.get(sg), from: away });
+    // the cascade keeps the push's own direction (where the drag or route came from), else away from this line
+    const dirFrom = ps.find((q) => q.from)?.from || away, pdir = ps.find((q) => q.dir)?.dir;
+    for (const sg of changed) queue.push({ a: sg.a, b: sg.b, r: sg.width / 2, layers: new Set([sg.layer]), net: sg.net, kind: 'track', owner: origin.get(sg), from: dirFrom, ...(pdir ? { dir: pdir } : {}) });
     return true;
   };
   const queue = [...heads];
@@ -183,20 +204,24 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
       const t = tracks[i];
       const id = origin.get(t);
       if (!p.layers.has(t.layer) || id === p.owner || (p.net && low(t.net) === low(p.net))) continue;
+      // a pushed Track passes the push on forward only: not back to Tracks nearer where the push
+      // came from than its own was (they push it, not the other way round) (#107)
+      if (p.owner && p.dir && behind(p, id)) continue;
       const need = clearanceBetween(board, p.net, t.net, p.kind, 'track');
       if (!boxesMeet(pb, shapeBox(cap(t)), need)) continue;
       if (shapeDistance(pc, cap(t)) >= need) continue;
       if (locked.has(id) || t.locked) return { ok: false, reason: 'locked' };
+      if (globalThis.DBG) console.log('push', id, 'by', p.owner || 'head', JSON.stringify([p.a, p.b]));
       if (t.mid) return { ok: false, reason: 'arc' }; // an arc Track isn't bent: walk round it
       if (++pushes > MAX_PUSHES) return { ok: false, reason: 'too many pushes' };
-      const list = [...(pushedBy.get(id) || []), { a: p.a, b: p.b, r: p.r, need, from: p.from }];
+      const list = [...(pushedBy.get(id) || []), { a: p.a, b: p.b, r: p.r, need, from: p.from, dir: p.dir }];
       if (list.length > MAX_PER_TRACK * 4) return { ok: false, reason: 'loop' };
       pushedBy.set(id, list);
       const pts = bumpOf(orig.get(id), list);
       if (!pts) {
         // too short for a bump (a short diagonal between two runs): slide the whole segment over,
         // its neighbours following along their own lines, as dragging a segment does (#107)
-        if (!slide(id, t, list)) return { ok: false, reason: 'no room' };
+        if (!slide(id, t, list)) { if (globalThis.DBG) console.log('noroom', id, JSON.stringify([orig.get(id).a, orig.get(id).b]), (segsOf.get(id)||[t]).length, JSON.stringify(list.map((q)=>[q.a,q.b,q.from]))); return { ok: false, reason: 'no room' }; }
         i = -1;
         continue;
       }
@@ -215,7 +240,7 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
       // the bump pushes on away from the Track's own line, so a push ripples on through a bundle
       // the same way even where a bump reaches past the next Track's line
       const o = orig.get(id), away = [(o.a[0] + o.b[0]) / 2, (o.a[1] + o.b[1]) / 2];
-      for (const sg of segs) queue.push({ a: sg.a, b: sg.b, r: sg.width / 2, layers: new Set([sg.layer]), net: sg.net, kind: 'track', owner: id, from: away });
+      for (const sg of segs) queue.push({ a: sg.a, b: sg.b, r: sg.width / 2, layers: new Set([sg.layer]), net: sg.net, kind: 'track', owner: id, from: p.from || away, ...(p.dir ? { dir: p.dir } : {}) });
       i = -1; // the list changed: look again from the start for this pusher
     }
     // Vias in the way move clear (#30), taking their Tracks' ends with them
