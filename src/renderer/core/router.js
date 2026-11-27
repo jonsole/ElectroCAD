@@ -413,7 +413,9 @@ export function shoveFor(project, state, segments, index) {
   const all = copperLayerNames(project.board.stack.copper);
   const pushers = [
     // an arc pushes as the pieces of its centre line
-    ...segments.flatMap((s) => { const p = s.mid ? trackPoints(s, 20_000) : [s.a, s.b]; return p.slice(1).map((b, i) => ({ a: p[i], b, r: (s.width || state.width) / 2, layers: [s.layer], net: state.net, kind: 'track' })); }),
+    // the leg to the pointer pushes away from the last fixed corner, so a head driven into a
+    // bundle pushes it all one way (#107)
+    ...segments.flatMap((s) => { const p = s.mid ? trackPoints(s, 20_000) : [s.a, s.b]; const from = s.fixed ? null : state.points[state.points.length - 1]; return p.slice(1).map((b, i) => ({ a: p[i], b, r: (s.width || state.width) / 2, layers: [s.layer], net: state.net, kind: 'track', ...(from ? { from } : {}) })); }),
     ...(state.vias || []).map((v) => ({ a: v.at, b: v.at, r: (state.via?.diameter || 0) / 2, layers: all, net: state.net, kind: 'via' })),
   ];
   index._fixed ||= fixedItems(index);

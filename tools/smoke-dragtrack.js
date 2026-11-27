@@ -115,4 +115,13 @@ const ns = app.project.board.tracks.filter((t) => t.net === net);
 check('bend0-corner', ns.length > 3 && ns.every((t) => t.a[0] === t.b[0] || t.a[1] === t.b[1]), ns.map((t) => [t.a, t.b]));
 app.undo(); await wait(30);
 ed.setBend(1);
+// #107: dragging the U's bottom down past a bundle's first track pushes every track of the bundle
+app.edit('bundle', (pr) => { for (const [i, y] of [[2, 13.4], [3, 13.9]]) pr.board.tracks.push({ id: `o${i}`, a: [2 * MM, y * MM], b: [38 * MM, y * MM], width: 250000, layer: 'F.Cu', net: `OTHER${i}` }); });
+ed.setTool('select');
+ev('pointermove', 20, 12, 0); ev('pointerdown', 20, 12, 1); ev('pointermove', 20, 12.5, 1); ev('pointermove', 20, 13.1, 1); await wait(30);
+check('bundle-preview', ed.trackDrag?.result?.moved && ['o', 'o2', 'o3'].every((id) => ed.trackDrag.result.moved.has(id)), ed.trackDrag?.result ? [...(ed.trackDrag.result.moved || [])] : ed.trackDrag?.stuck);
+ev('pointerup', 20, 13.1, 0); await wait(50);
+await ed.runDrc(); await wait(50);
+check('bundle-drc-clean', !ed.drc.list.some((v) => v.rule === 'clearance' || v.rule === 'unrouted'), ed.drc.list.map((v) => v.message));
+ed.drcCard?.toggle?.(false);
 return { fails };

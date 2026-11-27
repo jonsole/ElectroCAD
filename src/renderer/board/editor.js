@@ -1185,7 +1185,10 @@ export class BoardEditor {
         // #96's mode rule: Free stretches at any angle; Shove / Walkaround redraw with the bend style
         const style = this._editStyle();
         const r = d.kind === 'via' ? dragVia(this.board, d.id, to, style) : d.kind === 'segment' ? dragSegment(this.project, this.board, d.id, [to[0] - d.start[0], to[1] - d.start[1]], style) : d.kind === 'end' ? dragEnd(this.board, d.id, d.at, to, style) : dragCorner(this.project, this.board, d.at, to, d.layer, style);
-        const res = dragResult(this.project, r, { mode: this.routeMode, index: this.trackDragIndex });
+        // everything the drag pushes goes away from where the dragged copper started (#107)
+        const t0 = d.kind === 'segment' && (this.board.tracks || []).find((x) => x.id === d.id);
+        const from = t0 ? [(t0.a[0] + t0.b[0]) / 2, (t0.a[1] + t0.b[1]) / 2] : d.at;
+        const res = dragResult(this.project, r, { mode: this.routeMode, index: this.trackDragIndex, from });
         // a drag that can't be pushed clear stays where it last could be
         if (res.ok) d.result = res; else d.stuck = res.reason || true;
         if (res.ok) d.stuck = null;

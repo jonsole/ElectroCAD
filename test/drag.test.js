@@ -160,3 +160,17 @@ test('dragging a via (#106): its tracks on both layers follow; Shove pushes, Wal
   const sh = dragResult(q, dragVia(q.board, 'v', [mm(14), mm(0.7)], { corner: '45', posture: 'a' }), { mode: 'shove', index });
   assert.ok(sh.ok && sh.moved.has('o'), sh.reason);
 });
+
+test('a dragged segment pushes a whole bundle ahead of it, even past the first track\'s line (#107)', () => {
+  const p = project([tr('l', [10, 2], [10, 8]), tr('m', [10, 8], [30, 8]), tr('r', [30, 8], [30, 2]), ...[0, 1, 2].map((i) => tr('n' + i, [2, 10 + i * 0.5], [38, 10 + i * 0.5], 'N' + i))]);
+  const index = copperIndex(p);
+  for (const dy of [1.8, 2.2, 2.6]) {
+    const r = dragSegment(p, p.board, 'm', [0, mm(dy)], { corner: '45', posture: 'a' });
+    const res = dragResult(p, r, { mode: 'shove', index, from: [mm(20), mm(8)] });
+    assert.ok(res.ok, `${dy}: ${res.reason}`);
+    assert.deepEqual([...res.moved].sort(), ['n0', 'n1', 'n2'], `${dy}`);
+    // everything clear of everything else
+    const caps = res.tracks.map((t) => ({ t, s: { type: 'capsule', a: t.a, b: t.b, r: W / 2 } }));
+    for (const x of caps) for (const y of caps) if (x.t.net !== y.t.net) assert.ok(shapeDistance(x.s, y.s) >= mm(0.2) - 2, `${dy}: ${x.t.id}/${y.t.id}`);
+  }
+});
