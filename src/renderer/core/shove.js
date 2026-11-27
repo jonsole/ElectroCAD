@@ -32,19 +32,22 @@ function crosses(p1, p2, q1, q2) {
 /**
  * The bump that lifts Track `t` clear of its pushers (`ps`: capsules { a, b, r, need }, each
  * `need` apart edge to edge, all on one side of it): the Track's points [a, …, b] with one bump
- * covering them all, or null when it can't be (a pusher crosses the Track or is on the other side,
- * or the bump would reach past the Track's ends).
+ * covering them all, or null when it can't be (a pusher is on the other side, or the bump would
+ * reach past the Track's ends). A pusher crossing the Track pushes it ahead of its tip (`b`).
  */
 export function bumpOf(t, ps) {
   if (!Array.isArray(ps)) ps = [ps];
   const A = t.a, B = t.b;
   const L = Math.hypot(B[0] - A[0], B[1] - A[1]);
   if (!L || !ps.length) return null;
-  if (ps.some((p) => crosses(A, B, p.a, p.b))) return null;
   const tx = (B[0] - A[0]) / L, ty = (B[1] - A[1]) / L;
-  // the normal pointing away from the (first) pusher; every pusher must be on that side
+  // the normal pointing away from the (first) pusher; every pusher must be on that side. A pusher
+  // that crosses the Track (a route's head driven into it) pushes it ahead of its tip: it comes
+  // from the side its start is on, and the bump clears the tip on the far side
   let nx = -ty, ny = tx;
-  const side = (p) => ((p.a[0] + p.b[0]) / 2 - A[0]) * nx + ((p.a[1] + p.b[1]) / 2 - A[1]) * ny;
+  // `p.from`: where a chained push comes from (the line of the Track whose bump this is)
+  const from = (p) => p.from || (crosses(A, B, p.a, p.b) ? p.a : [(p.a[0] + p.b[0]) / 2, (p.a[1] + p.b[1]) / 2]);
+  const side = (p) => { const q = from(p); return (q[0] - A[0]) * nx + (q[1] - A[1]) * ny; };
   if (side(ps[0]) > 0) { nx = -nx; ny = -ny; }
   let h = -Infinity, uLo = Infinity, uHi = -Infinity;
   for (const p of ps) {
@@ -126,7 +129,7 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
       if (locked.has(id) || t.locked) return { ok: false, reason: 'locked' };
       if (t.mid) return { ok: false, reason: 'arc' }; // an arc Track isn't bent: walk round it
       if (++pushes > MAX_PUSHES) return { ok: false, reason: 'too many pushes' };
-      const list = [...(pushedBy.get(id) || []), { a: p.a, b: p.b, r: p.r, need }];
+      const list = [...(pushedBy.get(id) || []), { a: p.a, b: p.b, r: p.r, need, from: p.from }];
       if (list.length > MAX_PER_TRACK * 4) return { ok: false, reason: 'loop' };
       pushedBy.set(id, list);
       const pts = bumpOf(orig.get(id), list);
@@ -143,7 +146,10 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
       segsOf.set(id, segs);
       moved.add(id);
       // the bump is new copper too: it pushes whatever it now comes too close to
-      for (const sg of segs) queue.push({ a: sg.a, b: sg.b, r: sg.width / 2, layers: new Set([sg.layer]), net: sg.net, kind: 'track', owner: id });
+      // the bump pushes on away from the Track's own line, so a push ripples on through a bundle
+      // the same way even where a bump reaches past the next Track's line
+      const o = orig.get(id), away = [(o.a[0] + o.b[0]) / 2, (o.a[1] + o.b[1]) / 2];
+      for (const sg of segs) queue.push({ a: sg.a, b: sg.b, r: sg.width / 2, layers: new Set([sg.layer]), net: sg.net, kind: 'track', owner: id, from: away });
       i = -1; // the list changed: look again from the start for this pusher
     }
     // Vias in the way move clear (#30), taking their Tracks' ends with them

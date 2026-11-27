@@ -41,8 +41,9 @@ test('a bump lifts a Track clear of the pusher, with 45° ramps, keeping its end
   assert.ok(top0[1] < 0 && top0[1] === top1[1], 'lifted away from the pusher (which is below +y)');
   assert.equal(Math.abs(top0[0] - r0[0]), Math.abs(top0[1] - r0[1]), 'a 45° ramp');
   assert.equal(Math.abs(r1[0] - top1[0]), Math.abs(r1[1] - top1[1]));
-  // a crossing pusher can't push
-  assert.equal(bumpOf(t, [{ a: [mm(10), mm(-1)], b: [mm(10), mm(1)], r: W / 2, need: C }]), null);
+  // a crossing pusher (a route's head driven into it) pushes it ahead of its tip, away from its start
+  const ahead = bumpOf(t, [{ a: [mm(10), mm(-1)], b: [mm(10), mm(1)], r: W / 2, need: C }]);
+  assert.ok(ahead && ahead.every((q) => q[1] >= 0) && Math.max(...ahead.map((q) => q[1])) >= mm(1) + W / 2 + C + W / 2, JSON.stringify(ahead));
   // nor one too near the end for the bump to fit
   assert.equal(bumpOf(t, [{ a: [mm(0.1), mm(0.3)], b: [mm(0.2), mm(0.3)], r: W / 2, need: C }]), null);
   // pushed from both sides: can't be
@@ -195,4 +196,21 @@ test('vias: the Via tool in Shove mode pushes what it lands near', () => {
   q.board.tracks.push(tr('a', [mm(2), mm(10.5)], [mm(38), mm(10.5)], 'A'));
   assert.equal(placeViaPushing(q, [mm(20), mm(10)]).pushed, 0);
   assert.equal(q.board.tracks[0].a[1], mm(10.5));
+});
+
+test('a route driven into a bundle pushes every track ahead of it, rippling through (#107)', () => {
+  // three parallel tracks of different nets 0.5 mm apart; a head comes down across the first two
+  const before = [0, 1, 2].map((i) => tr('n' + i, [0, mm(i * 0.5)], [mm(40), mm(i * 0.5)], 'N' + i));
+  const r = shove(board(before), [head([mm(20), -mm(5)], [mm(20), mm(0.7)])]);
+  assert.ok(r.ok, r.reason);
+  assert.deepEqual([...r.moved].sort(), ['n0', 'n1', 'n2']);
+  // every pushed track keeps its ends and stays clear of the head and of each other
+  const hc = { type: 'capsule', a: [mm(20), -mm(5)], b: [mm(20), mm(0.7)], r: W / 2 };
+  for (const t of r.tracks) assert.ok(shapeDistance(hc, { type: 'capsule', a: t.a, b: t.b, r: W / 2 }) >= C - 2, `${t.id} clear of the head`);
+  for (const t of r.tracks) for (const u of r.tracks) if (t.net !== u.net) assert.ok(shapeDistance({ type: 'capsule', a: t.a, b: t.b, r: W / 2 }, { type: 'capsule', a: u.a, b: u.b, r: W / 2 }) >= C - 2);
+  for (const id of ['n0', 'n1', 'n2']) {
+    const segs = r.tracks.filter((t) => t.net === before.find((b) => b.id === id).net);
+    const xs = segs.flatMap((t) => [t.a[0], t.b[0]]);
+    assert.ok(Math.min(...xs) === 0 && Math.max(...xs) === mm(40), `${id} keeps its ends`);
+  }
 });

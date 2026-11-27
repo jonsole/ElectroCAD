@@ -37,6 +37,10 @@ click(6.9125, 7);
 check('routing', !!ed.route);
 move(24, 10); await wait(50);
 check('pushed', !!ed.routeView?.shoved && ed.routeView.shovedIds.has('x0') && !ed.routeView.collisions.length, { shoveFailed: ed.routeView?.shoveFailed });
+// #107: driven into the bundle (across the first two tracks), the push ripples through all three
+move(24, 11.2); await wait(50);
+check('ripple', !!ed.routeView?.shoved && ['x0', 'x1', 'x2'].every((id) => ed.routeView.shovedIds.has(id)) && !ed.routeView.collisions.length, { shoveFailed: ed.routeView?.shoveFailed, moved: ed.routeView?.shovedIds && [...ed.routeView.shovedIds] });
+move(24, 10); await wait(50);
 check('board-untouched', JSON.stringify(app.project.board.tracks) === JSON.stringify(before));
 move(24, 8.5); await wait(50);
 check('spring-back', !ed.routeView?.shoved);
