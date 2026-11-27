@@ -728,7 +728,7 @@ Using the card:
   - After every change, only the Zones whose area it touched refill, in Web Workers (`board/zoneWorker.js`, scheduled by `board/zoneFiller.js`), so the editor never waits. Each copper layer fills in a worker of its own, so the layers fill in parallel (#73); `node tools/bench-zones.js` times fills on real boards.
   - A result that a newer change has superseded is thrown away.
   - While a drag or a route is in progress, the Zones it touches keep showing their last fill (kept inside the zone's outline as it is now; a zone moved whole carries its fill with it); the new fill fades in after the drop (#105).
-  - After an edit, a Zone being refilled keeps showing its old fill until the new one is ready, then the new fill fades in quickly (about 150 ms, crossfading from the old), so edits don't flicker (#105).
+  - After an edit, a Zone being refilled keeps showing its old fill until the new one is ready, then crossfades to the new one quickly (about 150 ms): their coverage is blended (old × (1 − t) + new × t) before it's drawn, so where both fills are the zone stays at full strength and only what changed fades; edits don't flicker (#105).
   - `BoardEditor.whenZonesFilled()` resolves once every fill is up to date, for DRC and export.
 - Zones draw under pads and tracks, back layers first, in the layer's colour at the theme's Zone fill opacity.
 

@@ -153,6 +153,34 @@ export function drawBoard(ctx, view, C, board, opts = {}) {
 const LAYER_ORDER = { 'B.Cu': 0, 'In2.Cu': 1, 'In1.Cu': 2, 'F.Cu': 3 };
 /** The copper layers bottom to top, the order they're drawn in. */
 export const COPPER_ORDER = ['B.Cu', 'In2.Cu', 'In1.Cu', 'F.Cu'];
+/**
+ * Draw a crossfade from `a` to `b` (each `(g, alpha) => void` painting one colour) at `t` (0..1),
+ * shown at `opacity`: their coverages are blended off-screen first (old × (1 − t) + new × t, so
+ * where both fills are the zone stays at full strength and only what changes fades), then the
+ * blend goes on `ctx` once (its clip applies).
+ */
+let fadeCanvas = null;
+function crossfade(ctx, a, b, t, opacity) {
+  const c = ctx.canvas;
+  if (typeof document === 'undefined' || !c || !ctx.getTransform) { a(ctx, opacity * (1 - t)); b(ctx, opacity * t); return; }
+  fadeCanvas ||= document.createElement('canvas');
+  if (fadeCanvas.width !== c.width || fadeCanvas.height !== c.height) { fadeCanvas.width = c.width; fadeCanvas.height = c.height; }
+  const g = fadeCanvas.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, c.width, c.height);
+  g.setTransform(ctx.getTransform()); // the same device scale and any offset as the canvas
+  g.globalCompositeOperation = 'source-over';
+  a(g, 1 - t);
+  g.globalCompositeOperation = 'lighter'; // coverages add: where both are, 1 - t + t = 1
+  b(g, t);
+  g.globalCompositeOperation = 'source-over';
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = opacity;
+  ctx.drawImage(fadeCanvas, 0, 0);
+  ctx.restore();
+}
+
 export function drawZones(ctx, view, C, board, hidden, z = {}, layer = null) {
   const zones = (board.zones || []).filter((zn) => !hidden.has(zn.layer) && (!layer || zn.layer === layer)).sort((a, b) => (LAYER_ORDER[a.layer] ?? 0) - (LAYER_ORDER[b.layer] ?? 0) || a.priority - b.priority);
   if (!zones.length) return;
@@ -161,12 +189,12 @@ export function drawZones(ctx, view, C, board, hidden, z = {}, layer = null) {
     const col = C[zn.layer] || '#c33';
     const fill = !z.outlineOnly?.has(zn.id) && z.fills?.get(zn.id);
     const base = typeof C.zoneOpacity === 'number' ? C.zoneOpacity : 0.4;
-    const paint = (f, alpha) => {
+    const paint = (f, alpha, g = ctx) => {
       if (!f || alpha <= 0) return;
-      ctx.globalAlpha = alpha; ctx.fillStyle = col;
-      ctx.beginPath();
-      for (const poly of f.polys) for (const ring of poly) ring.forEach((q, i) => { const [x, y] = view.toScreen(q); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
-      ctx.fill('evenodd');
+      g.globalAlpha = alpha; g.fillStyle = col;
+      g.beginPath();
+      for (const poly of f.polys) for (const ring of poly) ring.forEach((q, i) => { const [x, y] = view.toScreen(q); if (i) g.lineTo(x, y); else g.moveTo(x, y); });
+      g.fill('evenodd');
     };
     // a refill crossfades: the old fill out and the new one in (`z.fade`: id -> { old, t 0..1 })
     const fd = fill && z.fade?.get(zn.id);
@@ -180,7 +208,8 @@ export function drawZones(ctx, view, C, board, hidden, z = {}, layer = null) {
       // a zone being moved whole carries its fill with it (`z.offset`: id -> [dx, dy] nm)
       const off = z.offset?.get(zn.id);
       if (off) ctx.translate(off[0] * view.scale, off[1] * view.scale);
-      if (fd) { paint(fd.old, base * (1 - fd.t)); paint(fill, base * fd.t); } else paint(fill, base);
+      if (fd) crossfade(ctx, (g, a) => paint(fd.old, a, g), (g, a) => paint(fill, a, g), fd.t, base);
+      else paint(fill, base);
       ctx.restore();
     }
     ctx.globalAlpha = fill ? 0.7 : 0.95;
