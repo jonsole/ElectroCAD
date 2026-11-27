@@ -50,7 +50,7 @@ const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
 /** The palette tools that work now: key, icon, title. */
 export const BOARD_TOOLS = {
   select: { icon: 'select', title: 'Select (V): click to select; drag a track segment sideways (its neighbours follow) or a track corner to reshape it, pushing other nets\' copper in Shove mode', key: 'v' },
-  route: { icon: 'route', title: 'Route (X): click a pad to start a track on the active copper layer, click to place corners, click a pad of the same net to finish · V drops a via and changes layer · right-click cycles Eagle\'s bend styles (Shift+right-click goes back), / swaps to the mirrored one · Backspace undoes a corner · Esc cancels', key: 'x' },
+  route: { icon: 'route', title: 'Route (X): click a pad to start a track on the active copper layer, click to place corners, click a pad of the same net to finish · V drops a via and changes layer · right-click cycles Eagle\'s bend styles (Shift+right-click goes back), / swaps to the mirrored one · Backspace or Ctrl+Z undoes a segment · Esc cancels', key: 'x' },
   via: { icon: 'via', title: 'Via: click to place a through via; it takes the net of the track or pad it lands on' },
   footprint: { icon: 'pad', title: 'Place footprint: a footprint with no part on the Schematic, such as a mounting hole, fiducial or logo. Pick it, then click where it goes; Reference, pad nets and In BOM in Properties' },
   zone: { icon: 'zone', title: 'Zone (Z): click the corners of a copper pour on the active copper layer; click the first corner, double-click or Enter to close. Net, priority, clearance and thermal reliefs in Properties', key: 'z' },
@@ -672,7 +672,7 @@ export class BoardEditor {
           : 'Outline polygon: click the next corner · A arc side · Backspace undo corner · click the first corner to close · Esc cancel'; break;
       case 'circle': t = p ? 'Circle: click a point on the edge' : 'Circle: click the centre (a round board, or a hole inside the board)'; break;
       case 'route': t = this.route
-        ? `Routing ${this.route.net} on ${this.route.layer} (${fmt(this.route.width)} mm, ${netClassOf(this.board, this.route.net)} class): click to place a corner · click a ${this.route.net} pad to finish · V drops a via and goes to ${this.route.layer === this.route.pair[0] ? this.route.pair[1] : this.route.pair[0]} · double-click or Enter ends here · right-click or / changes the bend (${this.bend}: ${bendOf(this.bend).name}) · Backspace undoes a corner · Esc cancels${this.routeView?.collisions.length ? ' · red: too close to another net' : ''}${this.routeView?.blocked ? ' · no clear way to the pointer: the track stops at the obstacle' : ''}`
+        ? `Routing ${this.route.net} on ${this.route.layer} (${fmt(this.route.width)} mm, ${netClassOf(this.board, this.route.net)} class): click to place a corner · click a ${this.route.net} pad to finish · V drops a via and goes to ${this.route.layer === this.route.pair[0] ? this.route.pair[1] : this.route.pair[0]} · double-click or Enter ends here · right-click or / changes the bend (${this.bend}: ${bendOf(this.bend).name}) · Backspace or Ctrl+Z undoes a segment · Esc cancels${this.routeView?.collisions.length ? ' · red: too close to another net' : ''}${this.routeView?.blocked ? ' · no clear way to the pointer: the track stops at the obstacle' : ''}`
         : `Route (${this.routeMode === 'shove' ? 'Shove: tracks push other nets\' tracks aside' : this.routeMode === 'walkaround' ? 'Walkaround: tracks go round other nets' : 'Free: tracks go where you draw'}): click a pad on ${this.activeLayer} to start a track (bend ${this.bend}: ${bendOf(this.bend).name}${this.chamfer ? `, ${this.mitre === 'round' ? 'rounded' : 'chamfered'} ${fmt(this.chamfer)} mm` : ''})`; break;
       case 'zone': t = !p ? `Zone on ${this.activeLayer}: click its first corner (the net comes from the pad or track there, else GND; change it in Properties)`
         : `Zone on ${this.activeLayer}: click the next corner · click the first corner, double-click or Enter to close · Backspace undo corner · Esc cancel`; break;
@@ -1574,15 +1574,16 @@ export class BoardEditor {
   }
 
   /**
-   * Take back the route's last segment (or the last via, back to the layer before); with only its
-   * start left, drop the route, staying in the Route tool. Backspace and undo.
+   * Take back the route's last segment (or the last via, back to the layer before). Backspace and
+   * undo. At its start there is nothing left to take back: routing carries on from there (Esc
+   * stops it).
    */
   _routeStepBack() {
     if (this.route.points.length > 1 || this.route.runs?.length) {
       this.route = routeBack(this.route);
       if (this.activeLayer !== this.route.layer) this.setActiveLayer(this.route.layer);
       this._routeKey = null; this._routeMove(); this._hint();
-    } else this.cancelRoute();
+    } else toast('Back at the start of the route: Esc stops routing.', 'info', 1600);
   }
 
   /** Undo while routing (Ctrl+Z, the toolbar): the last segment, not the Board's last edit. */
