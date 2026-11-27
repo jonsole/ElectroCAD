@@ -2,8 +2,8 @@
 // canvas, like the Schematic's Sheets, Netlist and ERC cards. It sets the main and Alt grids and
 // the grid origin of whatever the editor is showing (the current Sheet, the Board, the Symbol
 // editor). The same component serves all three editors.
-import { h, button, icon } from './dom.js';
-import { gridLabel } from '../core/grid.js';
+import { h, button, icon, popupMenu, toast } from './dom.js';
+import { gridLabel, parseGridStep } from '../core/grid.js';
 import { makeDraggable } from './draggable.js';
 import { cardHead } from './cards.js';
 
@@ -65,14 +65,23 @@ export class GridCard {
     const a = document.activeElement;
     if (el.contains(a) && a.tagName === 'INPUT') return; // don't disturb typing
     const st = this.o.state();
+    // a grid step: type one in ("0.1mm", "7mil"; a bare number is in the current step's unit),
+    // or pick from the list (the arrow)
     const sel = (which, label, help) => {
       const cur = st.grid[which];
-      const s = h('select', { class: 'select', 'aria-label': label, title: help },
-        ...this.o.choices.map(([v, l]) => h('option', { value: String(v), selected: v === cur }, l)));
-      if (!this.o.choices.some(([v]) => v === cur)) s.prepend(h('option', { value: String(cur), selected: true }, gridLabel(cur)));
-      s.addEventListener('change', () => this.o.onGrid(which, +s.value));
-      s.addEventListener('keydown', (e) => e.stopPropagation());
-      return h('label', { class: 'le-row' }, h('span', {}, label), s, h('em', {}, ''));
+      const inp = h('input', { class: 'input grid-step-input', type: 'text', value: gridLabel(cur), spellcheck: false, autocomplete: 'off', 'aria-label': label, title: `${help}. Type a size such as 0.1mm or 7mil, or pick one` });
+      const apply = () => {
+        const unit = /mil$/.test(gridLabel(cur)) ? 'mil' : 'mm';
+        const nm = parseGridStep(inp.value, unit);
+        if (nm == null) { if (inp.value.trim() !== gridLabel(cur)) toast('Type a grid size such as 0.1mm or 7mil (0.001 to 100 mm).', 'info', 2600); inp.value = gridLabel(cur); return; }
+        if (nm !== cur) this.o.onGrid(which, nm); else inp.value = gridLabel(cur);
+      };
+      inp.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { inp.value = gridLabel(cur); inp.blur(); } });
+      inp.addEventListener('change', apply);
+      inp.addEventListener('blur', () => setTimeout(() => this.render()));
+      const pick = button({ icon: 'chevron', title: `Pick the ${label.toLowerCase()} from the list`, cls: 'btn-ghost btn-xs grid-step-pick',
+        onClick: () => popupMenu(this.o.choices.map(([v, l]) => ({ label: l, checked: v === cur, onClick: () => { if (v !== cur) this.o.onGrid(which, v); this.render(); } })), inp) });
+      return h('label', { class: 'le-row' }, h('span', {}, label), h('span', { class: 'grid-step' }, inp, pick), h('em', {}, ''));
     };
     const fmt = (nm) => String(+(nm / 1e6).toFixed(3));
     const num = (label, v, i) => {

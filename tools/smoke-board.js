@@ -90,8 +90,9 @@ check('hole-undo', board().outline[hole].r === 1.5 * MM);
 ed.selection.clear(); key('Escape'); ed.refresh();
 ed.gridCard.button.click();
 check('grid-card', ed.gridCard.open && ed.gridCard.button.classList.contains('active'));
-const gsel = document.querySelector('[data-ws="board"] .grid-card select[aria-label="Grid"]');
-gsel.value = String(1e6); gsel.dispatchEvent(new Event('change'));
+// typed in, with its unit
+const gsel = document.querySelector('[data-ws="board"] .grid-card input[aria-label="Grid"]');
+gsel.value = '1mm'; gsel.dispatchEvent(new Event('change'));
 check('grid-main', board().grid.main === 1e6 && ws.view.grid === 1e6, [board().grid, ws.view.grid]);
 document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Alt', altKey: true, bubbles: true }));
 check('alt-grid', ed.gridStep === board().grid.alt && ws.view.grid === board().grid.alt && /\(Alt\)/.test(ws.statusText.textContent), ws.statusText.textContent);
@@ -100,9 +101,21 @@ check('alt-off', ed.gridStep === 1e6);
 // the swap button exchanges the grid and the Alt grid in one undo step, and the selects follow
 const g0 = { ...board().grid };
 document.querySelector('[data-ws="board"] .grid-card .grid-card-swap').click();
-check('grid-swap', board().grid.main === g0.alt && board().grid.alt === g0.main && ws.view.grid === g0.alt && document.querySelector('[data-ws="board"] .grid-card select[aria-label="Grid"]').value === String(g0.alt), [board().grid, ws.view.grid]);
+check('grid-swap', board().grid.main === g0.alt && board().grid.alt === g0.main && ws.view.grid === g0.alt && document.querySelector('[data-ws="board"] .grid-card input[aria-label="Grid"]').value === '0.1 mm', [board().grid, ws.view.grid]);
 app.undo();
-check('grid-swap-undo', board().grid.main === g0.main && board().grid.alt === g0.alt && document.querySelector('[data-ws="board"] .grid-card select[aria-label="Alt grid"]').value === String(g0.alt), board().grid);
+check('grid-swap-undo', board().grid.main === g0.main && board().grid.alt === g0.alt && document.querySelector('[data-ws="board"] .grid-card input[aria-label="Alt grid"]').value === '0.1 mm', board().grid);
+// any size, in mil or mm; a bare number in the current unit; nonsense is refused and put back
+const alt = () => document.querySelector('[data-ws="board"] .grid-card input[aria-label="Alt grid"]');
+alt().value = '7mil'; alt().dispatchEvent(new Event('change'));
+check('grid-typed-mil', board().grid.alt === 7 * 25400 && alt().value === '7 mil', [board().grid, alt().value]);
+alt().value = '2'; alt().dispatchEvent(new Event('change')); // in mil, like the step it replaces
+check('grid-bare-number', board().grid.alt === 2 * 25400 && alt().value === '2 mil', [board().grid, alt().value]);
+alt().value = 'big'; alt().dispatchEvent(new Event('change'));
+check('grid-bad', board().grid.alt === 2 * 25400 && alt().value === '2 mil', [board().grid, alt().value]);
+// and the list behind the arrow
+alt().parentElement.querySelector('.grid-step-pick').click();
+[...document.querySelectorAll('.menu .menu-item')].find((b) => b.textContent.trim() === '0.1 mm').click();
+check('grid-picked', board().grid.alt === 1e5 && alt().value === '0.1 mm', board().grid);
 // Alt while drawing: a circle with a 0.3 mm radius on the 0.1 mm Alt grid
 key('c');
 const altClick = (x, y) => {

@@ -309,7 +309,7 @@ The Schematic, Board and Library editors work the same way here.
 - **Two grids.** Each editor has a main grid and an **Alt grid**.
   - Hold **Alt** while drawing, moving or resizing to snap to the Alt grid. The canvas shows the Alt grid while Alt is held, and the status bar says "(Alt)".
   - **The Grid button** (a grid icon, lit while open) on each editor's toolbar opens the **Grid card**, a floating card like Sheets, Netlist and ERC. It holds:
-    - Grid and Alt grid, with a swap button (two arrows) on their right that exchanges them in one undo step;
+    - Grid and Alt grid: type any size with its unit (`0.1mm`, `7mil`, `0.05in`, `25um`; a bare number is in the unit of the step it replaces), Enter to apply, Esc to put it back, or pick one from the list behind the arrow; 0.001 to 100 mm. A swap button (two arrows) on their right exchanges them in one undo step;
     - the origin's X and Y in mm, with a button to pick it on the canvas (the Origin tool) and a Reset button;
     - on the Schematic, the settings of the **current sheet**, whose name is shown in the card's header. Each sheet has its own grid and origin, which are also in its Sheet setup dialog (the gear on its row in the Sheets card);
     - in the Library, only the grids and the pick button: there the origin is the Symbol's anchor.

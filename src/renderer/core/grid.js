@@ -16,7 +16,23 @@ export const SCHEMATIC_GRIDS = [
 export const DEFAULT_SCHEMATIC_GRID = { main: mil(50), alt: mil(25) };
 export const DEFAULT_BOARD_GRID = { main: mm(0.5), alt: mm(0.1) };
 
-export const gridLabel = (nm) => [...BOARD_GRIDS, ...SCHEMATIC_GRIDS].find(([v]) => v === nm)?.[1] || `${+(nm / 1e6).toFixed(4)} mm`;
+/** A grid step as people write it: a listed label, else in mil when it's a whole 0.01 mil, else mm. */
+export const gridLabel = (nm) => [...BOARD_GRIDS, ...SCHEMATIC_GRIDS].find(([v]) => v === nm)?.[1]
+  || (nm % 254 === 0 ? `${+(nm / 25_400).toFixed(2)} mil` : `${+(nm / 1e6).toFixed(4)} mm`);
+
+const UNITS = { mm: 1e6, mil: 25_400, mils: 25_400, thou: 25_400, in: 25_400_000, inch: 25_400_000, '"': 25_400_000, um: 1000, 'µm': 1000, nm: 1 };
+
+/**
+ * A grid step typed in: a number and a unit ("0.1mm", "7 mil", "0.05 in", "25um"), or a bare
+ * number in `unit` (the editor's own). Returns nm, or null when it isn't one or is outside
+ * 0.001 mm to 100 mm.
+ */
+export function parseGridStep(text, unit = 'mm') {
+  const m = /^\s*(\d+(?:\.\d*)?|\.\d+)\s*(mm|mils?|thou|inch|in|"|um|µm|nm)?\s*$/i.exec(String(text || '').replace(',', '.'));
+  if (!m) return null;
+  const nm = Math.round(parseFloat(m[1]) * UNITS[(m[2] || unit).toLowerCase()]);
+  return nm >= 1000 && nm <= 100e6 ? nm : null;
+}
 
 /** Set `grid.main` or `grid.alt` (nm, at least 1 µm), checking the value. */
 export function setGridStep(grid, which, nm) {
