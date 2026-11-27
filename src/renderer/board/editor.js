@@ -29,7 +29,7 @@ import { connection, ripupRun, ripUp, setTrackWidth, setTrackLayer, setViaSize, 
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
 import { allFootprints } from '../library/footprints.js';
 import { addBoardOnly, setBoardOnly, deleteBoardOnly } from '../core/boardOnly.js';
-import { dragSegment, dragCorner, dragEnd, cornerAt, dragResult, freeEndAt } from '../core/drag.js';
+import { dragSegment, dragCorner, dragEnd, cornerAt, dragResult, freeEndAt, STRETCH } from '../core/drag.js';
 import { copperTarget, trackOnOtherLayer } from '../core/routeEnds.js';
 import { STARTER_LIBRARY } from '../library/starter.js';
 import { shapeHandles, hitHandle, dragHandle, dragOutlineHandle, snapPoint, handlePoints } from '../core/handles.js';
@@ -142,6 +142,13 @@ export class BoardEditor {
     this.snapMark = r.target;
     return r.at;
   }
+  /** How edits reshape tracks (#96): Free stretches; Shove / Walkaround use the bend style. */
+  _editStyle() {
+    if (this.routeMode === 'free') return STRETCH;
+    const b = bendOf(this.bend);
+    return { corner: b.corner === 'free' ? 'any' : b.corner, posture: b.posture };
+  }
+
   /** Copper a route's corners snap onto (R2): via centres, and track ends of its net (any net before it starts). */
   _routeSnapPoints() {
     const net = this.route?.net?.toLowerCase();
@@ -1071,8 +1078,10 @@ export class BoardEditor {
         }
         this.cursor = this.snapAt(w);
         const to = this.cursor;
-        const r = d.kind === 'segment' ? dragSegment(this.project, this.board, d.id, [to[0] - d.start[0], to[1] - d.start[1]]) : d.kind === 'end' ? dragEnd(this.board, d.id, d.at, to) : dragCorner(this.project, this.board, d.at, to, d.layer);
-        const res = dragResult(this.project, r, { shove: this.routeMode === 'shove', index: this.trackDragIndex });
+        // #96's mode rule: Free stretches at any angle; Shove / Walkaround redraw with the bend style
+        const style = this._editStyle();
+        const r = d.kind === 'segment' ? dragSegment(this.project, this.board, d.id, [to[0] - d.start[0], to[1] - d.start[1]], style) : d.kind === 'end' ? dragEnd(this.board, d.id, d.at, to, style) : dragCorner(this.project, this.board, d.at, to, d.layer, style);
+        const res = dragResult(this.project, r, { mode: this.routeMode, index: this.trackDragIndex });
         // a drag that can't be pushed clear stays where it last could be
         if (res.ok) d.result = res; else d.stuck = res.reason || true;
         if (res.ok) d.stuck = null;
@@ -2284,6 +2293,9 @@ export class BoardEditor {
       const copper = new Set([...t.copper].filter((id) => !this.trackSel.has(id)));
       if (fps.size || t.pads.size || copper.size) this._highlightBoard(ctx, view, C, board, new Set(), fps, t.pads, { ...C, selection: C.highlight || C.selection }, this.selection.size || this.fpSel.size, copper);
     }
+    // Free mode: edited copper too close to another net's shows red (Walkaround refuses it, Shove pushes)
+    const clash = this.trackDrag?.result?.collisions;
+    if (clash?.length) this._highlightBoard(ctx, view, C, board, new Set(), new Set(), null, { ...C, selection: C.drcError || '#ff3b6b' }, true, new Set(clash));
     // the Rip up tool: what a click or the box would take, in the error colour
     if (this.tool === 'ripup' && this.ripHover?.size) this._highlightBoard(ctx, view, C, board, new Set(), new Set(), null, { ...C, selection: C.drcError || '#ff3b6b' }, false, this.ripHover);
     this._drawDrc(ctx, view, C); // over the highlights, so the focused problem shows

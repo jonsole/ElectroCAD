@@ -14,6 +14,34 @@ import { placedPads, padNets } from './footprint.js';
 import { trackShape, trackPoints, withEnds } from './trackGeom.js';
 
 const eq = (p, q) => p[0] === q[0] && p[1] === q[1];
+
+/**
+ * How an edit reshapes tracks (#96's mode rule): `{ free: true }` (Free mode: stretch at any
+ * angle) or `{ corner, posture }` (Shove / Walkaround: redraw with the bend style; the default is
+ * 45°, straight first from the far end).
+ */
+export const STRETCH = { free: true };
+const DEFAULT_STYLE = { corner: '45', posture: 'a' };
+
+/**
+ * Tracks like `proto` from `from` along corner path `pts` (points carrying `mid` are arcs): the
+ * first keeps proto's id when `keepId`.
+ */
+function pathTracks(proto, from, pts, keepId) {
+  const out = [];
+  let prev = from;
+  pts.forEach((p) => {
+    if (eq(prev, p)) return;
+    const { mid: _m, ...base } = proto;
+    const t = { ...base, id: keepId && !out.length ? proto.id : uid('t'), a: [prev[0], prev[1]], b: [p[0], p[1]] };
+    if (p.mid) t.mid = p.mid;
+    out.push(t); prev = p;
+  });
+  return out;
+}
+
+/** The corner path from `far` to `to` in `style` (redrawn), or straight (stretch). */
+const pathFor = (far, to, style) => (style.free ? [to] : cornerPath(far, to, style.corner === 'free' ? 'any' : style.corner, style.posture));
 const key = (p) => `${p[0]},${p[1]}`;
 
 /** What meets point `p` on `layer`: the other segments of `net` ending there, and whether a pad or Via is there. */
@@ -40,10 +68,11 @@ function intersect(p, d, q, e) {
  * The Board's Tracks with segment `id` slid by `delta` (only its sideways part counts). Returns
  * { tracks, changed: the new and reshaped segments } or null when it can't (no such segment).
  */
-export function dragSegment(project, board, id, delta) {
+export function dragSegment(project, board, id, delta, style = DEFAULT_STYLE) {
   const t = (board.tracks || []).find((x) => x.id === id);
   if (!t) return null;
   if (t.mid) return dragBulge(board, t, delta);
+  if (style.free) return moveSegment(project, board, t, delta);
   const dx = t.b[0] - t.a[0], dy = t.b[1] - t.a[1], L = Math.hypot(dx, dy);
   if (!L) return null;
   const n = [-dy / L, dx / L];
@@ -83,6 +112,31 @@ export function dragSegment(project, board, id, delta) {
   return { tracks: out, changed };
 }
 
+/**
+ * Free mode (E2): segment `t` moves whole by `delta` in any direction; every other segment of its
+ * net ending at either end stretches to follow (an arc keeping its shape). Where an end is on a
+ * pad or via, a straight piece joins the old point to the moved one.
+ */
+function moveSegment(project, board, t, delta) {
+  if (!delta[0] && !delta[1]) return { tracks: board.tracks, changed: [] };
+  const out = (board.tracks || []).filter((x) => x.id !== t.id).map((x) => ({ ...x }));
+  const changed = [];
+  const moved = { ...t, a: [t.a[0] + delta[0], t.a[1] + delta[1]], b: [t.b[0] + delta[0], t.b[1] + delta[1]] };
+  for (const end of ['a', 'b']) {
+    const P = t[end], P2 = moved[end];
+    const m = meeting(board, project, P, t.layer, t.net, t.id);
+    if (m.fixed) { const j = { ...t, id: uid('t'), a: end === 'a' ? P : P2, b: end === 'a' ? P2 : P }; out.push(j); changed.push(j); continue; }
+    for (const sg of m.segs) {
+      const i = out.findIndex((x) => x.id === sg.id);
+      const x = out[i];
+      out[i] = withEnds(x, eq(x.a, P) ? P2 : x.a, eq(x.b, P) ? P2 : x.b);
+      changed.push(out[i]);
+    }
+  }
+  out.push(moved); changed.push(moved);
+  return { tracks: out, changed };
+}
+
 /** An arc Track dragged by its middle (#93): `mid` moves with the pointer, the ends stay. */
 function dragBulge(board, t, delta) {
   if (!delta[0] && !delta[1]) return { tracks: board.tracks, changed: [] };
@@ -102,24 +156,20 @@ function dragBulge(board, t, delta) {
  * there follows, redrawn from its far end to `to` with a 45° corner (an arc keeping its shape).
  * Returns { tracks, changed } or null when `at` isn't such a corner.
  */
-export function dragCorner(project, board, at, to, layer = null) {
+export function dragCorner(project, board, at, to, layer = null, style = DEFAULT_STYLE) {
   const segs = (board.tracks || []).filter((t) => (!layer || t.layer === layer) && (eq(t.a, at) || eq(t.b, at)));
   if (segs.length < 2 || segs.some((t) => t.net !== segs[0].net || t.layer !== segs[0].layer)) return null;
   if (meeting(board, project, at, segs[0].layer, segs[0].net).fixed) return null;
   const out = (board.tracks || []).filter((x) => !segs.includes(x)).map((x) => ({ ...x }));
   const changed = [];
-  const run = (from, pts, proto, keepId) => {
-    let prev = from;
-    pts.forEach((p, i) => { if (eq(prev, p)) return; const s = { ...proto, id: i === 0 && keepId ? proto.id : uid('t'), a: prev, b: p }; out.push(s); changed.push(s); prev = p; });
-  };
+
   // an arc (#93) keeps its shape, its end at the corner moving to `to`
   const arc = (sg) => { const m = withEnds(sg, eq(sg.a, at) ? to : sg.a, eq(sg.b, at) ? to : sg.b); out.push(m); changed.push(m); };
-  segs.forEach((sg, k) => {
+  // E3: each straight one redrawn from its far end to `to` with the bend style, or (Free) stretched
+  segs.forEach((sg) => {
     const far = eq(sg.a, at) ? sg.b : sg.a;
-    if (sg.mid) arc(sg);
-    // the first runs from its far end into the corner, the others out of it (as a bend's two did)
-    else if (k === 0) run(far, cornerPath(far, to, '45', 'a'), sg, true);
-    else run(to, cornerPath(to, far, '45', 'b'), sg, true);
+    if (sg.mid || style.free) { arc(sg); return; }
+    for (const t of pathTracks(sg, far, pathFor(far, to, style), true)) { out.push(t); changed.push(t); }
   });
   return { tracks: out, changed };
 }
@@ -129,10 +179,18 @@ export function dragCorner(project, board, at, to, layer = null) {
  * the segment stretches and swings to it, an arc keeping its shape. Returns { tracks, changed },
  * or null when there's no such Track or the end would land on its other end.
  */
-export function dragEnd(board, id, at, to) {
+export function dragEnd(board, id, at, to, style = STRETCH) {
   const t = (board.tracks || []).find((x) => x.id === id);
   if (!t) return null;
   const atA = eq(t.a, at);
+  // E4: Shove / Walkaround redraw it from its far end with the bend style
+  if (!style.free && !t.mid) {
+    const far = atA ? t.b : t.a;
+    if (eq(far, to)) return null;
+    const pieces = pathTracks(t, far, pathFor(far, to, style), true);
+    const out = (board.tracks || []).filter((x) => x.id !== id).map((x) => ({ ...x }));
+    return { tracks: [...out, ...pieces], changed: pieces };
+  }
   const moved = withEnds(t, atA ? to : t.a, atA ? t.b : to);
   if (eq(moved.a, moved.b)) return null;
   const out = (board.tracks || []).map((x) => (x.id === id ? moved : { ...x }));
@@ -174,10 +232,14 @@ export function freeEndAt(project, board, p, tol, hidden = new Set()) {
  * Tracks and Vias pushed out of the way of what changed. Returns { ok, tracks, vias, moved } or
  * { ok: false } when it can't be pushed clear (`index`: copperIndex of the Board as it was).
  */
-export function dragResult(project, r, { shove: pushing = false, index = null } = {}) {
+export function dragResult(project, r, { shove: pushing = false, index = null, mode = null } = {}) {
   const board = project.board;
   if (!r) return { ok: false };
-  if (!pushing) return { ok: true, tracks: r.tracks, vias: board.vias, moved: new Set() };
+  const md = mode || (pushing ? 'shove' : 'free');
+  // the edited copper that comes too close to other nets' (what Free shows red, Walkaround refuses)
+  const clashes = () => (index ? r.changed.filter((s) => index.collisions(board, trackShape(s), s.layer, s.net).length).map((s) => s.id) : []);
+  if (md === 'free') return { ok: true, tracks: r.tracks, vias: board.vias, moved: new Set(), collisions: clashes() };
+  if (md === 'walkaround') { const c = clashes(); return c.length ? { ok: false, reason: 'clearance' } : { ok: true, tracks: r.tracks, vias: board.vias, moved: new Set(), collisions: [] }; }
   const all = copperLayerNames(board.stack.copper);
   // an arc pushes as the pieces of its centre line
   const pushers = r.changed.flatMap((s) => { const pts = trackPoints(s, 20_000); return pts.slice(1).map((b, i) => ({ a: pts[i], b, r: s.width / 2, layers: [s.layer], net: s.net, kind: 'track' })); });
@@ -190,5 +252,5 @@ export function dragResult(project, r, { shove: pushing = false, index = null } 
       if (hits.length) return { ok: false, reason: 'fixed' };
     }
   }
-  return { ok: true, tracks: res.tracks, vias: res.vias, moved: res.moved };
+  return { ok: true, tracks: res.tracks, vias: res.vias, moved: res.moved, collisions: [] };
 }

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newProject } from '../src/renderer/core/project.js';
 import { copperIndex, shapeDistance } from '../src/renderer/core/collision.js';
-import { dragSegment, dragCorner, cornerAt, dragResult } from '../src/renderer/core/drag.js';
+import { dragSegment, dragCorner, dragEnd, cornerAt, dragResult, STRETCH } from '../src/renderer/core/drag.js';
 import { rectOutline } from '../src/renderer/core/board.js';
 import { mm } from '../src/renderer/core/units.js';
 
@@ -100,4 +100,39 @@ test('Shove: dragging pushes other nets\' tracks clear and they spring back; loc
   // a locked track in the way: the drag can't go there
   const q = project(tracks().map((t) => (t.id === 'o' ? { ...t, locked: true } : t)));
   assert.equal(dragResult(q, dragSegment(q, q.board, 'm', [0, mm(0.6)]), { shove: true, index: copperIndex(q) }).ok, false);
+});
+
+test('the routing mode governs edits (#96, #99): Free stretches, Shove/Walkaround use the bend style', () => {
+  const at = (t, x, y) => [t.a, t.b].some((q) => q[0] === mm(x) && q[1] === mm(y));
+  // E2 Free: the segment moves whole, its neighbours stretch at any angle
+  let p = project([tr('a', [0, 0], [10, 0]), tr('b', [10, 0], [10, 10]), tr('c', [10, 10], [20, 10])]);
+  let r = dragSegment(p, p.board, 'b', [mm(2), mm(1)], STRETCH);
+  const g = (id) => r.tracks.find((t) => t.id === id);
+  assert.deepEqual([g('b').a, g('b').b], [[mm(12), mm(1)], [mm(12), mm(11)]]);
+  assert.ok(at(g('a'), 12, 1) && at(g('a'), 0, 0) && at(g('c'), 12, 11) && at(g('c'), 20, 10));
+  assert.equal(r.tracks.length, 3);
+  // E3 Free: the corner moves, each track stays one straight segment
+  p = project([tr('a', [0, 0], [10, 0]), tr('b', [10, 0], [10, 10])]);
+  r = dragCorner(p, p.board, [mm(10), 0], [mm(13), mm(4)], null, STRETCH);
+  assert.equal(r.tracks.length, 2);
+  assert.ok(r.tracks.every((t) => at(t, 13, 4)));
+  // E3 with bend 0 (90°, horizontal first): every leg square
+  r = dragCorner(p, p.board, [mm(10), 0], [mm(13), mm(4)], null, { corner: '90', posture: 'a' });
+  assert.ok(r.tracks.length > 2 && r.tracks.every((t) => t.a[0] === t.b[0] || t.a[1] === t.b[1]), JSON.stringify(r.tracks.map((t) => [t.a, t.b])));
+  // E4: a free end, redrawn from its far end with 45° (bend 1), or stretched
+  p = project([tr('e', [0, 0], [10, 0])]);
+  r = dragEnd(p.board, 'e', [mm(10), 0], [mm(14), mm(3)], { corner: '45', posture: 'a' });
+  assert.equal(r.tracks.length, 2);
+  assert.ok(r.tracks.every(angle));
+  assert.equal(dragEnd(p.board, 'e', [mm(10), 0], [mm(14), mm(3)], STRETCH).tracks.length, 1);
+});
+
+test("Walkaround refuses an edit into another net's clearance; Free allows it and reports it", () => {
+  const p = project([tr('a', [0, 0], [10, 0]), tr('b', [10, 0], [10, 10]), tr('o', [12, 0], [12, 10], 'O')]);
+  const index = copperIndex(p);
+  const r = dragSegment(p, p.board, 'b', [mm(1.8), 0], STRETCH);
+  assert.equal(dragResult(p, r, { mode: 'walkaround', index }).ok, false);
+  const free = dragResult(p, r, { mode: 'free', index });
+  assert.ok(free.ok && free.collisions.includes('b'));
+  assert.ok(dragResult(p, dragSegment(p, p.board, 'b', [mm(0.5), 0], STRETCH), { mode: 'walkaround', index }).ok);
 });

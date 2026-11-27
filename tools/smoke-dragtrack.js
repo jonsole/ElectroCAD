@@ -96,4 +96,21 @@ check('junction-moved', tj.filter((t) => at(t.a, 8, 10.5) || at(t.b, 8, 10.5)).l
 await ed.runDrc(); await wait(50);
 check('junction-still-routed', !ed.drc.list.some((v) => v.rule === 'unrouted'));
 ed.drcCard?.toggle?.(false);
+app.undo(); app.undo(); await wait(50);
+check('back-2', JSON.stringify(app.project.board.tracks) === JSON.stringify(before));
+// the routing mode governs edits (#96, #99): in Free a corner drag leaves two straight tracks at any angle
+const cornerDrag = async (x, y) => { ev('pointermove', 6.9125, 12, 0); ev('pointerdown', 6.9125, 12, 1); ev('pointermove', (6.9125 + x) / 2, (12 + y) / 2, 1); ev('pointermove', x, y, 1); await wait(30); ev('pointerup', x, y, 0); await wait(50); };
+document.querySelector('[data-ws="board"] .mode-group [data-mode="free"]').click();
+await cornerDrag(9, 10.5);
+const nf = app.project.board.tracks.filter((t) => t.net === net);
+check('free-corner', nf.length === 3 && nf.filter((t) => [t.a, t.b].some((q) => q[0] === 9 * MM && q[1] === 10.5 * MM)).length === 2, nf.map((t) => [t.a, t.b]));
+app.undo(); await wait(30);
+// in Shove with bend 0 (90°) every redrawn leg is square
+document.querySelector('[data-ws="board"] .mode-group [data-mode="shove"]').click();
+ed.setBend(0);
+await cornerDrag(9, 10.5);
+const ns = app.project.board.tracks.filter((t) => t.net === net);
+check('bend0-corner', ns.length > 3 && ns.every((t) => t.a[0] === t.b[0] || t.a[1] === t.b[1]), ns.map((t) => [t.a, t.b]));
+app.undo(); await wait(30);
+ed.setBend(1);
 return { fails };

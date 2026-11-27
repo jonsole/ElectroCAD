@@ -117,8 +117,10 @@ ev('pointermove', 24, 8, 0); ev('pointerdown', 24, 8, 1); ev('pointermove', 25, 
 check('end-drag-no-route', ed.tool === 'select' && !ed.route, [ed.tool, !!ed.route]);
 const h5 = app.history.undoStack.length;
 ev('pointerup', 26, 12, 0); await wait(40);
-const s5 = app.project.board.tracks.find((t) => t.id === 's');
-check('end-dragged', ed.tool === 'select' && !ed.route && app.history.undoStack.length === h5 + 1 && [s5.a, s5.b].some((q) => q[0] === 26 * MM && q[1] === 12 * MM) && [s5.a, s5.b].every((q) => !(q[0] === 24 * MM && q[1] === 8 * MM)), [s5.a, s5.b]);
+// (in Shove mode the end is redrawn from its far end with the bend style, #99)
+const t5 = app.project.board.tracks.filter((t) => t.net === net);
+const hasPt = (x, y) => t5.some((t) => [t.a, t.b].some((q) => q[0] === x * MM && q[1] === y * MM));
+check('end-dragged', ed.tool === 'select' && !ed.route && app.history.undoStack.length === h5 + 1 && hasPt(26, 12) && !hasPt(24, 8), t5.map((t) => [t.a, t.b]));
 await undo();
 check('undo-5', same());
 ed.setTool('route');
