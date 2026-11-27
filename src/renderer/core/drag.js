@@ -120,6 +120,21 @@ export function dragCorner(project, board, at, to, layer = null) {
   return { tracks: out, changed };
 }
 
+/**
+ * The Board's Tracks with Track `id`'s free end at `at` moved to `to` (a Select drag of the end):
+ * the segment stretches and swings to it, an arc keeping its shape. Returns { tracks, changed },
+ * or null when there's no such Track or the end would land on its other end.
+ */
+export function dragEnd(board, id, at, to) {
+  const t = (board.tracks || []).find((x) => x.id === id);
+  if (!t) return null;
+  const atA = eq(t.a, at);
+  const moved = withEnds(t, atA ? to : t.a, atA ? t.b : to);
+  if (eq(moved.a, moved.b)) return null;
+  const out = (board.tracks || []).map((x) => (x.id === id ? moved : { ...x }));
+  return { tracks: out, changed: [moved] };
+}
+
 /** The corner under `p` (within `tol`): { at, layer } where two segments of one Net meet with nothing else there. */
 export function cornerAt(project, board, p, tol, hidden = new Set()) {
   const ends = new Map();

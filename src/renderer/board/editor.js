@@ -28,7 +28,7 @@ import { connection, setTrackWidth, setTrackLayer, setViaSize, placeVia, placeVi
 import { validateRef, updateComponent, footprintChoices, footprintKey } from '../core/components.js';
 import { allFootprints } from '../library/footprints.js';
 import { addBoardOnly, setBoardOnly, deleteBoardOnly } from '../core/boardOnly.js';
-import { dragSegment, dragCorner, cornerAt, dragResult, freeEndAt } from '../core/drag.js';
+import { dragSegment, dragCorner, dragEnd, cornerAt, dragResult, freeEndAt } from '../core/drag.js';
 import { copperTarget, trackOnOtherLayer } from '../core/routeEnds.js';
 import { STARTER_LIBRARY } from '../library/starter.js';
 import { shapeHandles, hitHandle, dragHandle, dragOutlineHandle, snapPoint, handlePoints } from '../core/handles.js';
@@ -49,7 +49,7 @@ const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
 
 /** The palette tools that work now: key, icon, title. */
 export const BOARD_TOOLS = {
-  select: { icon: 'select', title: 'Select (V): click to select; drag a track segment sideways (its neighbours follow) or a track corner to reshape it, pushing other nets\' copper in Shove mode', key: 'v' },
+  select: { icon: 'select', title: 'Select (V): click to select; drag a track segment sideways (its neighbours follow), a track corner to reshape it, or a free track end to move it, pushing other nets\' copper in Shove mode', key: 'v' },
   route: { icon: 'route', title: 'Route (X): click a pad to start a track on the active copper layer, click to place corners, click a pad of the same net to finish · V drops a via and changes layer · right-click cycles Eagle\'s bend styles (Shift+right-click goes back), / swaps to the mirrored one · Backspace or Ctrl+Z undoes a segment · Esc cancels', key: 'x' },
   via: { icon: 'via', title: 'Via: click to place a through via; it takes the net of the track or pad it lands on' },
   footprint: { icon: 'pad', title: 'Place footprint: a footprint with no part on the Schematic, such as a mounting hole, fiducial or logo. Pick it, then click where it goes; Reference, pad nets and In BOM in Properties' },
@@ -905,11 +905,12 @@ export class BoardEditor {
         }
         // a Track: a click selects it; dragging it slides the segment (its neighbours follow) or,
         // pressed at a corner, moves the corner (#31)
-        // a free Track end: dragging it carries on routing the Track from there
+        // a free Track end: a click selects the Track, dragging moves that end (to carry the
+        // Track on, start the Route tool on its end)
         const free = !e.shiftKey && freeEndAt(this.project, this.board, w, 6 / ws.view.view.scale, this.hidden);
         if (free) {
           this.trackSel = new Set([free.track.id]); this.fpSel.clear(); this.selection.clear(); this.netSel.clear(); this.zoneSel.clear(); this.drawSel.clear();
-          this.trackDrag = { kind: 'end', at: free.at, track: free.track, pending: true, startPx: [e.clientX, e.clientY], locked: !!free.track.locked };
+          this.trackDrag = { kind: 'end', id: free.track.id, at: free.at, start: free.at, result: null, pending: true, startPx: [e.clientX, e.clientY], locked: !!free.track.locked };
           try { c.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
           this.refresh();
           return;
@@ -1006,13 +1007,12 @@ export class BoardEditor {
         if (d.pending) {
           if (Math.hypot(e.clientX - d.startPx[0], e.clientY - d.startPx[1]) < 4) return;
           if (d.locked) { this.trackDrag = null; toast('That track is locked (its Properties).', 'info', 1800); return; }
-          if (d.kind === 'end') { this.trackDrag = null; this._continueRoute(d.track, d.at); this.cursor = this.snapAt(w); this._routeMove(); ws.view.invalidate(); return; }
           d.pending = false;
           this.trackDragIndex = copperIndex(this.project);
         }
         this.cursor = this.snapAt(w);
         const to = this.cursor;
-        const r = d.kind === 'segment' ? dragSegment(this.project, this.board, d.id, [to[0] - d.start[0], to[1] - d.start[1]]) : dragCorner(this.project, this.board, d.at, to, d.layer);
+        const r = d.kind === 'segment' ? dragSegment(this.project, this.board, d.id, [to[0] - d.start[0], to[1] - d.start[1]]) : d.kind === 'end' ? dragEnd(this.board, d.id, d.at, to) : dragCorner(this.project, this.board, d.at, to, d.layer);
         const res = dragResult(this.project, r, { shove: this.routeMode === 'shove', index: this.trackDragIndex });
         // a drag that can't be pushed clear stays where it last could be
         if (res.ok) d.result = res; else d.stuck = res.reason || true;
@@ -1086,17 +1086,11 @@ export class BoardEditor {
     });
     const up = () => {
       this.snapMark = null;
-      // a drag from a free Track end: let go to fix a corner there and carry on routing
-      if (this.routeDragging) {
-        this.routeDragging = false;
-        if (this.route && this.cursor) this.routeClick(this.cursor, false);
-        return;
-      }
       if (this.trackDrag) {
         const d = this.trackDrag; this.trackDrag = null; this.trackDragIndex = null; this.liveRats = null;
         const res = d.result;
         if (res && JSON.stringify(res.tracks) !== JSON.stringify(this.board.tracks)) {
-          this.app.edit(d.kind === 'corner' ? 'Drag corner' : 'Drag track', (p) => { p.board.tracks = res.tracks; p.board.vias = res.vias; });
+          this.app.edit(d.kind === 'corner' ? 'Drag corner' : d.kind === 'end' ? 'Drag track end' : 'Drag track', (p) => { p.board.tracks = res.tracks; p.board.vias = res.vias; });
           if (res.moved?.size) toast(`Pushed ${res.moved.size} track${res.moved.size === 1 ? '' : 's'} aside.`, 'info', 1400);
         } else this.refresh();
         return;
@@ -1557,21 +1551,6 @@ export class BoardEditor {
     return routeStep(this.project, this.route, p, this.routeMode, this.routeIndex, this._targetPad(p));
   }
 
-  /**
-   * Carry on routing Track `t` from its free end `at` (a drag from the Select tool): the Route
-   * tool on the Track's layer, at its width; the pointer drags the new copper until it's let go,
-   * then clicks place corners as usual. Finishing or cancelling goes back to Select.
-   */
-  _continueRoute(t, at) {
-    this.setTool('route');
-    if (this.activeLayer !== t.layer) this.setActiveLayer(t.layer);
-    const pairs = layerPairs(this.board.stack.copper);
-    const pair = this.pair && pairs.some((q) => q.join('|') === this.pair.join('|')) ? this.pair : null;
-    this.route = { ...startRoute(this.project, at, t.layer, t.net, { bend: this.bend, chamfer: this.chamfer, mitre: this.mitre, pair }), width: t.width, lead: this._leadAt(t, at) };
-    this.routeIndex = copperIndex(this.project);
-    this.routeDragging = true;
-    this.routeReturn = true;
-  }
 
   /**
    * Take back the route's last segment (or the last via, back to the layer before). Backspace and
@@ -1689,17 +1668,10 @@ export class BoardEditor {
       const v = st.vias?.length || 0;
       toast(`${n} track${n === 1 ? '' : 's'}${v ? ` and ${v} via${v === 1 ? '' : 's'}` : ` on ${st.layer}`} (${st.net}).`, 'info', 1600);
     } else this.refresh();
-    this._routeReturn();
   }
 
-  cancelRoute() { this.route = null; this.routeView = null; this.routeIndex = null; this.liveRats = null; this.refresh(); this._routeReturn(); }
+  cancelRoute() { this.route = null; this.routeView = null; this.routeIndex = null; this.liveRats = null; this.refresh(); }
 
-  /** After a route carried on from a Track end (a Select drag): back to Select. */
-  _routeReturn() {
-    if (!this.routeReturn) return;
-    this.routeReturn = false; this.routeDragging = false;
-    if (this.tool === 'route') this.setTool('select');
-  }
 
   /** The Track under `w` on a shown layer, front layers first. */
   _hitTrack(w, tol) {

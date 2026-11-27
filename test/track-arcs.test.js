@@ -9,7 +9,7 @@ import { newProject } from '../src/renderer/core/project.js';
 import { readGerber } from '../src/renderer/core/gerber/read.js';
 import { fabFiles } from '../src/renderer/core/fab.js';
 import { splitTrackAt } from '../src/renderer/core/routeEnds.js';
-import { dragSegment, dragCorner } from '../src/renderer/core/drag.js';
+import { dragSegment, dragCorner, dragEnd } from '../src/renderer/core/drag.js';
 import { runDrc } from '../src/renderer/core/drc.js';
 import { mm } from '../src/renderer/core/units.js';
 
@@ -93,4 +93,14 @@ test('Gerber: an arc track is a true circular draw that reads back on the same c
   assert.ok(Math.abs(o.c[0] - R) < 2 && Math.abs(o.c[1]) < 2);
   // Y is up in the file: the arc bulges to +Y there, which (from a to b) is clockwise
   assert.equal(o.cw, true);
+});
+
+test('dragging a free track end moves just that end: a straight one swings, an arc keeps its shape', () => {
+  const board = { tracks: [{ id: 's', a: [0, 0], b: [mm(10), 0], width: mm(0.25), layer: 'F.Cu', net: 'A' }, { ...arc, id: 'arc2', a: [0, mm(20)], mid: [R, mm(20) - R], b: [2 * R, mm(20)] }] };
+  const r = dragEnd(board, 's', [mm(10), 0], [mm(7), mm(4)]);
+  assert.deepEqual(r.tracks.find((t) => t.id === 's').b, [mm(7), mm(4)]);
+  assert.deepEqual(r.tracks.find((t) => t.id === 's').a, [0, 0]);
+  const ra = dragEnd(board, 'arc2', [2 * R, mm(20)], [4 * R, mm(20)]).tracks.find((t) => t.id === 'arc2');
+  assert.ok(ra.mid && Math.abs(trackArc(ra).r - 2 * R) < 3);
+  assert.equal(dragEnd(board, 's', [mm(10), 0], [0, 0]), null);   // onto its other end
 });
