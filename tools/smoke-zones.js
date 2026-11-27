@@ -99,6 +99,19 @@ key('Delete');
 check('deleted', b.zones.length === 1 || app.project.board.zones.length === 1);
 key('z', { ctrlKey: true });
 check('undo', app.project.board.zones.length === 2);
+// a corner dragged onto its neighbour merges with it: one corner fewer, in one undo step
+{
+  const zz = () => app.project.board.zones.find((q) => q.id === z.id);
+  ed.zoneSel = new Set([z.id]); ed.refresh();
+  const pts0 = zz().outline.map((q) => [...q]), n0 = pts0.length, h0 = app.history.undoStack.length;
+  const [ax, ay] = pts0[1].map((v) => v / MM), [bx, by] = pts0[2].map((v) => v / MM);
+  move(ax, ay); down(ax, ay);
+  for (let k = 1; k <= 6; k++) move(ax + (bx - ax) * k / 6, ay + (by - ay) * k / 6, 1);
+  up(bx, by);
+  check('corner-merged', zz().outline.length === n0 - 1 && app.history.undoStack.length === h0 + 1 && !zz().outline.some((q) => q[0] === pts0[1][0] && q[1] === pts0[1][1]), zz().outline);
+  key('z', { ctrlKey: true });
+  check('corner-merge-undo', zz().outline.length === n0, zz().outline);
+}
 // saved with the project (connect, priority)
 await app.saveNow();
 localStorage.setItem('smoke.zones', JSON.stringify(app.project.board.zones.map((q) => [q.id, q.net, q.layer, q.priority, q.connect])));

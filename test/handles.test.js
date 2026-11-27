@@ -82,3 +82,26 @@ test('object snapping prefers a nearby handle, else the grid', async () => {
   assert.deepEqual(snapPoint([9, 9], targets, 4, grid), { at: [10, 10], target: null });
   assert.deepEqual(snapPoint([5, 4], targets, 0, grid).target, null); // 0 turns it off
 });
+
+test('a corner dropped on another corner of its shape merges with it (an easy way to remove one)', () => {
+  const sq = { type: 'poly', pts: [[0, 0], [mm(10), 0], [mm(10), mm(10)], [0, mm(10)]] };
+  // corner 1 onto corner 2: corner 1 goes
+  assert.deepEqual(dragHandle(sq, 'p1', [mm(10), mm(10)]).pts, [[0, 0], [mm(10), mm(10)], [0, mm(10)]]);
+  // a triangle keeps its three corners
+  const tri = { type: 'poly', pts: [[0, 0], [mm(10), 0], [mm(10), mm(10)]] };
+  assert.equal(dragHandle(tri, 'p1', [0, 0]).pts.length, 3);
+  // a polyline too, down to two points
+  const ln = { type: 'line', pts: [[0, 0], [mm(5), 0], [mm(5), mm(5)]] };
+  assert.deepEqual(dragHandle(ln, 'p2', [mm(5), 0]).pts, [[0, 0], [mm(5), 0]]);
+  assert.equal(dragHandle({ type: 'line', pts: [[0, 0], [mm(5), 0]] }, 'p1', [0, 0]).pts.length, 2);
+  // elsewhere it just moves
+  assert.deepEqual(dragHandle(sq, 'p1', [mm(12), 0]).pts[1], [mm(12), 0]);
+  // on the Outline (a polygon of lines): the side between the two corners goes, the loop stays closed
+  const four = polygonOutline([0, 0], [{ to: [mm(10), 0] }, { to: [mm(10), mm(10)] }, { to: [0, mm(10)] }, { to: [0, 0] }]);
+  const out = dragOutlineHandle(four, 0, 'p1', [mm(10), mm(10)]);
+  assert.equal(out.length, 3);
+  assert.equal(checkOutline(out).closed, true);
+  // a triangle's Outline keeps its three sides
+  const t3 = polygonOutline([0, 0], [{ to: [mm(10), 0] }, { to: [mm(10), mm(10)] }, { to: [0, 0] }]);
+  assert.equal(dragOutlineHandle(t3, 0, 'p1', [mm(10), mm(10)]).length, 3);
+});

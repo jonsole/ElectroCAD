@@ -3,7 +3,7 @@
 // Shapes are the shared ones: line { pts } (and the Symbol editor's poly { pts }), rect { a, b }, circle { c, r }, arc { start, mid, end }.
 // shapeHandles() lists the handles; dragHandle() returns the shape with one handle moved to a
 // point. On the Outline, dragOutlineHandle() also keeps the loop closed: the neighbours that
-// share a moved end follow it.
+// share a moved end follow it. A corner dropped on another corner of its shape merges with it.
 
 const mid = (a, b) => [Math.round((a[0] + b[0]) / 2), Math.round((a[1] + b[1]) / 2)];
 const same = (a, b) => a[0] === b[0] && a[1] === b[1];
@@ -69,7 +69,8 @@ export function arcWithEnds(s, start, end) {
 /**
  * Move handle `key` of shape `s` to `pt`; returns a new shape. A rectangle may be dragged past
  * its opposite side (it flips); a circle's radius is the distance to its centre; a line's side
- * handle moves the whole line square to itself.
+ * handle moves the whole line square to itself; a polygon's or line's corner dropped on another
+ * of its corners merges with it.
  */
 export function dragHandle(s, key, pt) {
   switch (s.type) {
@@ -86,6 +87,9 @@ export function dragHandle(s, key, pt) {
         return { ...s, pts: s.pts.map((p) => [p[0] + off[0], p[1] + off[1]]) };
       }
       const i = +key.slice(1);
+      // dropped on another of its corners: the two merge (the moved one goes), so dragging a
+      // corner onto its neighbour removes it; a polygon keeps 3 corners, a line 2
+      if (s.pts.some((p, k) => k !== i && same(p, pt)) && s.pts.length > (s.type === 'poly' ? 3 : 2)) return { ...s, pts: s.pts.filter((_, k) => k !== i) };
       return { ...s, pts: s.pts.map((p, k) => (k === i ? pt : p)) };
     }
     case 'rect': {
@@ -162,6 +166,9 @@ export function dragOutlineHandle(outline, index, key, pt) {
     const was = ends[which];
     for (const { i, w } of followers(was, new Set([index]))) out[i] = moveEnd(out[i], w, pt);
   }
+  // a corner dropped on its neighbour: the side between them is gone, the corners merge
+  const gone = (x) => x.type === 'line' && x.pts.length === 2 && same(x.pts[0], x.pts[1]);
+  if (out.some(gone) && out.filter((x) => !gone(x)).length >= 3) return out.filter((x) => !gone(x));
   return out;
 }
 

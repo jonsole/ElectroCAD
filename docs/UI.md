@@ -651,7 +651,7 @@ Using the card:
 **Zone (Z)** draws a copper pour (#23):
 - **Drawing:** click its corners on the active copper layer. Click the first corner, double-click or press Enter to close it. **Backspace** takes back a corner, **Esc** cancels.
 - **Its Net:** the pad's or track's Net under the first corner, else GND if the board has one, else none. Change it in Properties.
-- **Selecting:** click its edge, or inside it where nothing else is. Drag it to move it, drag a corner to reshape it, **Del** deletes it, the arrows nudge it.
+- **Selecting:** click its edge, or inside it where nothing else is. Drag it to move it, drag a corner to reshape it, **Del** deletes it, the arrows nudge it. Drop a corner on another of its corners (they snap together) and they merge: an easy way to remove one. The same goes for polygons and polylines drawn on any layer, the Outline's polygons, and shapes in the Symbol and Footprint editors and schematic markup; a polygon keeps at least three corners.
 - **Properties:**
   - Net and layer.
   - **Priority:** higher fills first and wins overlaps with other Nets' Zones; the lower one keeps its clearance from the higher one's fill.

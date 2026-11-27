@@ -128,11 +128,12 @@ export class BoardEditor {
   /**
    * Snap `w` onto another object's handle (pads come with #17) within the snap distance from
    * Settings, else to the grid. `skip`: outline indices not to snap to; `not`: a point to ignore
-   * (where a dragged handle started). Remembers where it snapped, for the mark.
+   * (where a dragged handle started); `extra`: more points to snap to (a dragged shape's own
+   * corners, so one can be dropped on another to merge them). Remembers where it snapped, for the mark.
    */
-  snapAt(w, skip = new Set(), not = null) {
+  snapAt(w, skip = new Set(), not = null, extra = []) {
     const tol = this.app.snapDistance() / (this.ws?.view.view.scale || 1);
-    const targets = [...handlePoints(this.board.outline, skip), this.board.origin, ...this._padPoints()].filter((t) => !not || t[0] !== not[0] || t[1] !== not[1]);
+    const targets = [...handlePoints(this.board.outline, skip), this.board.origin, ...this._padPoints(), ...extra].filter((t) => !not || t[0] !== not[0] || t[1] !== not[1]);
     const r = snapPoint(w, targets, tol, (p) => this.snapPt(p));
     this.snapMark = r.target;
     return r.at;
@@ -990,8 +991,8 @@ export class BoardEditor {
       const w = world(e);
       this.setAlt(e.altKey);
       this.snapMark = null;
-      if (this.handleDrag?.zone) { const d = this.handleDrag; this.cursor = this.snapAt(w, new Set(), shapeHandles({ type: 'poly', pts: d.zoneSnapshot }).find((x) => x.key === d.key)?.at); }
-      else if (this.handleDrag?.drawing) { const d = this.handleDrag; this.cursor = this.snapAt(w, new Set(), shapeHandles(d.drawShape).find((x) => x.key === d.key)?.at); }
+      if (this.handleDrag?.zone) { const d = this.handleDrag, hs = shapeHandles({ type: 'poly', pts: d.zoneSnapshot }); this.cursor = this.snapAt(w, new Set(), hs.find((x) => x.key === d.key)?.at, hs.filter((x) => x.key !== d.key).map((x) => x.at)); }
+      else if (this.handleDrag?.drawing) { const d = this.handleDrag, hs = shapeHandles(d.drawShape); this.cursor = this.snapAt(w, new Set(), hs.find((x) => x.key === d.key)?.at, hs.filter((x) => x.key !== d.key && !x.side).map((x) => x.at)); }
       else if (this.handleDrag) { const d = this.handleDrag; this.cursor = this.snapAt(w, new Set([d.index]), shapeHandles(d.snapshot[d.index]).find((x) => x.key === d.key)?.at); }
       else if (this.route && this.route.corner === 'free') {
         // freehand (#92): off the grid, and the stroke follows the pointer
