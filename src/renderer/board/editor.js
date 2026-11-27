@@ -948,6 +948,8 @@ export class BoardEditor {
       if (this.tool === 'zone' && e.detail >= 2 && this.pts?.zone?.length >= 3) { this.closeZone(); return; }
       if (this.tool === 'gline' && e.detail >= 2 && this.pts?.line) { this.finishLine(); return; }
       if (this.tool === 'select') {
+        // for click-again cycling (E1): where, and what was selected before this press changed it
+        this._press = { px: [e.clientX, e.clientY], w, shift: e.shiftKey, was: { fp: new Set(this.fpSel), cu: new Set(this.trackSel), dr: new Set(this.drawSel), zn: new Set(this.zoneSel), ol: new Set(this.selection) } };
         const tol = 5 / ws.view.view.scale;
         const handle = this._handleAt(w, tol);
         if (handle && !e.shiftKey) {
@@ -1182,7 +1184,18 @@ export class BoardEditor {
         ws.view.invalidate();
       }
     });
-    const up = () => {
+    // E1 (#102): a second click on the same spot, with nothing moved, steps to the next item under it
+    const up = (e) => {
+      const moved = (this.trackDrag && !this.trackDrag.pending) || this.drag?.moved || this.marquee?.moved || this.handleDrag?.moved || this.fieldDrag?.moved;
+      const press = this._press; this._press = null;
+      upInner();
+      if (!press || this.tool !== 'select') return;
+      if (moved || press.shift || !e || Math.hypot(e.clientX - press.px[0], e.clientY - press.px[1]) >= 4) { this._lastClick = null; return; }
+      const last = this._lastClick;
+      this._lastClick = { px: press.px };
+      if (last && Math.hypot(last.px[0] - press.px[0], last.px[1] - press.px[1]) < 4) this._clickCycle(press.w, press.was);
+    };
+    const upInner = () => {
       this.snapMark = null;
       if (this.marquee) {
         const m = this.marquee; this.marquee = null;
@@ -1349,6 +1362,36 @@ export class BoardEditor {
     const z = this._hitZone(w, tol);
     if (z) return { kind: 'zone', item: z };
     return null;
+  }
+
+  /** Everything under `w` that a click can pick, in E1's order: vias, tracks, drawings, footprints, outline, zone. */
+  _hitsAll(w) {
+    const tol = 5 / (this.ws?.view.view.scale || 1);
+    const out = [];
+    for (const v of this.board.vias || []) if ((!this.hidden.has('F.Cu') || !this.hidden.has('B.Cu')) && Math.hypot(w[0] - v.at[0], w[1] - v.at[1]) <= v.diameter / 2 + tol) out.push({ kind: 'track', item: v });
+    const first = this._hitTrack(w, tol); // the front-most track first, as a plain click picks
+    if (first && !out.some((h) => h.item === first)) out.push({ kind: 'track', item: first });
+    for (const t of this.board.tracks || []) if (t !== first && !this.hidden.has(t.layer) && nearestOnTrack(t, w).d <= t.width / 2 + tol) out.push({ kind: 'track', item: t });
+    const dr = this._hitDrawing(w, tol);
+    if (dr) out.push({ kind: 'drawing', item: dr });
+    const top = hitFootprint(this.project, w, { preferBack: this.activeLayer.startsWith('B.'), hidden: this.hidden });
+    if (top) out.push({ kind: 'footprint', item: top });
+    for (const bf of this.board.footprints) if (bf !== top && insidePolygon(w, footprintOutline(this.project, bf))) out.push({ kind: 'footprint', item: bf });
+    const o = this.hidden.has('Edge.Cuts') ? null : hitOutline(this.board.outline, w, tol);
+    if (o) out.push({ kind: 'outline', item: o, index: this.board.outline.indexOf(o) });
+    const z = this._hitZone(w, tol);
+    if (z) out.push({ kind: 'zone', item: z });
+    return out;
+  }
+
+  /** Select the next item under `w` after the one selected (E1), wrapping round. */
+  _clickCycle(w, was) {
+    const hits = this._hitsAll(w);
+    if (hits.length < 2) return;
+    const sel = (h) => (h.kind === 'footprint' ? was.fp.has(h.item.id) : h.kind === 'drawing' ? was.dr.has(h.item.id) : h.kind === 'zone' ? was.zn.has(h.item.id) : h.kind === 'outline' ? was.ol.has(h.index) : was.cu.has(h.item.id));
+    const i = hits.findIndex(sel);
+    this._selectOnly(hits[(i + 1) % hits.length]);
+    this.refresh();
   }
 
   /** Is the item under `w` part of the selection? */

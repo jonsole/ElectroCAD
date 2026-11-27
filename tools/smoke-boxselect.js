@@ -124,4 +124,17 @@ await dragR1();
 check('follow-locked', tr('u1').a[1] === 8 * MM && unrouted() === 1, [tr('u1'), unrouted()]);
 app.undo(); app.undo(); await wait(30);
 document.querySelector('[data-ws="board"] .mode-group [data-mode="shove"]').click();
+// E1 (#102): a second click on the same spot steps to the next item under it: the track on R1's
+// pad, then R1, then the track again
+const clickAt = async (x, y) => { ev('pointermove', x, y, 0); ev('pointerdown', x, y, 1); ev('pointerup', x, y, 0); await wait(30); };
+await clickAt(20, 20); await wait(30);
+await clickAt(6.9125, 8.3);
+check('cycle-1', ed.trackSel.has('u1') && !ed.fpSel.size, [[...ed.trackSel], [...ed.fpSel]]);
+await clickAt(6.9125, 8.3);
+check('cycle-2', ed.fpSel.has(r1().id) && !ed.trackSel.size, [[...ed.trackSel], [...ed.fpSel]]);
+await clickAt(6.9125, 8.3);
+check('cycle-3', ed.trackSel.has('u1') && !ed.fpSel.size, [[...ed.trackSel], [...ed.fpSel]]);
+// a click somewhere else starts again from the top
+await clickAt(20, 12); await clickAt(6.9125, 8.3);
+check('cycle-reset', ed.trackSel.has('u1'), [...ed.trackSel]);
 return { fails };
