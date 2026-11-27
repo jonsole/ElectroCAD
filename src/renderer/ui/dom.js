@@ -141,6 +141,8 @@ const P = {
   noConnect: 'M3 12h7M10 8l8 8M18 8l-8 8',
   route: 'M3 20v-5l7-7h11M17 4l4 4-4 4',
   // rip up (a track cut, back to an airwire): two track ends and a dashed gap
+  // optimise tracks: two pieces joined into one straight run, with a spark
+  optimise: 'M3 15h18M8 12v6M16 12v6M17 3l1 2 2 1-2 1-1 2-1-2-2-1 2-1z',
   ripup: 'M3 20v-5l4-4M17 7h4M10 10l1-1M13 8h1M16 15l4 4M20 15l-4 4',
   // Eagle's bend styles (#91), from the bottom left to the top right
   bend0: 'M4 18H20V7',

@@ -44,7 +44,7 @@ straight();
 check('unmerged', net0() === 3, net0());
 // Optimise tracks: one undo step
 const h0 = app.history.undoStack.length;
-document.querySelector('[data-ws="board"] .route-strip button[title^="Optimise tracks now"]').click();
+document.querySelector('[data-ws="board"] .route-strip button[title^="Optimise tracks now"]').click(); // an icon button
 check('optimised-now', net0() === 1 && app.history.undoStack.length === h0 + 1, net0());
 app.undo();
 check('undo-now', net0() === 3);

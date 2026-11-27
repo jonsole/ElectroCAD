@@ -102,7 +102,10 @@ check('props-closed', !ed.cards.card('props').isOpen);
   check('strip-moved', Math.abs(r1.left - r0.left - 200) < 2 && Math.abs(r1.top - r0.top - 120) < 2 && !!localStorage.getItem('electrocad.strip.board'), [r0.left, r0.top, r1.left, r1.top]);
   ed.setTool('route');
   const rs = document.querySelector('[data-ws="board"] .route-strip').getBoundingClientRect();
-  check('route-strip-follows', Math.abs(rs.left - r1.left) < 2 && Math.abs(rs.top - r1.top) < 2, [rs.left, rs.top]);
+  // the routing strip takes the same place, kept inside the canvas (it may be wider than the context strip)
+  const rsEl = document.querySelector('[data-ws="board"] .route-strip'), host = rsEl.offsetParent.getBoundingClientRect();
+  const wantLeft = Math.min(r1.left, host.left + Math.max(0, host.width - rs.width));
+  check('route-strip-follows', Math.abs(rs.left - wantLeft) < 2 && Math.abs(rs.top - r1.top) < 2, [rs.left, rs.top, wantLeft]);
   ed.setTool('select'); ed.fpSel = new Set([app.project.board.footprints[0].id]); ed.refresh();
   grip.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   const r2 = st.getBoundingClientRect();
