@@ -170,8 +170,19 @@ export function drawZones(ctx, view, C, board, hidden, z = {}, layer = null) {
     };
     // a refill crossfades: the old fill out and the new one in (`z.fade`: id -> { old, t 0..1 })
     const fd = fill && z.fade?.get(zn.id);
-    if (fd) { paint(fd.old, base * (1 - fd.t)); paint(fill, base * fd.t); }
-    else paint(fill, base);
+    // the fill, kept inside the zone's outline as it is now (a fill is a step behind while a zone
+    // or what it pours round is being dragged, #105)
+    if (fill) {
+      ctx.save();
+      ctx.beginPath();
+      zn.outline.forEach((q, i) => { const [x, y] = view.toScreen(q); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+      ctx.closePath(); ctx.clip();
+      // a zone being moved whole carries its fill with it (`z.offset`: id -> [dx, dy] nm)
+      const off = z.offset?.get(zn.id);
+      if (off) ctx.translate(off[0] * view.scale, off[1] * view.scale);
+      if (fd) { paint(fd.old, base * (1 - fd.t)); paint(fill, base * fd.t); } else paint(fill, base);
+      ctx.restore();
+    }
     ctx.globalAlpha = fill ? 0.7 : 0.95;
     ctx.strokeStyle = col; ctx.lineWidth = fill ? 1 : 1.5; ctx.setLineDash([6, 4]);
     ctx.beginPath();

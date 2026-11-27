@@ -89,11 +89,12 @@ check('fades-in', ed.zoneFiller.fills.get(z.id) !== oldFill && (fading.get(z.id)
 await new Promise((r) => setTimeout(r, 220));
 check('fade-done', !ed.zoneFiller.fade().size);
 ed.zoneFiller._send = orig;
-// dragging a footprint inside the zone draws it as an outline until the drop
+// dragging a footprint inside the zone keeps the zone's fill until the new one fades in after the drop
 ed.setActiveLayer('F.Cu');
 key('Escape');
 down(15, 5.6); move(15.5, 5.6, 1); move(16.5, 5.6, 1);
-check('drag-outline', ed.drag?.moved && ed._zonesAsOutlines({ ...b, footprints: ed.previewFps, zones: b.zones }).has(z.id) && !ed._zonesAsOutlines({ ...b, footprints: ed.previewFps, zones: b.zones }).has(z2));
+// #105: the zone keeps its fill while a footprint in it is dragged (no outline-only flicker)
+check('drag-keeps-fill', ed.drag?.moved && !ed._zonesAsOutlines({ ...b, footprints: ed.previewFps, zones: b.zones }).size && ed.zoneFiller.fills.has(z.id));
 up(16.5, 5.6);
 await ed.whenZonesFilled();
 check('refilled', !ed._zonesAsOutlines(b).size);

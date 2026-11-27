@@ -35,7 +35,7 @@ import { dragSegment, dragCorner, dragEnd, cornerAt, dragResult, freeEndAt, STRE
 import { copperTarget, trackOnOtherLayer } from '../core/routeEnds.js';
 import { STARTER_LIBRARY } from '../library/starter.js';
 import { shapeHandles, hitHandle, dragHandle, dragOutlineHandle, snapPoint, handlePoints } from '../core/handles.js';
-import { newZone, zoneInput, inPolygon, moveZones } from '../core/zones.js';
+import { newZone, inPolygon, moveZones } from '../core/zones.js';
 import { ZoneFiller } from './zoneFiller.js';
 import { drawHandles, drawSnapMark } from '../view/handles.js';
 import { watchAlt } from '../ui/grid.js';
@@ -2417,7 +2417,7 @@ export class BoardEditor {
   draw(ctx, view, C) {
     const board = { ...this.board, tracks: this.routeView?.shoved || this.trackDrag?.result?.tracks || this.previewTracks || this.board.tracks, vias: this.routeView?.shovedVias || this.trackDrag?.result?.vias || this.previewVias || this.board.vias, outline: this.preview || this.board.outline, footprints: this.previewFps || this.board.footprints, zones: this.previewZones || this.board.zones, drawings: this.previewDrawings || this.board.drawings || [] };
     const labels = [];
-    drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: ((this.route || this.trackDrag) && this.liveRats || this._rats)?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure, labels, zones: { fills: this.zoneFiller.fills, outlineOnly: this._zonesAsOutlines(board), fade: this._zoneFade() } });
+    drawBoard(ctx, view, C, board, { project: this.project, fpSel: this.fpSel, rats: ((this.route || this.trackDrag) && this.liveRats || this._rats)?.wires, hidden: this.hidden, selection: this.selection, ...this._ghost(), measure: this.measure, labels, zones: { fills: this.zoneFiller.fills, outlineOnly: this._zonesAsOutlines(board), fade: this._zoneFade(), offset: this.drag?.moved && this.zoneSel.size && this.drag.delta ? new Map([...this.zoneSel].map((id) => [id, this.drag.delta])) : null } });
     if (this.routeView) this._drawRoute(ctx, view, C);
     drawLabels(labels);
     // the Text tool: the text it would place, at the cursor
@@ -2488,12 +2488,8 @@ export class BoardEditor {
    * would change); otherwise those waiting for a refill. Their fill comes back when it's ready.
    */
   _zonesAsOutlines(board) {
-    if (!board.zones?.length) return new Set();
-    if (this.drag?.moved || this.handleDrag?.moved || this.routeView) {
-      const extra = (this.routeView?.segments || []).map((sg, i) => ({ id: `route${i}`, a: sg.a, b: sg.b, ...(sg.mid ? { mid: sg.mid } : {}), width: sg.width || this.route.width, layer: sg.layer || this.route.layer, net: this.route.net }));
-      return this.zoneFiller.staleIds(zoneInput(this.project, board, extra));
-    }
-    // a refill after an edit keeps showing the old fill until the new one is ready (#105)
+    // zones keep showing their last fill while a drag, a route or a refill is in progress (#105):
+    // drawZones clips it to the zone's outline as it is now; the new fill fades in when it's ready
     return new Set();
   }
 
