@@ -2,7 +2,7 @@
 // Vias or locked copper; what it leaves is clearance-legal and connects what it did.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shove, bumpOf } from '../src/renderer/core/shove.js';
+import { shove, hullOf, walkHull, linesOf } from '../src/renderer/core/shove.js';
 import { shapeDistance, padShape } from '../src/renderer/core/collision.js';
 import { mm } from '../src/renderer/core/units.js';
 
@@ -32,22 +32,27 @@ function connected(before, after) {
   }
 }
 
-test('a bump lifts a Track clear of the pusher, with 45° ramps, keeping its ends', () => {
-  const t = tr('t', [0, 0], [mm(20), 0], 'A');
-  const pts = bumpOf(t, [{ a: [mm(8), mm(0.2)], b: [mm(12), mm(0.2)], r: W / 2, need: C }]);
-  assert.deepEqual([pts[0], pts[pts.length - 1]], [[0, 0], [mm(20), 0]]);
-  assert.equal(pts.length, 6);
-  const [, r0, top0, top1, r1] = pts;
-  assert.ok(top0[1] < 0 && top0[1] === top1[1], 'lifted away from the pusher (which is below +y)');
-  assert.equal(Math.abs(top0[0] - r0[0]), Math.abs(top0[1] - r0[1]), 'a 45° ramp');
-  assert.equal(Math.abs(r1[0] - top1[0]), Math.abs(r1[1] - top1[1]));
-  // a crossing pusher (a route's head driven into it) pushes it ahead of its tip, away from its start
-  const ahead = bumpOf(t, [{ a: [mm(10), mm(-1)], b: [mm(10), mm(1)], r: W / 2, need: C }]);
-  assert.ok(ahead && ahead.every((q) => q[1] >= 0) && Math.max(...ahead.map((q) => q[1])) >= mm(1) + W / 2 + C + W / 2, JSON.stringify(ahead));
-  // nor one too near the end for the bump to fit
-  assert.equal(bumpOf(t, [{ a: [mm(0.1), mm(0.3)], b: [mm(0.2), mm(0.3)], r: W / 2, need: C }]), null);
-  // pushed from both sides: can't be
-  assert.equal(bumpOf(t, [{ a: [mm(8), mm(0.2)], b: [mm(12), mm(0.2)], r: W / 2, need: C }, { a: [mm(8), -mm(0.2)], b: [mm(12), -mm(0.2)], r: W / 2, need: C }]), null);
+test('a line walks round a pusher\'s octagonal hull: 45° ramps, its ends kept (#108)', () => {
+  const R = mm(0.5);
+  const hull = hullOf([mm(8), mm(0.2)], [mm(12), mm(0.2)], R);
+  const pts = [[0, 0], [mm(20), 0]];
+  const w = walkHull(pts, hull, (f, b) => (Math.min(...f.map((q) => q[1])) < Math.min(...b.map((q) => q[1])) ? f : b));
+  assert.ok(w && w !== 'joint');
+  const out = w.pts;
+  assert.deepEqual([out[0], out[out.length - 1]], pts);
+  assert.ok(out.length >= 6, JSON.stringify(out));
+  // every piece runs at a multiple of 45°, and the raised run clears the pusher by R
+  for (let i = 1; i < out.length; i++) {
+    const dx = Math.abs(out[i][0] - out[i - 1][0]), dy = Math.abs(out[i][1] - out[i - 1][1]);
+    assert.ok(dx < 2 || dy < 2 || Math.abs(dx - dy) < 2, `piece ${i} at 45° steps: ${JSON.stringify(out)}`);
+  }
+  assert.ok(Math.min(...out.map((q) => q[1])) <= mm(0.2) - R + 1);
+  // an end inside the hull can't move
+  assert.equal(walkHull([[mm(10), 0], [mm(20), 0]], hull, (f) => f), 'joint');
+  // lines are cut at joints: a pad, or three ends meeting
+  const ls = linesOf([{ id: 'a', a: [0, 0], b: [10, 0], net: 'N', layer: 'F.Cu', width: 1 }, { id: 'b', a: [10, 0], b: [10, 10], net: 'N', layer: 'F.Cu', width: 1 }, { id: 'c', a: [10, 10], b: [20, 10], net: 'N', layer: 'F.Cu', width: 1 }], (l, p) => p[0] === 20);
+  assert.equal(ls.length, 1);
+  assert.deepEqual(ls[0].pts, [[0, 0], [10, 0], [10, 10], [20, 10]]);
 });
 
 test('new copper pushes a Track, and a chain of parallel Tracks; all clear and still connected', () => {
@@ -201,7 +206,7 @@ test('vias: the Via tool in Shove mode pushes what it lands near', () => {
 test('a route driven into a bundle pushes every track ahead of it, rippling through (#107)', () => {
   // three parallel tracks of different nets 0.5 mm apart; a head comes down across the first two
   const before = [0, 1, 2].map((i) => tr('n' + i, [0, mm(i * 0.5)], [mm(40), mm(i * 0.5)], 'N' + i));
-  const r = shove(board(before), [head([mm(20), -mm(5)], [mm(20), mm(0.7)])]);
+  const r = shove(board(before), [{ ...head([mm(20), -mm(5)], [mm(20), mm(0.7)]), tip: true }]);
   assert.ok(r.ok, r.reason);
   assert.deepEqual([...r.moved].sort(), ['n0', 'n1', 'n2']);
   // every pushed track keeps its ends and stays clear of the head and of each other

@@ -418,7 +418,8 @@ export function shoveFor(project, state, segments, index) {
     // an arc pushes as the pieces of its centre line
     // the leg to the pointer pushes away from the last fixed corner, so a head driven into a
     // bundle pushes it all one way (#107)
-    ...segments.flatMap((s) => { const p = s.mid ? trackPoints(s, 20_000) : [s.a, s.b]; const from = s.fixed ? null : state.points[state.points.length - 1]; return p.slice(1).map((b, i) => ({ a: p[i], b, r: (s.width || state.width) / 2, layers: [s.layer], net: state.net, kind: 'track', ...(from ? { from, ...(dir ? { dir } : {}) } : {}) })); }),
+    // the route's tip (the end of its last piece) is free: a pushed track may go round it (#108)
+    ...segments.flatMap((s, si) => { const p = s.mid ? trackPoints(s, 20_000) : [s.a, s.b]; const from = s.fixed ? null : state.points[state.points.length - 1]; const last = si === segments.length - 1; return p.slice(1).map((b, i) => ({ a: p[i], b, r: (s.width || state.width) / 2, layers: [s.layer], net: state.net, kind: 'track', ...(last && i === p.length - 2 ? { tip: true } : {}), ...(from ? { from, ...(dir ? { dir } : {}) } : {}) })); }),
     ...(state.vias || []).map((v) => ({ a: v.at, b: v.at, r: (state.via?.diameter || 0) / 2, layers: all, net: state.net, kind: 'via' })),
   ];
   index._fixed ||= fixedItems(index);

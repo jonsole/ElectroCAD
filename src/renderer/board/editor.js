@@ -1190,7 +1190,10 @@ export class BoardEditor {
         const from = t0 ? [(t0.a[0] + t0.b[0]) / 2, (t0.a[1] + t0.b[1]) / 2] : d.at;
         // and the whole push travels the way the pointer has moved, cascading through a bundle (#107)
         const mv = [to[0] - (d.start || d.at)[0], to[1] - (d.start || d.at)[1]], ml = Math.hypot(...mv);
-        const res = dragResult(this.project, r, { mode: this.routeMode, index: this.trackDragIndex, from, dir: ml ? [mv[0] / ml, mv[1] / ml] : null });
+        // the drag a fraction of the way, so a long one pushes in steps (#108)
+        const st = d.start || d.at;
+        const partial = (f) => { const q = [Math.round(st[0] + mv[0] * f), Math.round(st[1] + mv[1] * f)]; return d.kind === 'via' ? dragVia(this.board, d.id, q, style) : d.kind === 'segment' ? dragSegment(this.project, this.board, d.id, [q[0] - st[0], q[1] - st[1]], style) : d.kind === 'end' ? dragEnd(this.board, d.id, d.at, q, style) : dragCorner(this.project, this.board, d.at, q, d.layer, style); };
+        const res = dragResult(this.project, r, { mode: this.routeMode, index: this.trackDragIndex, from, dir: ml ? [mv[0] / ml, mv[1] / ml] : null, partial, dist: ml });
         // a drag that can't be pushed clear stays where it last could be
         if (res.ok) d.result = res; else d.stuck = res.reason || true;
         if (res.ok) d.stuck = null;

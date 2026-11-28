@@ -192,13 +192,14 @@ test('a short diagonal too short to bump is slid over, its runs following (#107,
   }
 });
 
-test('a push cascades through a bundle of Z-shaped tracks, each diagonal sliding over (#107)', () => {
+test('a push cascades through a bundle of Z-shaped tracks, each diagonal moving over, the bundle staying parallel (#107, #108)', () => {
   const z = (k) => { const y = 20 + k * 0.6, x = 20 + k * 0.6 * Math.tan(Math.PI / 8); const pts = [[2, y], [x, y], [x + 6, y - 6], [38, y - 6]]; return pts.slice(1).map((q, i) => ({ id: `z${k}_${i}`, a: pts[i].map(mm), b: q.map(mm), width: W, layer: 'F.Cu', net: 'N' + k })); };
   const p = project([0, 1, 2, 3].flatMap(z));
   const index = copperIndex(p);
   for (const dx of [1, 2.5, 3.5]) {
-    const r = dragSegment(p, p.board, 'z3_1', [-mm(dx), 0], { corner: '45', posture: 'a' });
-    const res = dragResult(p, r, { mode: 'shove', index, from: [mm(23.7), mm(18.8)], dir: [-1, 0] });
+    // as the editor does: a long drag pushes in steps (#108)
+    const d = (f) => dragSegment(p, p.board, 'z3_1', [-Math.round(mm(dx) * f), 0], { corner: '45', posture: 'a' });
+    const res = dragResult(p, d(1), { mode: 'shove', index, dir: [-1, 0], partial: d, dist: mm(dx) });
     assert.ok(res.ok, `${dx}: ${res.reason}`);
     for (const k of [0, 1, 2]) assert.ok(res.moved.has(`z${k}_1`), `${dx}: z${k}'s diagonal moved`);
     const caps = res.tracks.map((t) => ({ t, s: { type: 'capsule', a: t.a, b: t.b, r: W / 2 } }));

@@ -9,6 +9,10 @@
 import { uid } from './project.js';
 import { cornerPath } from './router.js';
 import { shove, fixedItems } from './shove.js';
+
+const STEP = 200_000;  // nm: the longest step a pushing drag takes (#108)
+const MAX_STEPS = 16;
+const low = (s) => String(s || '').toLowerCase();
 import { copperLayerNames } from './board.js';
 import { placedPads, padNets } from './footprint.js';
 import { trackShape, trackPoints, withEnds } from './trackGeom.js';
@@ -256,7 +260,7 @@ export function freeEndAt(project, board, p, tol, hidden = new Set()) {
  * Tracks and Vias pushed out of the way of what changed. Returns { ok, tracks, vias, moved } or
  * { ok: false } when it can't be pushed clear (`index`: copperIndex of the Board as it was).
  */
-export function dragResult(project, r, { shove: pushing = false, index = null, mode = null, from = null, dir = null } = {}) {
+export function dragResult(project, r, { shove: pushing = false, index = null, mode = null, from = null, dir = null, partial = null, dist = 0 } = {}) {
   const board = project.board;
   if (!r) return { ok: false };
   const vias = r.vias || board.vias;
@@ -271,13 +275,37 @@ export function dragResult(project, r, { shove: pushing = false, index = null, m
   if (md === 'free') return { ok: true, tracks: r.tracks, vias, moved: new Set(), collisions: clashes() };
   if (md === 'walkaround') { const c = clashes(); return c.length ? { ok: false, reason: 'clearance' } : { ok: true, tracks: r.tracks, vias, moved: new Set(), collisions: [] }; }
   // an arc pushes as the pieces of its centre line; a Via as a disc on every layer
-  const pushers = r.changed.flatMap((s) => {
+  const pushersOf = (rr) => rr.changed.flatMap((s) => {
     // `from`: where the dragged copper started, so everything it pushes goes the one way (#107)
     if (s.at) return [{ a: s.at, b: s.at, r: s.diameter / 2, layers: all, net: s.net, kind: 'via', via: s, ...(from ? { from } : {}), ...(dir ? { dir } : {}) }];
     const pts = trackPoints(s, 20_000);
     return pts.slice(1).map((b, i) => ({ a: pts[i], b, r: s.width / 2, layers: [s.layer], net: s.net, kind: 'track', ...(from ? { from } : {}), ...(dir ? { dir } : {}) }));
   });
-  const res = shove({ ...board, tracks: r.tracks, vias }, pushers, { fixed: index ? (index._fixed ||= fixedItems(index)) : [], copper: all });
+  const fixed = index ? (index._fixed ||= fixedItems(index)) : [];
+  // a long drag pushes in short steps from where it started (#108): `partial(f)` is the drag a
+  // fraction f of the way. Each step pushes on from the last, so a track is never jumped over (and
+  // crossed) by the dragged copper; it's still worked out afresh from the Board as it was, so the
+  // push springs back as the pointer returns
+  const steps = partial && dist ? Math.min(MAX_STEPS, Math.ceil(dist / Math.max(STEP, board.rules?.clearance || 0))) : 1;
+  let res = null, prev = null;
+  // one push straight there first; only when that can't be done, in steps
+  for (const n of steps > 1 ? [1, steps] : [1]) {
+  res = null; prev = null;
+  for (let k = 1; k <= n; k++) {
+    const rk = k === n ? r : partial(k / n);
+    if (!rk) continue;
+    const net = low(rk.changed[0]?.net);
+    // the dragged net's copper as this step has it, the rest as the last step pushed it
+    const tracks = prev ? [...rk.tracks.filter((t) => low(t.net) === net), ...prev.tracks.filter((t) => low(t.net) !== net)] : rk.tracks;
+    const ids = new Set(rk.changed.filter((s) => s.at).map((s) => s.id));
+    const vs = prev ? prev.vias.map((v) => (ids.has(v.id) ? (rk.vias || board.vias).find((u) => u.id === v.id) : v)) : rk.vias || board.vias;
+    res = shove({ ...board, tracks, vias: vs }, pushersOf(rk), { fixed, copper: all, before: n > 1 ? board.tracks : null });
+    if (!res.ok) break;
+    if (prev) { for (const id of prev.moved) res.moved.add(id); for (const id of prev.movedVias) res.movedVias.add(id); }
+    prev = res;
+  }
+  if (res.ok) break;
+  }
   if (!res.ok) return { ok: false, reason: res.reason };
   // what was dragged must be clear of what can't move too
   if (index) {
