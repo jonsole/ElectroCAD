@@ -253,6 +253,34 @@ export function smooth(pts, clear, maxPasses = 40) {
   return p;
 }
 
+/**
+ * Where Via `v` goes to be clear of every pusher in `ps` ([{ p: { a, b, r }, need }], the last the
+ * one pushing it now): along whichever of the eight 45° directions takes it clear soonest, the way
+ * away from the latest pusher first on a tie. Null when none does within reach.
+ */
+export function viaMoveAll(v, ps) {
+  const last = ps[ps.length - 1];
+  const first = viaMove(v, last.p, last.need);
+  const clearAt = (c) => ps.every(({ p, need }) => { const n = nearestOnSeg(c, p.a, p.b); return Math.hypot(c[0] - n[0], c[1] - n[1]) >= p.r + need + v.diameter / 2 + SLACK; });
+  if (first && clearAt(first)) return first;
+  const reach = Math.max(...ps.map(({ p, need }) => p.r + need + v.diameter / 2 + SLACK)) * 4;
+  const step = reach / 64;
+  let best = null;
+  for (let i = 0; i < 8; i++) {
+    const ang = (i * Math.PI) / 4, ux = Math.cos(ang), uy = Math.sin(ang);
+    for (let k = step; k <= reach; k += step) {
+      const c = [v.at[0] + ux * k, v.at[1] + uy * k];
+      if (!clearAt(c)) continue;
+      // back off to the least distance that's still clear
+      let lo = k - step, hi = k;
+      for (let j = 0; j < 30 && hi - lo > 100; j++) { const m = (lo + hi) / 2; if (clearAt([v.at[0] + ux * m, v.at[1] + uy * m])) hi = m; else lo = m; }
+      if (!best || hi < best.k) best = { k: hi, at: [Math.round(v.at[0] + ux * hi), Math.round(v.at[1] + uy * hi)] };
+      break;
+    }
+  }
+  return best ? best.at : null;
+}
+
 // ---- lines ----------------------------------------------------------------------------------
 
 /**
@@ -306,6 +334,52 @@ const lineDistance = (L, c) => {
   return d;
 };
 
+const PAD_CELL = 1_000_000;
+const padGrids = new WeakMap();
+const fixedGrids = new WeakMap();
+/** `(box, m) => the items of `fixed` whose boxes come within m of it`, bucketed (kept with `fixed`). */
+function fixedLookup(fixed) {
+  let f = fixedGrids.get(fixed);
+  if (f) return f;
+  const C = 2_000_000, grid = new Map();
+  for (const it of fixed) {
+    const b = it.box ||= shapeBox(it.shape);
+    for (let x = Math.floor(b.x0 / C); x <= Math.floor(b.x1 / C); x++) for (let y = Math.floor(b.y0 / C); y <= Math.floor(b.y1 / C); y++) {
+      const k = `${x},${y}`;
+      if (!grid.has(k)) grid.set(k, []);
+      grid.get(k).push(it);
+    }
+  }
+  f = (bx, m) => {
+    const out = new Set();
+    for (let x = Math.floor((bx.x0 - m) / C); x <= Math.floor((bx.x1 + m) / C); x++) for (let y = Math.floor((bx.y0 - m) / C); y <= Math.floor((bx.y1 + m) / C); y++) for (const it of grid.get(`${x},${y}`) || []) if (boxesMeet(bx, it.box, m)) out.add(it);
+    return out;
+  };
+  fixedGrids.set(fixed, f);
+  return f;
+}
+/**
+ * `(layer, p) => is p on a pad on that layer`, from the pads among `fixed`, bucketed in a grid (kept
+ * with `fixed`, which callers reuse while a route or drag goes on).
+ */
+function padLookup(fixed) {
+  let f = padGrids.get(fixed);
+  if (f) return f;
+  const grid = new Map();
+  for (const it of fixed) {
+    if (it.kind !== 'pad') continue;
+    const b = it.box || shapeBox(it.shape);
+    for (let x = Math.floor(b.x0 / PAD_CELL); x <= Math.floor(b.x1 / PAD_CELL); x++) for (let y = Math.floor(b.y0 / PAD_CELL); y <= Math.floor(b.y1 / PAD_CELL); y++) {
+      const k = `${x},${y}`;
+      if (!grid.has(k)) grid.set(k, []);
+      grid.get(k).push(it);
+    }
+  }
+  f = (layer, p) => (grid.get(`${Math.floor(p[0] / PAD_CELL)},${Math.floor(p[1] / PAD_CELL)}`) || []).some((it) => it.layers.has(layer) && shapeDistance({ type: 'capsule', a: p, b: p, r: 0 }, it.shape) <= 0);
+  padGrids.set(fixed, f);
+  return f;
+}
+
 // ---- the shove ------------------------------------------------------------------------------
 
 /**
@@ -322,8 +396,7 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
   const viaLayers = new Set(copper || (board.stack?.copper === 4 ? ['F.Cu', 'In1.Cu', 'In2.Cu', 'B.Cu'] : ['F.Cu', 'B.Cu']));
   const vias = (board.vias || []).map((v) => ({ ...v }));
   const srcTracks = board.tracks || [];
-  const pads = fixed.filter((it) => it.kind === 'pad');
-  const padAt = (layer, p) => pads.some((it) => it.layers.has(layer) && shapeDistance({ type: 'capsule', a: p, b: p, r: 0 }, it.shape) <= 0);
+  const padAt = padLookup(fixed), fixedNear = fixedLookup(fixed);
   const viaKeys = new Set(vias.map((v) => `${v.at[0]},${v.at[1]}`));
   const lines = linesOf(srcTracks, (layer, p) => viaKeys.has(`${p[0]},${p[1]}`) || padAt(layer, p));
   for (const L of lines) if (L.ids.some((id) => locked.has(id))) L.fixed = true;
@@ -337,6 +410,7 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
   const heads = pushers.map((p) => ({ ...p, layers: new Set(p.layers), owner: 'head' }));
   const anc = new Map(); // owner -> the owners that pushed it (directly or not)
   const pushesOf = new Map();
+  const viaPushers = new Map(); // Via id -> what has pushed it: [{ p, need }]
   const movedLines = new Set(), movedVias = new Set();
   const dirOf = new Map(); // owner -> the way it was pushed
   let pushes = 0;
@@ -344,10 +418,18 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
   // clearances by net pair, and each line's box, worked out once
   const needs = new Map();
   const needOf = (pn, tn, pk, tk) => { const k = `${low(pn)}|${low(tn)}|${pk}|${tk}`; let v = needs.get(k); if (v === undefined) { v = clearanceBetween(board, pn, tn, pk, tk); needs.set(k, v); } return v; };
-  for (const L of lines) { L.box = lineBox(L); L.lnet = low(L.net); }
+  // the lines in a grid by their boxes, so only those near a piece of copper are looked at
+  const CELL = 5_000_000, grid = new Map();
+  const cellsOf = (bx, m = 0) => { const out = []; for (let x = Math.floor((bx.x0 - m) / CELL); x <= Math.floor((bx.x1 + m) / CELL); x++) for (let y = Math.floor((bx.y0 - m) / CELL); y <= Math.floor((bx.y1 + m) / CELL); y++) out.push(`${x},${y}`); return out; };
+  const place = (L) => { L.cells = cellsOf(L.box); for (const k of L.cells) { if (!grid.has(k)) grid.set(k, new Set()); grid.get(k).add(L); } };
+  const unplace = (L) => { for (const k of L.cells || []) grid.get(k)?.delete(L); };
+  /** The lines whose boxes come within m of box bx. */
+  const near = (bx, m) => { const out = new Set(); for (const k of cellsOf(bx, m)) for (const L of grid.get(k) || []) out.add(L); return out; };
+  for (const L of lines) { L.box = lineBox(L); L.lnet = low(L.net); place(L); }
   for (const v of vias) v.lnet = low(v.net);
+  const vbox = (v) => ({ x0: v.at[0] - v.diameter / 2, y0: v.at[1] - v.diameter / 2, x1: v.at[0] + v.diameter / 2, y1: v.at[1] + v.diameter / 2 });
   const reach = maxClearance(board); // no two items further apart than this can clash
-  const setPts = (L, pts) => { L.pts = pts; L.box = lineBox(L); };
+  const setPts = (L, pts) => { unplace(L); L.pts = pts; L.box = lineBox(L); place(L); };
 
   // the pushers now, by owner: the new copper ('head'), every moved line's segments and every
   // moved Via; `rank` is the order they began pushing in, which is the order they push in
@@ -386,13 +468,17 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
     const v = T;
     if (v === p.via || (p.net && v.lnet === p.lnet)) return;
     const vc = { type: 'capsule', a: v.at, b: v.at, r: v.diameter / 2 };
-    if (!boxesMeet(p.box ||= shapeBox(pc), shapeBox(vc), reach) || isAnc(p.owner, v.id) || ![...p.layers].some((l) => viaLayers.has(l))) return;
+    if (!boxesMeet(p.box ||= shapeBox(pc), v.box ||= vbox(v), reach) || isAnc(p.owner, v.id) || ![...p.layers].some((l) => viaLayers.has(l))) return;
     const need = needOf(p.net, v.net, p.kind, 'via');
     if (!boxesMeet(p.box ||= shapeBox(pc), shapeBox(vc), need)) return;
     const d = shapeDistance(pc, vc);
     if (d < need) clashes.push({ p, i, v, d, need });
   };
-  const scanPusher = (segs) => segs.forEach((p, i) => { for (const L of lines) check(p, i, L); for (const v of vias) check(p, i, v); });
+  const scanPusher = (segs) => segs.forEach((p, i) => {
+    const pb = p.box ||= shapeBox(p.cap ||= { type: 'capsule', a: p.a, b: p.b, r: p.r });
+    for (const L of near(pb, reach)) check(p, i, L);
+    for (const v of vias) if (boxesMeet(pb, v.box ||= vbox(v), reach)) check(p, i, v);
+  });
   /** Owner `id` (a line or Via) changed: its old clashes go, and both what it now pushes and what now pushes it are found. */
   const changedOwner = (id) => {
     clashes = clashes.filter((c) => c.p.owner !== id && (c.L ? c.L.id : c.v.id) !== id);
@@ -452,7 +538,11 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
     const n = (pushesOf.get(v.id) || 0) + 1;
     if (n > MAX_PER_LINE || ++pushes > MAX_PUSHES) return 'loop';
     pushesOf.set(v.id, n);
-    const to = viaMove(v, p, need);
+    // clear of everything that has pushed it, not just this pusher, so it isn't batted back and forth
+    const pushed = viaPushers.get(v.id) || [];
+    pushed.push({ p: { a: p.a, b: p.b, r: p.r }, need });
+    viaPushers.set(v.id, pushed);
+    const to = viaMoveAll(v, pushed);
     if (!to) return 'no room';
     const from = v.at, ends = [];
     for (const L of lines) {
@@ -469,7 +559,7 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
     }
     const dl = Math.hypot(to[0] - from[0], to[1] - from[1]);
     pushedBy(v.id, p.owner, dl ? [(to[0] - from[0]) / dl, (to[1] - from[1]) / dl] : null);
-    v.at = to;
+    v.at = to; v.box = vbox(v);
     movedVias.add(v.id);
     changedOwner(v.id);
     for (const id of ends) changedOwner(id);
@@ -495,23 +585,22 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
   const clearPath = (cand, L) => {
     for (let i = 1; i < cand.length; i++) {
       const c = { type: 'capsule', a: cand[i - 1], b: cand[i], r: L.width / 2 }, b = shapeBox(c);
-      for (const M of lines) {
-        if (M === L || M.layer !== L.layer || low(M.net) === low(L.net)) continue;
-        const need = clearanceBetween(board, L.net, M.net, 'track', 'track');
-        if (boxesMeet(b, lineBox(M), need) && lineDistance(M, c) < need) return false;
+      for (const M of near(b, reach)) {
+        if (M === L || M.layer !== L.layer || M.lnet === L.lnet || !boxesMeet(b, M.box, reach)) continue;
+        if (lineDistance(M, c) < needOf(L.net, M.net, 'track', 'track')) return false;
       }
       for (const p of heads) {
         if (!p.layers.has(L.layer) || (p.net && low(p.net) === low(L.net))) continue;
-        if (shapeDistance(c, { type: 'capsule', a: p.a, b: p.b, r: p.r }) < clearanceBetween(board, p.net, L.net, p.kind, 'track')) return false;
+        if (shapeDistance(c, { type: 'capsule', a: p.a, b: p.b, r: p.r }) < needOf(p.net, L.net, p.kind, 'track')) return false;
       }
       for (const v of vias) {
         if (low(v.net) === low(L.net)) continue;
-        if (shapeDistance(c, { type: 'capsule', a: v.at, b: v.at, r: v.diameter / 2 }) < clearanceBetween(board, L.net, v.net, 'track', 'via')) return false;
+        if (boxesMeet(b, vbox(v), reach) && shapeDistance(c, { type: 'capsule', a: v.at, b: v.at, r: v.diameter / 2 }) < needOf(L.net, v.net, 'track', 'via')) return false;
       }
-      for (const it of fixed) {
-        if (!it.layers.has(L.layer) || (it.net && low(it.net) === low(L.net))) continue;
-        const need = clearanceBetween(board, L.net, it.net, 'track', pairKind(it));
-        if (boxesMeet(b, it.box || shapeBox(it.shape), need) && shapeDistance(c, it.shape) < need) return false;
+      for (const it of fixedNear(b, reach)) {
+        if (!it.layers.has(L.layer) || (it.net && low(it.net) === L.lnet)) continue;
+        const need = needOf(L.net, it.net, 'track', pairKind(it));
+        if (boxesMeet(b, it.box, need) && shapeDistance(c, it.shape) < need) return false;
       }
       for (const [a, e] of edges0) if (shapeDistance(c, { type: 'capsule', a, b: e, r: 0 }) < edgeGap) return false;
     }
@@ -535,8 +624,8 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
     const bx = { x0: Math.min(...ins.map((q) => q[0])), y0: Math.min(...ins.map((q) => q[1])), x1: Math.max(...ins.map((q) => q[0])), y1: Math.max(...ins.map((q) => q[1])) };
     const inBox = (q) => q[0] >= bx.x0 - grow - 1 && q[0] <= bx.x1 + grow + 1 && q[1] >= bx.y0 - grow - 1 && q[1] <= bx.y1 + grow + 1;
     const was = L.pts;
-    L.pts = tidy(smooth(L.pts, (cand) => cand.every(inBox) && clearPath(cand, L)));
-    if (L.pts.length === was.length && L.pts.every((q, i) => sameAt(q, was[i]))) L.pts = was;
+    const np = tidy(smooth(L.pts, (cand) => cand.every(inBox) && clearPath(cand, L)));
+    if (!(np.length === was.length && np.every((q, i) => sameAt(q, was[i])))) setPts(L, np);
     if (L.pts !== was) { anyTidied = true; movedLines.add(L); }
   }
   if (!anyTidied) break;
@@ -569,45 +658,46 @@ export function shove(board, pushers, { fixed = [], locked = new Set(), copper =
   const edges = outlineSegments(board.outline || []);
   for (const t of pushed) {
     const c = cap(t), b = shapeBox(c);
-    for (const it of fixed) {
+    for (const it of fixedNear(b, reach)) {
       if (!it.layers.has(t.layer) || (it.net && low(it.net) === low(t.net))) continue;
-      const need = clearanceBetween(board, t.net, it.net, 'track', pairKind(it));
-      if (boxesMeet(b, it.box || shapeBox(it.shape), need) && shapeDistance(c, it.shape) < need) return { ok: false, reason: 'fixed', at: it.id };
+      const need = needOf(t.net, it.net, 'track', pairKind(it));
+      if (boxesMeet(b, it.box, need) && shapeDistance(c, it.shape) < need) return { ok: false, reason: 'fixed', at: it.id };
     }
     for (const p of heads) {
       if (!p.layers.has(t.layer) || (p.net && low(p.net) === low(t.net))) continue;
-      if (shapeDistance(c, { type: 'capsule', a: p.a, b: p.b, r: p.r }) < clearanceBetween(board, p.net, t.net, p.kind, 'track') - 1) return { ok: false, reason: 'pusher' };
+      if (shapeDistance(c, { type: 'capsule', a: p.a, b: p.b, r: p.r }) < needOf(p.net, t.net, p.kind, 'track') - 1) return { ok: false, reason: 'pusher' };
     }
-    for (const u of tracks) {
-      if (u === t || u.layer !== t.layer || low(u.net) === low(t.net)) continue;
-      if (!boxesMeet(b, boxOf(u), reach)) continue;
-      if (shapeDistance(c, cap(u)) < needOf(t.net, u.net, 'track', 'track') - 1) return { ok: false, reason: 'tracks' };
+    // (the lines are the Tracks as they now are)
+    const tn = low(t.net);
+    for (const M of near(b, reach)) {
+      if (M.layer !== t.layer || M.lnet === tn || !boxesMeet(b, M.box, reach)) continue;
+      if (lineDistance(M, c) < needOf(t.net, M.net, 'track', 'track') - 1) return { ok: false, reason: 'tracks' };
     }
     for (const v of vias) {
       if (low(v.net) === low(t.net)) continue;
-      if (shapeDistance(c, { type: 'capsule', a: v.at, b: v.at, r: v.diameter / 2 }) < clearanceBetween(board, t.net, v.net, 'track', 'via') - 1) return { ok: false, reason: 'vias' };
+      if (boxesMeet(b, vbox(v), reach) && shapeDistance(c, { type: 'capsule', a: v.at, b: v.at, r: v.diameter / 2 }) < needOf(t.net, v.net, 'track', 'via') - 1) return { ok: false, reason: 'vias' };
     }
     for (const [a, e] of edges) if (shapeDistance(c, { type: 'capsule', a, b: e, r: 0 }) < edge) return { ok: false, reason: 'edge' };
   }
   for (const v of vias) {
     if (!movedVias.has(v.id)) continue;
     const c = { type: 'capsule', a: v.at, b: v.at, r: v.diameter / 2 }, b = shapeBox(c);
-    for (const it of fixed) {
+    for (const it of fixedNear(b, reach)) {
       if (it.net && low(it.net) === low(v.net)) continue;
-      const need = clearanceBetween(board, v.net, it.net, 'via', pairKind(it));
-      if (boxesMeet(b, it.box || shapeBox(it.shape), need) && shapeDistance(c, it.shape) < need) return { ok: false, reason: 'fixed', at: it.id };
+      const need = needOf(v.net, it.net, 'via', pairKind(it));
+      if (boxesMeet(b, it.box, need) && shapeDistance(c, it.shape) < need) return { ok: false, reason: 'fixed', at: it.id };
     }
     for (const p of heads) {
       if (p.net && low(p.net) === low(v.net)) continue;
-      if (shapeDistance(c, { type: 'capsule', a: p.a, b: p.b, r: p.r }) < clearanceBetween(board, p.net, v.net, p.kind, 'via') - 1) return { ok: false, reason: 'pusher' };
+      if (shapeDistance(c, { type: 'capsule', a: p.a, b: p.b, r: p.r }) < needOf(p.net, v.net, p.kind, 'via') - 1) return { ok: false, reason: 'pusher' };
     }
     for (const u of vias) {
       if (u === v || low(u.net) === low(v.net)) continue;
-      if (shapeDistance(c, { type: 'capsule', a: u.at, b: u.at, r: u.diameter / 2 }) < clearanceBetween(board, v.net, u.net, 'via', 'via') - 1) return { ok: false, reason: 'vias' };
+      if (boxesMeet(b, vbox(u), reach) && shapeDistance(c, { type: 'capsule', a: u.at, b: u.at, r: u.diameter / 2 }) < needOf(v.net, u.net, 'via', 'via') - 1) return { ok: false, reason: 'vias' };
     }
-    for (const u of tracks) {
-      if (low(u.net) === low(v.net) || !boxesMeet(b, boxOf(u), reach)) continue;
-      if (shapeDistance(c, cap(u)) < needOf(v.net, u.net, 'via', 'track') - 1) return { ok: false, reason: 'tracks' };
+    for (const M of near(b, reach)) {
+      if (M.lnet === v.lnet || !boxesMeet(b, M.box, reach)) continue;
+      if (lineDistance(M, c) < needOf(v.net, M.net, 'via', 'track') - 1) return { ok: false, reason: 'tracks' };
     }
     for (const [a, e] of edges) if (shapeDistance(c, { type: 'capsule', a, b: e, r: 0 }) < edge) return { ok: false, reason: 'edge' };
   }

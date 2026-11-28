@@ -4,7 +4,11 @@
 // SVG, with a DRC clearance check of the result. Writes one HTML page (and, with --png, a PNG per
 // case via Playwright) so the cases can be looked at and signed off.
 //
-//   node tools/shove-gallery.mjs out-dir [--png]
+//   node tools/shove-gallery.mjs out-dir [--png] [--brd board.brd]
+//
+// With --brd (an Eagle board, its .sch beside it if there is one), S10 cases are added from that
+// board: a bus dragged into its neighbours, a route run alongside it, and a drag into a row of vias
+// with no room, which must stop. Their DRC check counts only clearance errors the edit adds.
 import fs from 'node:fs';
 import path from 'node:path';
 import { newProject } from '../src/renderer/core/project.js';
@@ -13,6 +17,7 @@ import { startRoute, step } from '../src/renderer/core/router.js';
 import { dragSegment, dragCorner, dragResult } from '../src/renderer/core/drag.js';
 import { rectOutline } from '../src/renderer/core/board.js';
 import { mm } from '../src/renderer/core/units.js';
+import { importEagle } from '../src/renderer/io/eagle/index.js';
 
 const W = mm(0.25), C = mm(0.2);
 const STYLE = { corner: '45', posture: 'a' };
@@ -133,7 +138,57 @@ const CASES = [
   },
 ];
 
+// ---- the user's board (S10) ------------------------------------------------------------------
+
+const bi = process.argv.indexOf('--brd');
+if (bi > 0) {
+  const file = process.argv[bi + 1], sch = file.replace(/\.brd$/i, '.sch');
+  const real = importEagle({ brd: fs.readFileSync(file, 'utf8'), sch: fs.existsSync(sch) ? fs.readFileSync(sch, 'utf8') : null, name: 'board' }).project;
+  const at = (id) => real.board.tracks.find((t) => t.id === id);
+  // the cases are found by where they are on the board (ids are made afresh on each import)
+  const trackAt = (x, y, layer) => real.board.tracks.find((t) => t.layer === layer && Math.hypot(t.a[0] - mm(x), t.a[1] - mm(y)) < 1000);
+  const realDrag = (t, d) => {
+    const p = structuredClone(real), index = copperIndex(p);
+    const part = (f) => dragSegment(p, p.board, t.id, [Math.round(mm(d[0]) * f), Math.round(mm(d[1]) * f)], STYLE);
+    const dist = Math.hypot(mm(d[0]), mm(d[1]));
+    const r = part(1), res = dragResult(p, r, { mode: 'shove', index, dir: [mm(d[0]) / dist, mm(d[1]) / dist], partial: part, dist });
+    return { p, index, ok: res.ok, reason: res.reason, tracks: res.ok ? res.tracks : p.board.tracks, vias: res.ok ? res.vias : p.board.vias, active: res.ok ? r.changed.filter((s) => s.a) : [], tried: res.ok ? [] : r.changed.filter((s) => s.a) };
+  };
+  const realRoute = (from, to, posture) => {
+    const p = structuredClone(real), index = copperIndex(p);
+    const st = startRoute(p, from.map(mm), 'F.Cu', 'NEW', { ...STYLE, posture });
+    const v = step(p, st, to.map(mm), 'shove', index);
+    return { p, index, ok: !!v.shoved || !v.shoveFailed, reason: v.shoveFailed, tracks: v.shoved || p.board.tracks, vias: v.shovedVias || p.board.vias, active: v.segments.map((q) => ({ a: q.a, b: q.b, width: q.width || real.board.rules.trackWidth, net: 'NEW', layer: 'F.Cu' })) };
+  };
+  void at;
+  CASES.push(
+    { id: 'S10a', real: true, layer: 'F.Cu', title: 'Your board: a bus track dragged down into the bus', expect: 'The bus below is pushed down in a cascade, each track round the one above it, its ends kept.', view: [8, -43, 24, -34], run() { return realDrag(trackAt(11.45, -39.85, 'F.Cu'), [0, 0.56]); } },
+    { id: 'S10b', real: true, layer: 'F.Cu', title: 'Your board: a route run alongside the bus', expect: 'The bus is pushed down to make room for the route.', view: [8, -43, 24, -34], run() { return realRoute([12, -40.6], [20, -40.1], 'b'); } },
+    { id: 'S10c', real: true, layer: 'F.Cu', title: 'Your board: a track dragged into a row of vias', expect: 'The vias would have to move, but one via\'s track would then cross its neighbour\'s: there is no room, so the drag stops at its last good position (dashed: where it would have gone).', view: [44, -40.5, 57, -34.5], run() { return realDrag(trackAt(41.45, -37.45, 'F.Cu'), [0, -0.56]); } },
+  );
+}
+
 // ---- DRC check ------------------------------------------------------------------------------
+
+/** For a real board: the clearance errors on the case's layer, in its view, that the edit adds. */
+function realClashes(c, r, before, beforeVias) {
+  const [x0, y0, x1, y1] = c.view.map(mm);
+  const inView = (q) => q[0] >= x0 && q[0] <= x1 && q[1] >= y0 && q[1] <= y1;
+  const pads = r.index.items.filter((it) => it.kind === 'pad' && it.layers.has(c.layer));
+  const count = (tracks, vias, active) => {
+    const items = [
+      ...tracks.filter((t) => t.layer === c.layer && (inView(t.a) || inView(t.b))).map((t) => ({ net: t.net, s: { type: 'capsule', a: t.a, b: t.b, r: t.width / 2 } })),
+      ...active.map((t) => ({ net: t.net, s: { type: 'capsule', a: t.a, b: t.b, r: t.width / 2 } })),
+      ...vias.filter((v) => inView(v.at)).map((v) => ({ net: v.net, s: { type: 'capsule', a: v.at, b: v.at, r: v.diameter / 2 } })),
+      ...pads.filter((it) => inView([(it.box.x0 + it.box.x1) / 2, (it.box.y0 + it.box.y1) / 2])).map((it) => ({ net: it.net, s: it.shape })),
+    ];
+    const cl = r.p.board.rules.clearance;
+    let n = 0;
+    for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) if (items[i].net !== items[j].net && shapeDistance(items[i].s, items[j].s) < cl - 2) n++;
+    return n;
+  };
+  return Math.max(0, count(r.tracks, r.vias, r.active) - count(before, beforeVias, []));
+}
 
 function clashes(p, tracks, vias, active, pads) {
   const items = [
@@ -154,9 +209,9 @@ function clashes(p, tracks, vias, active, pads) {
 // ---- drawing --------------------------------------------------------------------------------
 
 const PALETTE = ['#4f9cf5', '#f5a524', '#c084fc', '#f472b6', '#22d3ee', '#a3e635'];
-const colour = (net) => { const nets = ['N0', 'N1', 'N2', 'N3', 'A', 'U']; const i = nets.indexOf(net); return i >= 0 ? PALETTE[i % PALETTE.length] : net === 'L' ? '#9ca3af' : net === 'V' ? '#2bd46a' : '#e5e7eb'; };
+const colour = (net) => { const nets = ['N0', 'N1', 'N2', 'N3', 'A', 'U']; const i = nets.indexOf(net); if (i >= 0) return PALETTE[i % PALETTE.length]; if (net === 'L') return '#9ca3af'; if (net === 'V') return '#2bd46a'; let h = 0; for (const ch of String(net)) h = (h * 31 + ch.charCodeAt(0)) % 360; return `hsl(${h},65%,62%)`; };
 
-function svg(c, tracks, vias, active, pads, ghost = null) {
+function svg(c, tracks, vias, active, pads, ghost = null, tried = []) {
   const [x0, y0, x1, y1] = c.view.map(mm);
   const k = 900 / (x1 - x0), H = Math.round((y1 - y0) * k);
   const X = (q) => ((q[0] - x0) * k).toFixed(1), Y = (q) => ((q[1] - y0) * k).toFixed(1);
@@ -165,11 +220,18 @@ function svg(c, tracks, vias, active, pads, ghost = null) {
   // a 1 mm grid
   for (let x = Math.ceil(c.view[0]); x <= c.view[2]; x++) out.push(`<line x1="${X([mm(x), 0])}" y1="0" x2="${X([mm(x), 0])}" y2="${H}" stroke="#1d212a" stroke-width="1"/>`);
   for (let y = Math.ceil(c.view[1]); y <= c.view[3]; y++) out.push(`<line x1="0" y1="${Y([0, mm(y)])}" x2="900" y2="${Y([0, mm(y)])}" stroke="#1d212a" stroke-width="1"/>`);
-  for (const q of pads) out.push(`<rect x="${X([q.at[0] - q.size[0] / 2, 0])}" y="${Y([0, q.at[1] - q.size[1] / 2])}" width="${(q.size[0] * k).toFixed(1)}" height="${(q.size[1] * k).toFixed(1)}" fill="#c2410c"/>`);
-  if (ghost) for (const t of ghost.filter((t) => t.layer === 'F.Cu')) out.push(seg(t, '#ffffff', 0.12));
-  for (const t of tracks.filter((t) => t.layer === 'B.Cu')) out.push(seg(t, colour(t.net), 0.35, '6 4'));
-  for (const t of tracks.filter((t) => t.layer === 'F.Cu')) out.push(seg(t, t.locked ? '#9ca3af' : colour(t.net), 0.9));
+  for (const q of pads) {
+    if (q.at) { out.push(`<rect x="${X([q.at[0] - q.size[0] / 2, 0])}" y="${Y([0, q.at[1] - q.size[1] / 2])}" width="${(q.size[0] * k).toFixed(1)}" height="${(q.size[1] * k).toFixed(1)}" fill="#c2410c"/>`); continue; }
+    const sh = q.shape; // a real board's pad: its collision shape
+    if (sh.type === 'poly') out.push(`<polygon points="${sh.pts.map((p) => `${X(p)},${Y(p)}`).join(' ')}" fill="#c2410c" opacity="0.85"/>`);
+    else if (sh.type === 'capsule') out.push(`<line x1="${X(sh.a)}" y1="${Y(sh.a)}" x2="${X(sh.b)}" y2="${Y(sh.b)}" stroke="#c2410c" stroke-width="${(2 * sh.r * k).toFixed(1)}" stroke-linecap="round" opacity="0.85"/>`);
+  }
+  const top = c.layer || 'F.Cu', other = top === 'F.Cu' ? 'B.Cu' : 'F.Cu';
+  if (ghost) for (const t of ghost.filter((t) => t.layer === top)) out.push(seg(t, '#ffffff', 0.12));
+  if (!c.real) for (const t of tracks.filter((t) => t.layer === other)) out.push(seg(t, colour(t.net), 0.35, '6 4'));
+  for (const t of tracks.filter((t) => t.layer === top)) out.push(seg(t, t.locked ? '#9ca3af' : colour(t.net), 0.9));
   for (const t of active) out.push(seg(t, '#ef4444', 0.95));
+  for (const t of tried) out.push(seg(t, '#ef4444', 0.7, '8 6')); // where a refused drag would have gone
   for (const v of vias || []) out.push(`<circle cx="${X(v.at)}" cy="${Y(v.at)}" r="${((v.diameter / 2) * k).toFixed(1)}" fill="#2bd46a"/><circle cx="${X(v.at)}" cy="${Y(v.at)}" r="${((v.drill / 2) * k).toFixed(1)}" fill="#0f1115"/>`);
   out.push('</svg>');
   return out.join('');
@@ -186,11 +248,12 @@ for (const c of CASES) {
   const pads = c.pads || [];
   const r = c.run();
   const before = structuredClone(r.p.board.tracks), beforeVias = structuredClone(r.p.board.vias || []);
-  const n = clashes(r.p, r.tracks, r.vias, r.active, pads);
-  const status = `${r.ok ? (r.reason ? `walked round (${r.reason})` : 'shoved') : `refused (${r.reason})`} · ${n ? `${n} clearance error${n === 1 ? '' : 's'}` : 'DRC clean'}`;
+  const shownPads = c.real ? r.index.items.filter((it) => it.kind === 'pad' && it.layers.has(c.layer)) : pads;
+  const n = c.real ? realClashes(c, r, before, beforeVias) : clashes(r.p, r.tracks, r.vias, r.active, pads);
+  const status = `${r.ok ? (r.reason ? `walked round (${r.reason})` : 'shoved') : `refused (${r.reason})`} · ${n ? `${n} clearance error${n === 1 ? '' : 's'}${c.real ? ' added' : ''}` : c.real ? 'no clearance errors added' : 'DRC clean'}`;
   results.push({ id: c.id, ok: r.ok, reason: r.reason || null, clashes: n });
-  const b = svg(c, before, beforeVias, [], pads), a = svg(c, r.tracks, r.vias, r.active, pads, before);
-  rows.push(`<section id="${c.id}"><h2>${c.id} · ${c.title}</h2><p class="exp"><b>Expected:</b> ${c.expect}</p><p class="st ${n ? 'bad' : ''}">${status}</p><div class="pair"><figure><figcaption>Before</figcaption>${b}</figure><figure><figcaption>After (red: the route or dragged copper; faint: where tracks were)</figcaption>${a}</figure></div></section>`);
+  const b = svg(c, before, beforeVias, [], shownPads), a = svg(c, r.tracks, r.vias, r.active, shownPads, before, r.tried || []);
+  rows.push(`<section id="${c.id}"><h2>${c.id} · ${c.title}</h2><p class="exp"><b>Expected:</b> ${c.expect}</p><p class="st ${n ? 'bad' : ''}">${status}</p><div class="pair"><figure><figcaption>Before</figcaption>${b}</figure><figure><figcaption>After (red: the route or dragged copper, dashed where a refused drag would have gone; faint: where tracks were)</figcaption>${a}</figure></div></section>`);
 }
 const html = `<!doctype html><meta charset="utf-8"><title>Shove gallery</title><style>body{background:#0b0d11;color:#e5e7eb;font:14px system-ui;margin:16px}section{margin:0 0 28px}h2{font-size:16px;margin:0 0 4px}.exp{margin:2px 0;color:#cbd5e1}.st{margin:2px 0 8px;color:#86efac}.st.bad{color:#fca5a5}.pair{display:flex;gap:12px;flex-wrap:wrap}figure{margin:0}figcaption{color:#94a3b8;font-size:12px;margin-bottom:4px}svg{max-width:100%;height:auto;display:block}</style><h1>Shove cases (#108)</h1>${rows.join('')}`;
 fs.writeFileSync(path.join(outDir, 'index.html'), html);
